@@ -6,6 +6,7 @@ import { api } from "@/api/client"
 import { useAsync, useProjectStream } from "@/api/hooks"
 import { EmptyState } from "@/components/empty-state"
 import { BuildFailedIllustration } from "@/components/illustrations/build-failed"
+import { OfficeTab } from "@/components/office/office-tab"
 import { PageHeader } from "@/components/page-header"
 import { AttemptsTab } from "@/components/project/attempts-tab"
 import { ConfigTab } from "@/components/project/config-tab"
@@ -39,6 +40,7 @@ import type { PipelineStep, ProjectDetail } from "@/api/types"
 const tabs = [
   { id: "overview", label: "Overview" },
   { id: "lead", label: "Lead" },
+  { id: "office", label: "Office" },
   { id: "docs", label: "Docs" },
   { id: "branding", label: "Branding" },
   { id: "marketing", label: "Marketing" },
@@ -236,6 +238,9 @@ function ProjectBody({ name, detail, stream }: { name: string; detail: ProjectDe
           </TabsContent>
           <TabsContent value="lead" className="mt-2">
             <LeadTab />
+          </TabsContent>
+          <TabsContent value="office" className="mt-2">
+            <OfficeTab />
           </TabsContent>
           <TabsContent value="docs" className="mt-2">
             <DocsTab path={document} onSelect={(path) => update((params) => params.set("doc", path))} />

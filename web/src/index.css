@@ -229,3 +229,93 @@
     @apply border-b px-3 py-2 align-top;
   }
 }
+
+@keyframes office-type {
+  to {
+    transform: translateY(2px);
+  }
+}
+@keyframes office-bob {
+  50% {
+    transform: translateY(-1.5px);
+  }
+}
+@keyframes office-blink {
+  0%,
+  92%,
+  100% {
+    transform: scaleY(1);
+  }
+  96% {
+    transform: scaleY(0.1);
+  }
+}
+@keyframes office-float {
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: translateY(2px);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+@keyframes office-courier {
+  0% {
+    transform: translateX(-160%);
+    opacity: 0;
+  }
+  15%,
+  85% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(60%);
+    opacity: 0;
+  }
+}
+@keyframes office-steam {
+  0% {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+@keyframes office-wave {
+  from {
+    transform: rotate(-12deg);
+  }
+  to {
+    transform: rotate(12deg);
+  }
+}
+@keyframes office-fly {
+  0% {
+    left: var(--from-left);
+    top: var(--from-top);
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    left: var(--to-left);
+    top: var(--to-top);
+    opacity: 0;
+  }
+}
+@keyframes office-hop {
+  50% {
+    transform: translateY(-120%);
+  }
+}
