@@ -70,6 +70,14 @@ test("parseQaVerdict accepts pass and valid fail verdicts", () => {
   assert.deepEqual(fail.tasks.map((entry) => entry.id), ["Q101", "Q102"])
 })
 
+test("parseQaVerdict gives a fix task without an id the next free Q id", () => {
+  const { id: _, ...noId } = task("Q102")
+  const verdict = parseQaVerdict(JSON.stringify({ verdict: "fail", findings: [{ title: "x", detail: "y", screen: "/" }], tasks: [task("Q101"), noId] }), 1, existing)
+  assert.deepEqual(verdict.tasks.map((entry) => entry.id), ["Q101", "Q102"])
+  const both = validateFixTasks([{ ...noId }, { ...noId, id: "" }], 2, existing)
+  assert.deepEqual(both.map((entry) => entry.id), ["Q201", "Q202"])
+})
+
 test("parseQaVerdict rejects malformed verdicts and fix tasks", () => {
   const finding = [{ title: "x", detail: "y", screen: "/" }]
   const fail = (tasks: unknown, round = 1) => parseQaVerdict(JSON.stringify({ verdict: "fail", findings: finding, tasks }), round, existing)

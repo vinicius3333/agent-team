@@ -116,9 +116,19 @@ export function parseQaVerdict(text: string, round: number, existing: Task[]): Q
 export function validateFixTasks(value: unknown, round: number, existing: Task[]): Task[] {
   if (!Array.isArray(value) || value.length === 0) throw new Error("a fail verdict needs at least one fix task")
   const idPattern = new RegExp(`^Q${round}\\d{2}$`)
+  // The id format is ours, so a fix task without an id gets the next free Q<round>NN instead of failing the round.
+  const usedIds = new Set(value.map((task) => task?.id))
+  let next = 1
+  const nextId = (): string => {
+    while (usedIds.has(`Q${round}${String(next).padStart(2, "0")}`)) next++
+    const id = `Q${round}${String(next).padStart(2, "0")}`
+    usedIds.add(id)
+    return id
+  }
+  const tasks: any[] = value.map((task) => (task && typeof task === "object" && (task.id === undefined || task.id === null || task.id === "") ? { ...task, id: nextId() } : task))
   const existingIds = new Set(existing.map((task) => task.id))
   const errors: string[] = []
-  for (const [index, task] of value.entries()) {
+  for (const [index, task] of tasks.entries()) {
     const label = task?.id ?? `#${index}`
     if (typeof task?.id === "string" && !idPattern.test(task.id)) errors.push(`${label}: id must look like Q${round}01`)
     if (existingIds.has(task?.id)) errors.push(`${label}: id already exists in tasks.json`)
@@ -130,8 +140,8 @@ export function validateFixTasks(value: unknown, round: number, existing: Task[]
     }
   }
   if (errors.length) throw new Error(`invalid fix tasks:\n- ${errors.join("\n- ")}`)
-  validateTasks([...existing, ...value])
-  return value as Task[]
+  validateTasks([...existing, ...tasks])
+  return tasks as Task[]
 }
 
 export function formatFindings(findings: QaFinding[]): string {
