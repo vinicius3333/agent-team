@@ -105,8 +105,10 @@ const finished = (status: string | undefined) => status === "approved" || status
 // The phase a person most likely wants to see; System is never current.
 export function currentPhase(project: PhaseSource): ProjectPhase {
   const byName = new Map(project.phases.map((phase) => [phase.name, phase.status]))
-  if (projectStatus(project) === "done" && project.deployed) return "operate"
-  const deployPending = !project.deployed && !finished(byName.get("deploy"))
+  // An approved deploy counts even when the container is down, so a broken live app still opens on Operate.
+  const deployed = project.deployed || byName.get("deploy") === "approved"
+  if (projectStatus(project) === "done" && deployed) return "operate"
+  const deployPending = !deployed && !finished(byName.get("deploy"))
   const marketingPending = byName.has("marketing") && !finished(byName.get("marketing"))
   if (finished(byName.get("qa")) && (deployPending || marketingPending)) return "launch"
   return "build"
