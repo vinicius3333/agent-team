@@ -110,7 +110,7 @@ export function createHarness(options: {
           if (store.runnerCooldownUntil(candidate.runner) > Date.now()) continue
           last = await runCandidate(candidate, job, executor)
           const failureClass = last.failureClass
-          if (failureClass === null || failureClass === "agent_failure" || failureClass === "aborted") return last
+          if (failureClass === null || failureClass === "agent_failure" || failureClass === "budget" || failureClass === "aborted") return last
           const multiplier = cooldownMultiplier[failureClass]
           if (multiplier) {
             store.coolDownRunner(candidate.runner, Date.now() + config.cooldownMs * multiplier, failureClass)

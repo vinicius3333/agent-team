@@ -13,7 +13,32 @@ export type LeadAction = { state: LeadActionState; reason: string } & (
   | { kind: "approve"; phase: string }
   | { kind: "request_changes"; phase: string; message: string }
   | { kind: "raise_budget" }
+  | { kind: "add_task"; task: TaskDraft }
+  | { kind: "edit_task"; taskId: string; changes: TaskChanges }
 )
+
+// A task the lead proposes; applying it appends a full task to tasks.json.
+export interface TaskDraft {
+  title: string
+  story: string
+  allowedPaths: string[]
+  readPaths: string[]
+  acceptance: string[]
+  dependsOn: string[]
+  verify: string
+  ui: boolean
+}
+
+export type TaskChanges = Partial<Pick<TaskDraft, "title" | "story" | "allowedPaths" | "readPaths" | "acceptance" | "verify">>
+
+// Extra data kept with a chat message: images the person attached, what the lead read, and follow-up prompts.
+export interface ChatDetails {
+  attachments: string[]
+  filesRead: string[]
+  followUps: string[]
+}
+
+export const emptyChatDetails: ChatDetails = { attachments: [], filesRead: [], followUps: [] }
 
 export interface ChatMessage {
   id: number
@@ -21,6 +46,7 @@ export interface ChatMessage {
   author: ChatAuthor
   body: string
   actions: LeadAction[]
+  details: ChatDetails
 }
 
 export type ChangeStatus = "open" | "merged" | "failed" | "abandoned"
@@ -47,6 +73,10 @@ export interface TaskRow {
   // Set when an automatic decision needs a person (a replan that widens scope into shared files, or an escalation).
   humanReason: string | null
 }
+
+// A per-task budget raised by a person, and the limit a task stopped at while it waits for that approval.
+export const taskBudgetKey = (taskId: string) => `task.budgetUsd.${taskId}`
+export const taskBudgetStopKey = (taskId: string) => `task.budgetStop.${taskId}`
 
 export function openStore(path: string) {
   const db = new DatabaseSync(path)
@@ -130,6 +160,8 @@ export function openStore(path: string) {
   if (!attemptColumns.some((column) => column.name === "failure_class")) db.exec("ALTER TABLE attempts ADD COLUMN failure_class TEXT")
   if (!attemptColumns.some((column) => column.name === "tokens")) db.exec("ALTER TABLE attempts ADD COLUMN tokens INTEGER")
   if (!attemptColumns.some((column) => column.name === "change_id")) db.exec("ALTER TABLE attempts ADD COLUMN change_id TEXT")
+  const chatColumns = db.prepare("PRAGMA table_info(chat_messages)").all() as { name: string }[]
+  if (!chatColumns.some((column) => column.name === "details")) db.exec("ALTER TABLE chat_messages ADD COLUMN details TEXT NOT NULL DEFAULT '{}'")
   const taskColumns = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[]
   if (!taskColumns.some((column) => column.name === "issue_number")) db.exec("ALTER TABLE tasks ADD COLUMN issue_number INTEGER")
   if (!taskColumns.some((column) => column.name === "replans")) db.exec("ALTER TABLE tasks ADD COLUMN replans INTEGER NOT NULL DEFAULT 0")
@@ -191,6 +223,10 @@ export function openStore(path: string) {
     },
     countReplan(id: string) {
       db.prepare("UPDATE tasks SET replans = replans + 1 WHERE id = ?").run(id)
+    },
+    // Back to pending with the attempt count and last failure kept, so the next attempt builds on the saved diff.
+    resumeTask(id: string) {
+      db.prepare("UPDATE tasks SET status = 'pending', human_reason = NULL WHERE id = ?").run(id)
     },
     requireHuman(id: string, reason: string) {
       db.prepare("UPDATE tasks SET status = 'blocked', last_failure = ?, human_reason = ? WHERE id = ?").run(reason, reason, id)
@@ -375,14 +411,20 @@ export function openStore(path: string) {
       const row = db.prepare("SELECT MAX(id) AS id FROM events").get() as { id: number | null }
       return row.id ?? 0
     },
-    addChatMessage(author: ChatAuthor, body: string, actions: LeadAction[] = []): number {
-      const result = db.prepare("INSERT INTO chat_messages (at, author, body, actions) VALUES (?, ?, ?, ?)").run(now(), author, body, JSON.stringify(actions))
+    addChatMessage(author: ChatAuthor, body: string, actions: LeadAction[] = [], details: Partial<ChatDetails> = {}): number {
+      const result = db
+        .prepare("INSERT INTO chat_messages (at, author, body, actions, details) VALUES (?, ?, ?, ?, ?)")
+        .run(now(), author, body, JSON.stringify(actions), JSON.stringify({ ...emptyChatDetails, ...details }))
       return Number(result.lastInsertRowid)
     },
     // Oldest first.
     chatMessages(limit: number): ChatMessage[] {
-      const rows = db.prepare("SELECT id, at, author, body, actions FROM chat_messages ORDER BY id DESC LIMIT ?").all(limit) as { id: number; at: string; author: ChatAuthor; body: string; actions: string }[]
-      return rows.reverse().map((row) => ({ ...row, actions: JSON.parse(row.actions) as LeadAction[] }))
+      const rows = db.prepare("SELECT id, at, author, body, actions, details FROM chat_messages ORDER BY id DESC LIMIT ?").all(limit) as { id: number; at: string; author: ChatAuthor; body: string; actions: string; details: string }[]
+      return rows.reverse().map((row) => ({ ...row, actions: JSON.parse(row.actions) as LeadAction[], details: { ...emptyChatDetails, ...JSON.parse(row.details) } }))
+    },
+    chatAction(messageId: number, index: number): LeadAction | null {
+      const row = db.prepare("SELECT actions FROM chat_messages WHERE id = ? AND author = 'lead'").get(messageId) as { actions: string } | undefined
+      return row ? ((JSON.parse(row.actions) as LeadAction[])[index] ?? null) : null
     },
     setChatActionState(messageId: number, index: number, state: LeadActionState): boolean {
       const row = db.prepare("SELECT actions FROM chat_messages WHERE id = ? AND author = 'lead'").get(messageId) as { actions: string } | undefined

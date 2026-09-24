@@ -65,6 +65,8 @@ export interface Task {
   lastFailure: string | null
   // Why the orchestrator stopped and wants a person to decide (for example a replan that touches shared files).
   needsHuman: string | null
+  // The budget in USD the worker ran out of; the task waits until a person approves more.
+  budgetStopUsd: number | null
   issueNumber: number | null
   phase: string | null
   story: string | null
@@ -149,6 +151,17 @@ export interface ProjectConfig {
   budget?: { perTaskUsd: number; runUsd: number }
   // null is the custom stack. latest is null when this server no longer has the template.
   template?: { name: string; version: number; latest: number | null } | null
+  // Absent on servers from before lead permissions.
+  lead?: LeadSettings
+}
+
+export const leadActionKinds = ["retry", "resume", "approve", "request_changes", "raise_budget", "add_task", "edit_task"] as const
+export type LeadActionKind = (typeof leadActionKinds)[number]
+
+export interface LeadSettings {
+  actions: LeadActionKind[]
+  autoApply: LeadActionKind[]
+  chatBudgetUsd: number
 }
 
 export interface StackTemplate {
@@ -221,7 +234,26 @@ export type LeadAction = { state: LeadActionState; reason: string } & (
   | { kind: "approve"; phase: string }
   | { kind: "request_changes"; phase: string; message: string }
   | { kind: "raise_budget" }
+  | { kind: "add_task"; task: TaskDraft }
+  | { kind: "edit_task"; taskId: string; changes: Partial<Omit<TaskDraft, "dependsOn" | "ui">> }
 )
+
+export interface TaskDraft {
+  title: string
+  story: string
+  allowedPaths: string[]
+  readPaths: string[]
+  acceptance: string[]
+  dependsOn: string[]
+  verify: string
+  ui: boolean
+}
+
+export interface ChatDetails {
+  attachments: string[]
+  filesRead: string[]
+  followUps: string[]
+}
 
 export interface ChatMessage {
   id: number
@@ -229,6 +261,16 @@ export interface ChatMessage {
   author: "human" | "lead"
   body: string
   actions: LeadAction[]
+  // Absent on servers from before chat attachments.
+  details?: ChatDetails
+}
+
+// Spend split by role and task; chat spend is shown apart because it never counts against the run budget.
+export interface SpendBreakdown {
+  byRole: { role: string; usd: number; tokens: number; calls: number }[]
+  byTask: { taskId: string; usd: number }[]
+  chatUsd: number
+  chatCalls: number
 }
 
 export interface LiveActivity {
@@ -269,7 +311,8 @@ export interface ProjectDetail extends Omit<ProjectSummary, "live" | "liveUrl"> 
   feedback?: Partial<Record<string, string>>
   budget?: RunBudget
   reviewer?: ReviewerMetrics
-  chat?: { messages: ChatMessage[]; thinking: boolean }
+  spend?: SpendBreakdown
+  chat?: { messages: ChatMessage[]; thinking: boolean; activity?: LiveActivity[] }
   // Absent on servers from before change requests. Newest first.
   changes?: ChangeSummary[]
   change?: OpenChange | null

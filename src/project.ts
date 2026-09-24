@@ -9,7 +9,7 @@ import { commitAll, commitOf, commitPaths, createBranch, fileAtRef, initReposito
 import { changeTitle, createGitHub } from "./github.ts"
 import { commitAndRebase, createWorkspace, fastForward, removeWorkspace } from "./harness/workspace.ts"
 import { changeOpenedPrefix } from "./notify/events.ts"
-import { openStore, type Change, type Store } from "./store.ts"
+import { openStore, taskBudgetKey, taskBudgetStopKey, type Change, type Store } from "./store.ts"
 import { applyTemplate, customTemplate, findTemplate, type StackTemplate } from "./templates.ts"
 
 export const cliPath = fileURLToPath(new URL("./cli.ts", import.meta.url))
@@ -214,13 +214,32 @@ export function retryTask(store: Store, taskId: string | undefined): void {
   store.log("task", `${taskId} reset for retry`)
 }
 
+const taskBudgetRaiseFactor = 2
+
+// Doubles the budget of one task that stopped at its limit and puts it back in the queue, keeping its attempts and saved diff.
+export function approveTaskBudget(store: Store, taskId: string | undefined): number {
+  if (!taskId) throw new ProjectError(400, "approving a budget needs a task id")
+  if (!store.task(taskId)) throw new ProjectError(404, `unknown task "${taskId}"`)
+  const stoppedAt = Number(store.meta(taskBudgetStopKey(taskId)))
+  if (!(stoppedAt > 0)) throw new ProjectError(409, `${taskId} is not waiting for a budget approval.`)
+  const raised = Math.round(stoppedAt * taskBudgetRaiseFactor * 100) / 100
+  store.setMeta(taskBudgetKey(taskId), String(raised))
+  store.deleteMeta(taskBudgetStopKey(taskId))
+  store.resumeTask(taskId)
+  store.log("budget", `${taskId} budget raised from $${stoppedAt.toFixed(2)} to $${raised.toFixed(2)}`)
+  return raised
+}
+
 const budgetRaiseFactor = 1.5
 
-// Raises budget.runUsd in pipeline.yaml by 50%, keeping the file's comments, and returns the new value.
-export function raiseRunBudget(projectDir: string, store: Store): number {
+// Raises budget.runUsd in pipeline.yaml, by 50% unless a new limit is given, keeping the file's comments, and returns the new value.
+export function raiseRunBudget(projectDir: string, store: Store, runUsd?: number): number {
   const path = join(projectDir, "pipeline.yaml")
   const current = loadConfig(path).budget.runUsd
-  const raised = Math.round(current * budgetRaiseFactor * 100) / 100
+  if (runUsd !== undefined && !(Number.isFinite(runUsd) && runUsd > current && runUsd <= current * 100)) {
+    throw new ProjectError(400, `The new budget must be above the current $${current.toFixed(2)}.`)
+  }
+  const raised = Math.round((runUsd ?? current * budgetRaiseFactor) * 100) / 100
   const document = parseDocument(readFileSync(path, "utf8"))
   document.setIn(["budget", "runUsd"], raised)
   writeFileSync(path, document.toString())

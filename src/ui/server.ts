@@ -1,25 +1,29 @@
 import { execFile } from "node:child_process"
-import { existsSync, readdirSync, readFileSync, realpathSync, statSync, openSync, readSync, closeSync } from "node:fs"
+import { randomUUID } from "node:crypto"
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, openSync, readSync, closeSync, writeFileSync } from "node:fs"
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http"
 import { basename, join, resolve, sep } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { promisify } from "node:util"
 import { fileURLToPath } from "node:url"
 import { parse as parseYaml } from "yaml"
-import { defaultRoles as laterRoleDefaults, defaultRunBudgetUsd, loadConfig, normalizePhaseName, planningPhases, runnerNames, type PlanningPhase } from "../config.ts"
+import { defaultLeadConfig, defaultRoles as laterRoleDefaults, defaultRunBudgetUsd, type LeadActionKind, loadConfig, normalizePhaseName, planningPhases, runnerNames, type PlanningPhase } from "../config.ts"
 import { demoAccessMetaKey, readDemoAccess } from "../access.ts"
 import { pendingFeedback } from "../feedback.ts"
 import { customTemplate, findTemplate, listTemplates, readStack } from "../templates.ts"
-import { abandonChange, approveChangeMerge, approvePhase, changePath, changeRoleModels, chooseTemplate, createProject, openChange, parseRoleModels, listProjects, ProjectError, raiseRunBudget, requestChanges, retryTask, runAlive, runLogPath, startRun as spawnRun, withProjectStore, type ProjectChoices } from "../project.ts"
+import { abandonChange, approveChangeMerge, approvePhase, approveTaskBudget, changePath, changeRoleModels, chooseTemplate, createProject, openChange, parseRoleModels, listProjects, ProjectError, raiseRunBudget, requestChanges, retryTask, runAlive, runLogPath, startRun as spawnRun, withProjectStore, type ProjectChoices } from "../project.ts"
 import { fileAtRef } from "../git.ts"
 import { changeIdPattern } from "../tasks.ts"
 import { listIncidents, openIncident, readIncident } from "../incidents.ts"
-import { askLead, chatMessageMaxLength } from "../lead.ts"
+import { askLead, chatMessageMaxLength, chatUploadsDir } from "../lead.ts"
+import { applyLeadAction, parseLeadSettings, saveLeadSettings } from "../lead-actions.ts"
+import { trackedFiles } from "../git.ts"
 import { summarizeActivity } from "../activity.ts"
 import { liveAgentPrefix, type LiveAgent } from "../harness/harness.ts"
 import { reviewerMetrics, type ReviewRow } from "../reviews.ts"
 import { authenticate, clientAddress, createLoginLimiter, fromTrustedProxy, loadAuthConfig, passwordUser, sessionCookieName, signSession, verifyPassword, type AuthConfig } from "./auth.ts"
 import { notificationStatus, sendTest, startNotificationLoop, UnknownChannelError, type NotifyDeps } from "../notify/index.ts"
+import { taskBudgetStopKey } from "../store.ts"
 
 const execFileAsync = promisify(execFile)
 const builtWebDir = fileURLToPath(new URL("../../web/dist/", import.meta.url))
@@ -347,6 +351,11 @@ function readConfig(projectDir: string) {
       publish: { github: { enabled: Boolean(raw.publish?.github?.enabled) } },
       budget: { perTaskUsd: raw.budget?.perTaskUsd ?? 2, runUsd: raw.budget?.runUsd ?? defaultRunBudgetUsd },
       template: templateInfo(projectDir, raw.template),
+      lead: {
+        actions: (raw.lead?.actions ?? defaultLeadConfig.actions) as LeadActionKind[],
+        autoApply: (raw.lead?.autoApply ?? defaultLeadConfig.autoApply) as LeadActionKind[],
+        chatBudgetUsd: Number(raw.lead?.chatBudgetUsd ?? defaultLeadConfig.chatBudgetUsd),
+      },
     }
   } catch {
     return null
@@ -440,17 +449,50 @@ function metaValue(projectDir: string, key: string): string | null {
 }
 
 // In memory on purpose: a lead call that dies with the server must not leave the chat locked.
-const leadBusy = new Set<string>()
+const leadCalls = new Map<string, { controller: AbortController; transcriptPath: string }>()
+const chatUploadMaxBytes = 5 * 1024 * 1024
+const maxAttachments = 4
+const chatUploadTypes: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif" }
+const chatUploadPattern = /^[0-9a-f-]{36}\.(png|jpg|webp|gif)$/
+const emptyDetails = { attachments: [], filesRead: [], followUps: [] }
 
 function chatMessages(projectDir: string) {
   return withDatabase(
     projectDir,
-    // all() returns no rows when an older state file has no chat_messages table.
-    (db) =>
-      all(db, "SELECT id, at, author, body, actions FROM chat_messages ORDER BY id DESC LIMIT 200")
+    (db) => {
+      // Older state files lack the details column until a run or chat opens the store.
+      const hasDetails = all(db, "PRAGMA table_info(chat_messages)").some((column) => column.name === "details")
+      // all() returns no rows when an older state file has no chat_messages table.
+      return all(db, `SELECT id, at, author, body, actions${hasDetails ? ", details" : ""} FROM chat_messages ORDER BY id DESC LIMIT 200`)
         .reverse()
-        .map((row) => ({ ...row, actions: JSON.parse(String(row.actions)) })),
+        .map((row) => ({ ...row, actions: JSON.parse(String(row.actions)), details: { ...emptyDetails, ...JSON.parse(String(row.details ?? "{}")) } }))
+    },
     [] as Record<string, unknown>[],
+  )
+}
+
+function leadActivity(name: string) {
+  const call = leadCalls.get(name)
+  if (!call || !existsSync(call.transcriptPath)) return []
+  return summarizeActivity(readTail(call.transcriptPath, transcriptMaxBytes), 12)
+}
+
+// Chat cost is kept apart: it never counts against the run budget.
+function spendBreakdown(projectDir: string) {
+  return withDatabase(
+    projectDir,
+    (db) => {
+      const byRole = all(db, "SELECT role, COALESCE(SUM(cost_usd), 0) AS usd, COALESCE(SUM(tokens), 0) AS tokens, COUNT(*) AS calls FROM attempts WHERE role NOT IN ('doctor', 'lead') GROUP BY role ORDER BY usd DESC")
+      const taskTotals = new Map<string, number>()
+      for (const row of all(db, "SELECT subject, cost_usd AS usd FROM attempts WHERE role IN ('worker', 'reviewer') AND cost_usd IS NOT NULL")) {
+        const taskId = /^([A-Z]+\d+)-/.exec(String(row.subject))?.[1]
+        if (taskId) taskTotals.set(taskId, (taskTotals.get(taskId) ?? 0) + Number(row.usd))
+      }
+      const byTask = [...taskTotals].map(([taskId, usd]) => ({ taskId, usd })).sort((a, b) => b.usd - a.usd)
+      const chat = all(db, "SELECT COALESCE(SUM(cost_usd), 0) AS usd, COUNT(*) AS calls FROM attempts WHERE role = 'lead'")[0] ?? { usd: 0, calls: 0 }
+      return { byRole, byTask, chatUsd: Number(chat.usd), chatCalls: Number(chat.calls) }
+    },
+    { byRole: [], byTask: [] as { taskId: string; usd: number }[], chatUsd: 0, chatCalls: 0 },
   )
 }
 
@@ -502,10 +544,11 @@ async function detail(runsDir: string, name: string) {
   })
   const tasks = state.tasks.map((task: any) => {
     const definition = taskDefinitions.get(task.id) ?? {}
-    return { issueNumber: null, needsHuman: null, ...task, ...definitionFields(definition), title: definition.title ?? task.id }
+    const budgetStopUsd = Number(state.meta[taskBudgetStopKey(task.id)]) || null
+    return { issueNumber: null, needsHuman: null, ...task, ...definitionFields(definition), title: definition.title ?? task.id, budgetStopUsd }
   })
   for (const [id, definition] of taskDefinitions) {
-    if (!tasks.some((task: any) => task.id === id)) tasks.push({ id, status: "pending", attempts: 0, lastFailure: null, issueNumber: null, needsHuman: null, ...definitionFields(definition) })
+    if (!tasks.some((task: any) => task.id === id)) tasks.push({ id, status: "pending", attempts: 0, lastFailure: null, issueNumber: null, needsHuman: null, budgetStopUsd: null, ...definitionFields(definition) })
   }
   const config = readConfig(projectDir)
   const attempts = state.attempts.map(({ transcriptPath, ...attempt }: any) => ({ ...attempt, transcript: String(transcriptPath ?? "").split("/").pop() }))
@@ -551,7 +594,8 @@ async function detail(runsDir: string, name: string) {
     qa: { round: meta["qa.round"] ? Number(meta["qa.round"]) : null },
     feedback: pendingFeedback(projectDir),
     budget: { runUsd: config?.budget.runUsd ?? defaultRunBudgetUsd, spentUsd: spend.usd, spentTokens: spend.tokens, unreportedCalls: spend.unreportedCalls },
-    chat: { messages: chatMessages(projectDir), thinking: leadBusy.has(name) },
+    spend: spendBreakdown(projectDir),
+    chat: { messages: chatMessages(projectDir), thinking: leadCalls.has(name), activity: leadActivity(name) },
     changes: changes.map((change) => ({ ...change, title: change.request.trim().split("\n")[0], costUsd: changeCosts[change.id] ?? 0 })).reverse(),
     change: openChange
       ? {
@@ -713,7 +757,7 @@ export interface UiOptions {
   host?: string
   startRun?: (projectDir: string, logPath: string) => void
   webDir?: string
-  askLead?: (projectDir: string, message: string) => Promise<void>
+  askLead?: (projectDir: string, message: string, options: { attachments: string[]; transcriptPath: string; signal: AbortSignal }) => Promise<number>
   auth?: AuthConfig
   allowInsecureBind?: boolean
   now?: () => number
@@ -738,7 +782,27 @@ export function startUi(options: UiOptions) {
   const webDist = options.webDir ? resolve(options.webDir) + sep : builtWebDir
   const knownProject = (name: string) => projectNamePattern.test(name) && existsSync(join(runsDir, name, "pipeline.yaml"))
   const launchRun = options.startRun ?? spawnRun
-  const askLeadFor = options.askLead ?? ((projectDir: string, message: string) => askLead({ projectDir, message }))
+  const askLeadFor = options.askLead ?? ((projectDir: string, message: string, extra: { attachments: string[]; transcriptPath: string; signal: AbortSignal }) => askLead({ projectDir, message, ...extra }))
+
+  // Images are stored under random names, so a chat message can only reference files this endpoint wrote.
+  async function uploadChatImage(request: IncomingMessage, response: ServerResponse, name: string) {
+    if (!knownProject(name)) return send(response, 404, { error: "unknown project" })
+    const extension = chatUploadTypes[String(request.headers["content-type"] ?? "").split(";")[0].trim()]
+    const chunks: Buffer[] = []
+    let size = 0
+    for await (const chunk of request) {
+      size += chunk.length
+      if (size <= chatUploadMaxBytes) chunks.push(chunk)
+    }
+    if (!extension) return send(response, 415, { error: "Attach a PNG, JPEG, WebP, or GIF image." })
+    if (size > chatUploadMaxBytes) return send(response, 413, { error: "The image is larger than 5 MB." })
+    if (!size) return send(response, 400, { error: "The image is empty." })
+    const dir = join(runsDir, name, chatUploadsDir)
+    mkdirSync(dir, { recursive: true })
+    const file = `${randomUUID()}.${extension}`
+    writeFileSync(join(dir, file), Buffer.concat(chunks))
+    return send(response, 201, { file })
+  }
   const extraHosts = (process.env.AGENT_TEAM_UI_HOSTS ?? "").split(",").map((host) => host.trim().toLowerCase()).filter(Boolean)
   const auth = options.auth ?? loadAuthConfig(process.env)
   const now = options.now ?? Date.now
@@ -783,9 +847,41 @@ export function startUi(options: UiOptions) {
     return response.end()
   }
 
+  // Applies the lead's action on the server and marks it applied; a failure leaves it proposed and reaches the caller.
+  const applyChatAction = (name: string, messageId: number, index: number) => {
+    const projectDir = join(runsDir, name)
+    const result = withProjectStore(projectDir, (store) => {
+      const action = store.chatAction(messageId, index)
+      if (!action) throw new ProjectError(404, "unknown action")
+      if (action.state !== "proposed") throw new ProjectError(409, `This action was already ${action.state}.`)
+      const allowed = readConfig(projectDir)?.lead.actions ?? []
+      if (!allowed.includes(action.kind)) throw new ProjectError(403, "This project no longer allows that action. Change it in the lead settings.")
+      const outcome = applyLeadAction(projectDir, store, action)
+      store.setChatActionState(messageId, index, "applied")
+      return outcome
+    })
+    return { note: result.note, started: result.startRun ? startRunIfIdle(name) : false }
+  }
+
+  const autoApply = (name: string, messageId: number) => {
+    const projectDir = join(runsDir, name)
+    const autoKinds = readConfig(projectDir)?.lead.autoApply ?? []
+    const actions = withProjectStore(projectDir, (store) => store.chatMessages(200).find((message) => message.id === messageId)?.actions ?? [])
+    actions.forEach((action, index) => {
+      if (!autoKinds.includes(action.kind)) return
+      try {
+        const { note } = applyChatAction(name, messageId, index)
+        withProjectStore(projectDir, (store) => store.log("lead", `auto-applied: ${note}`))
+      } catch (error) {
+        withProjectStore(projectDir, (store) => store.log("lead", `could not auto-apply ${action.kind}: ${(error as Error).message}`))
+      }
+    })
+  }
+
   async function handlePost(request: IncomingMessage, response: ServerResponse, parts: string[]) {
     if (request.headers["x-agent-team"] !== "1") return send(response, 403, { error: "The x-agent-team header is missing." })
     if (!allowedOrigin(request, extraHosts)) return send(response, 403, { error: "This origin is not allowed." })
+    if (parts[0] === "api" && parts[1] === "projects" && parts[3] === "chat-upload" && parts.length === 4) return uploadChatImage(request, response, parts[2])
     const body = await readJson(request)
     if (parts[0] === "api" && parts[1] === "auth" && parts.length === 3) {
       if (parts[2] === "login") return login(request, response, body)
@@ -853,28 +949,50 @@ export function startUi(options: UiOptions) {
       case "retry":
         withProjectStore(projectDir, (store) => retryTask(store, requireString(body, "taskId")))
         return send(response, 200, { started: startRunIfIdle(name) })
+      case "approve-task-budget": {
+        const budgetUsd = withProjectStore(projectDir, (store) => approveTaskBudget(store, requireString(body, "taskId")))
+        return send(response, 200, { budgetUsd, started: startRunIfIdle(name) })
+      }
       case "raise-budget": {
-        if (runAlive(projectDir)) return send(response, 409, { error: "A run is already in progress." })
-        const runUsd = withProjectStore(projectDir, (store) => raiseRunBudget(projectDir, store))
+        if (body.runUsd !== undefined && typeof body.runUsd !== "number") return send(response, 400, { error: "runUsd must be a number." })
+        const runUsd = withProjectStore(projectDir, (store) => raiseRunBudget(projectDir, store, body.runUsd as number | undefined))
         return send(response, 200, { runUsd, started: startRunIfIdle(name) })
       }
       case "chat": {
         const message = requireString(body, "message").trim()
         if (message.length > chatMessageMaxLength) return send(response, 400, { error: `Keep the message under ${chatMessageMaxLength} characters.` })
-        if (leadBusy.has(name)) return send(response, 409, { error: "The lead is still answering." })
-        leadBusy.add(name)
-        askLeadFor(projectDir, message)
+        const attachments = body.attachments ?? []
+        if (!Array.isArray(attachments) || attachments.length > maxAttachments || !attachments.every((file) => typeof file === "string" && chatUploadPattern.test(file) && existsSync(join(projectDir, chatUploadsDir, file)))) {
+          return send(response, 400, { error: `Attach up to ${maxAttachments} uploaded images.` })
+        }
+        if (leadCalls.has(name)) return send(response, 409, { error: "The lead is still answering." })
+        const controller = new AbortController()
+        const transcriptPath = join(projectDir, ".agent-team", "transcripts", `lead-${Date.now()}.log`)
+        leadCalls.set(name, { controller, transcriptPath })
+        askLeadFor(projectDir, message, { attachments: attachments as string[], transcriptPath, signal: controller.signal })
+          .then((messageId) => autoApply(name, messageId))
           .catch((error) => console.error(`[lead] ${name}: ${(error as Error).message}`))
-          .finally(() => leadBusy.delete(name))
+          .finally(() => leadCalls.delete(name))
         return send(response, 202, { accepted: true })
+      }
+      case "chat-stop": {
+        const call = leadCalls.get(name)
+        if (!call) return send(response, 409, { error: "The lead is not answering." })
+        call.controller.abort()
+        return send(response, 200, { stopped: true })
       }
       case "chat-action": {
         const { messageId, index, state } = body
         if (!Number.isInteger(messageId) || !Number.isInteger(index) || (state !== "applied" && state !== "dismissed")) {
           return send(response, 400, { error: "chat-action needs messageId, index, and a state of applied or dismissed." })
         }
+        if (state === "applied") return send(response, 200, { saved: true, ...applyChatAction(name, messageId as number, index as number) })
         const updated = withProjectStore(projectDir, (store) => store.setChatActionState(messageId as number, index as number, state))
         return updated ? send(response, 200, { saved: true }) : send(response, 404, { error: "unknown action" })
+      }
+      case "lead-settings": {
+        saveLeadSettings(projectDir, parseLeadSettings(body))
+        return send(response, 200, { saved: true })
       }
       case "roles": {
         const models = parseRoleModels(body.roles)
@@ -928,6 +1046,21 @@ export function startUi(options: UiOptions) {
           return send(response, 200, readTail(path, transcriptMaxBytes), "text/plain")
         }
         if (parts[3] === "markdown" && parts.length === 4) return send(response, 200, listMarkdown(projectDir))
+        if (parts[3] === "files" && parts.length === 4) {
+          try {
+            return send(response, 200, trackedFiles(projectDir).slice(0, 5000))
+          } catch {
+            return send(response, 200, [])
+          }
+        }
+        if (parts[3] === "chat-upload" && parts[4] && parts.length === 5) {
+          if (!chatUploadPattern.test(parts[4])) return send(response, 400, { error: "bad file name" })
+          const path = join(projectDir, chatUploadsDir, parts[4])
+          if (!existsSync(path)) return send(response, 404, { error: "not found" })
+          const extension = parts[4].split(".").pop()!
+          response.writeHead(200, { "content-type": `image/${extension === "jpg" ? "jpeg" : extension}`, "cache-control": "private, max-age=86400", "x-content-type-options": "nosniff" })
+          return response.end(readFileSync(path))
+        }
         if (parts[3] === "raw" && parts.length === 4) {
           const relative = url.searchParams.get("path") ?? ""
           const extension = relative.split(".").pop()?.toLowerCase() ?? ""

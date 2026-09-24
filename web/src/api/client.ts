@@ -1,4 +1,4 @@
-import type { Defaults, LeadActionState, NotificationStatus, NotificationTestResult, RoleCandidate, Incident, IncidentDetail, NewProjectRequest, ProjectDetail, ProjectSummary, QaRound, StackTemplate } from "@/api/types"
+import type { Defaults, LeadActionState, LeadSettings, NotificationStatus, NotificationTestResult, RoleCandidate, Incident, IncidentDetail, NewProjectRequest, ProjectDetail, ProjectSummary, QaRound, StackTemplate } from "@/api/types"
 
 export class ApiError extends Error {
   status: number
@@ -82,16 +82,26 @@ export const api = {
   run: (name: string) => post<{ started: boolean }>(`${projectPath(name)}/run`, {}),
   approve: (name: string, phase: string) => post<{ started: boolean }>(`${projectPath(name)}/approve`, { phase }),
   feedback: (name: string, phase: string, message: string) => post<{ started: boolean }>(`${projectPath(name)}/feedback`, { phase, message }),
+  approveTaskBudget: (name: string, taskId: string) => post<{ budgetUsd: number; started: boolean }>(`${projectPath(name)}/approve-task-budget`, { taskId }),
   retry: (name: string, taskId: string) => post<{ started: boolean }>(`${projectPath(name)}/retry`, { taskId }),
   saveRoles: (name: string, roles: Record<string, RoleCandidate>) => post<{ saved: boolean }>(`${projectPath(name)}/roles`, { roles }),
-  chat: (name: string, message: string) => post<{ accepted: boolean }>(`${projectPath(name)}/chat`, { message }),
+  chat: (name: string, message: string, attachments: string[] = []) => post<{ accepted: boolean }>(`${projectPath(name)}/chat`, { message, attachments }),
+  chatStop: (name: string) => post<{ stopped: boolean }>(`${projectPath(name)}/chat-stop`, {}),
   chatAction: (name: string, messageId: number, index: number, state: Exclude<LeadActionState, "proposed">) =>
-    post<{ saved: boolean }>(`${projectPath(name)}/chat-action`, { messageId, index, state }),
+    post<{ saved: boolean; note?: string; started?: boolean }>(`${projectPath(name)}/chat-action`, { messageId, index, state }),
+  uploadChatImage: async (name: string, file: File) => {
+    const response = await fetch(`${projectPath(name)}/chat-upload`, { method: "POST", headers: { "content-type": file.type, "x-agent-team": "1" }, body: file })
+    if (!response.ok) throw await errorFrom(response)
+    return (await response.json()) as { file: string }
+  },
+  files: (name: string) => getJson<string[]>(`${projectPath(name)}/files`),
+  saveLeadSettings: (name: string, settings: LeadSettings) => post<{ saved: boolean }>(`${projectPath(name)}/lead-settings`, settings),
   testNotifications: (channel?: string) => post<NotificationTestResult[]>("/api/notifications/test", channel ? { channel } : {}),
   requestChange: (name: string, request: string) => post<{ id: string; branch: string; started: boolean }>(`${projectPath(name)}/changes`, { request }),
   abandonChange: (name: string, id: string) => post<{ abandoned: boolean }>(`${projectPath(name)}/changes/${encodeURIComponent(id)}/abandon`, {}),
   approveChangeMerge: (name: string, id: string) => post<{ started: boolean }>(`${projectPath(name)}/changes/${encodeURIComponent(id)}/merge`, {}),
-  raiseBudget: (name: string) => post<{ runUsd: number; started: boolean }>(`${projectPath(name)}/raise-budget`, {}),
+  // Without runUsd the server adds 50%.
+  raiseBudget: (name: string, runUsd?: number) => post<{ runUsd: number; started: boolean }>(`${projectPath(name)}/raise-budget`, runUsd === undefined ? {} : { runUsd }),
 }
 
 export const urls = {
@@ -100,4 +110,5 @@ export const urls = {
   qaFile: (name: string, round: number, file: string) => `${projectPath(name)}/qa/${round}/${encodeURIComponent(file)}`,
   raw: (name: string, path: string) => `${projectPath(name)}/raw?path=${encodeURIComponent(path)}`,
   file: (name: string, path: string) => `${projectPath(name)}/file?path=${encodeURIComponent(path)}`,
+  chatUpload: (name: string, file: string) => `${projectPath(name)}/chat-upload/${encodeURIComponent(file)}`,
 }
