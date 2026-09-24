@@ -59,10 +59,13 @@ export type Detection =
   | { kind: "notice"; fingerprint: string; reason: string }
   // A runner cooldown has passed: resume once before calling it an incident.
   | { kind: "cooldown_resume"; fingerprint: string; reason: string }
+  // The run process died without a stop record (killed by a redeploy, OOM, host restart): resume once before calling it an incident.
+  | { kind: "crash_resume"; fingerprint: string; reason: string }
   | { kind: "incident"; incidentKind: IncidentKind; fingerprint: string; reason: string }
 
 const cooldownPattern = /cooling down|no runner available|rate_limit/i
 const cooldownResumeKey = "doctor.cooldownResume"
+const crashResumeKey = "doctor.crashResume"
 // An agent call may run this long past its timeout before the run counts as stalled (container teardown, retries).
 const stallGraceMs = 5 * 60_000
 
@@ -101,10 +104,14 @@ export function detect(projectDir: string, store: Store, config: DoctorConfig, n
   if (!stop) {
     if (/^finished: completed/.test(lastEvent.message)) return { kind: "none", reason: "completed" }
     if (store.phases().some((phase) => phase.status === "awaiting_approval")) return { kind: "none", reason: "waiting at a gate" }
-    // Runs from before run.stop existed end with a "finished:" event; commands such as deploy may log after it.
-    if (store.recentEvents(legacyScanEvents).some((event) => event.type === "run" && event.message.startsWith("finished:"))) return { kind: "none", reason: "stopped before the doctor existed" }
-    const reason = `the run exited without recording why; last event: [${lastEvent.type}] ${lastEvent.message.split("\n")[0].slice(0, 300)}`
-    return { kind: "incident", incidentKind: "crashed", fingerprint: fingerprint("crashed", `[${lastEvent.type}] ${lastEvent.message.split("\n")[0]}`), reason }
+    // Every run resets run.stop to "" when it starts, so only a project that never had the key predates the doctor.
+    // Those runs end with a "finished:" event; commands such as deploy may log after it.
+    const predatesDoctor = store.meta("run.stop") === null
+    if (predatesDoctor && store.recentEvents(legacyScanEvents).some((event) => event.type === "run" && event.message.startsWith("finished:"))) return { kind: "none", reason: "stopped before the doctor existed" }
+    const reason = `the run process died without recording why (a redeploy, a crash, or the host restarting); last event: [${lastEvent.type}] ${lastEvent.message.split("\n")[0].slice(0, 300)}`
+    const crashFingerprint = fingerprint("crashed", `[${lastEvent.type}] ${lastEvent.message.split("\n")[0]}`)
+    if (store.meta(crashResumeKey) !== crashFingerprint) return { kind: "crash_resume", fingerprint: crashFingerprint, reason }
+    return { kind: "incident", incidentKind: "crashed", fingerprint: crashFingerprint, reason }
   }
   if (operatorStopped(store)) return { kind: "none", reason: "stopped by the operator" }
 
@@ -567,6 +574,11 @@ export async function checkOnce(options: DoctorOptions): Promise<void> {
       if (detection.kind === "cooldown_resume") {
         store.setMeta(cooldownResumeKey, detection.fingerprint)
         store.log("doctor", "the runner cooldown has passed; resuming the run once before treating it as an incident")
+        deps.startRun(projectDir, runLogPath(runsDir, name))
+      }
+      if (detection.kind === "crash_resume") {
+        store.setMeta(crashResumeKey, detection.fingerprint)
+        store.log("doctor", `${detection.reason.split(";")[0]}; resuming the run once before treating it as an incident`)
         deps.startRun(projectDir, runLogPath(runsDir, name))
       }
       if (detection.kind !== "incident") continue

@@ -134,13 +134,48 @@ test("detection ignores projects that stopped before run.stop existed, but not a
   const store = openProjectStore(projectDir)
   try {
     store.log("phase", "spec: attempt 1 with pm")
-    assert.equal(detect(projectDir, store, config).kind, "incident", "a first run that exited without a stop record")
+    assert.equal(detect(projectDir, store, config).kind, "crash_resume", "a first run that exited without a stop record")
     store.log("run", "finished: completed")
     store.log("deploy", "live at https://example.trycloudflare.com")
     assert.equal(detect(projectDir, store, config).kind, "none")
   } finally {
     store.close()
   }
+})
+
+test("a run killed mid-phase after an earlier finished run resumes once, then becomes an incident", () => {
+  const { runsDir, projectDir } = setup()
+  const config = loadDoctorConfig(runsDir)
+  const store = openProjectStore(projectDir)
+  try {
+    store.setPhase("branding", "awaiting_approval")
+    stop(store, "awaiting_approval", 'phase "branding" is ready for review')
+    store.setPhase("branding", "approved")
+    store.setMeta("run.stop", "")
+    store.setMeta("run.pid", "999999999")
+    store.setPhase("design", "running")
+    store.log("phase", "design: attempt 1 with designer")
+    const first = detect(projectDir, store, config)
+    assert.equal(first.kind, "crash_resume")
+    store.setMeta("doctor.crashResume", first.kind === "crash_resume" ? first.fingerprint : "")
+    const second = detect(projectDir, store, config)
+    assert.equal(second.kind === "incident" && second.incidentKind, "crashed")
+  } finally {
+    store.close()
+  }
+})
+
+test("the doctor restarts a crashed run without calling an agent", async () => {
+  const { runsDir, projectDir, installDir } = setup()
+  const store = openProjectStore(projectDir)
+  store.setMeta("run.stop", "")
+  store.log("phase", "design: attempt 1 with designer")
+  store.close()
+  const { deps, started, jobs } = stubDeps(installDir, [() => ({ summary: report({}) })])
+  await checkOnce({ runsDir, deps })
+  assert.deepEqual(started, [projectDir])
+  assert.equal(jobs.length, 0)
+  assert.equal(listIncidents(projectDir).length, 0)
 })
 
 test("detection sends budget stops and human replans to a notice, not an incident", () => {
