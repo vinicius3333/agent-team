@@ -1,8 +1,26 @@
-export const planningPhases = ["spec", "architecture", "branding", "design", "plan"] as const
+export const planningPhases = ["spec", "architecture", "branding", "design", "marketing", "plan"] as const
 export type PlanningPhase = (typeof planningPhases)[number]
 
 export const pipelineSteps = [...planningPhases, "build", "qa", "deploy"] as const
 export type PipelineStep = (typeof pipelineSteps)[number]
+
+export type MarketingFormat = "og" | "square" | "story" | "x"
+
+export interface MarketingPiece {
+  id: string
+  problem: string
+  headline: string
+  subtitle: string
+  cta: string
+  layout: "overlay" | "split"
+  image: { file: string; source: "stock" | "generated"; reason: string; url?: string; credit?: string; license?: string }
+  files: { format: MarketingFormat; file: string; width: number; height: number }[]
+}
+
+export interface MarketingManifest {
+  language: string
+  pieces: MarketingPiece[]
+}
 
 export type PhaseStatus = "pending" | "running" | "awaiting_approval" | "approved" | "failed" | "skipped"
 export type TaskStatus = "pending" | "running" | "merged" | "blocked"

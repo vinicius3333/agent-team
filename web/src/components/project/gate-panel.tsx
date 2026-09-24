@@ -15,6 +15,7 @@ import type { PipelineStep } from "@/api/types"
 import { StatusBadge } from "@/components/status-badge"
 import { DocumentView } from "./document-view"
 import { ProjectBranding } from "./branding"
+import { MarketingPieces } from "./marketing-tab"
 import { useProjectView } from "./context"
 
 const feedbackLimit = 4000
@@ -45,6 +46,7 @@ function PhaseOutputs({ phase, version }: { phase: string; version: string }) {
   const showBranding = phase === "branding" || phase === "design"
   const tabs = [
     ...(showBranding ? [{ id: "branding", label: "Branding" }] : []),
+    ...(phase === "marketing" ? [{ id: "marketing", label: "Pieces" }] : []),
     ...documents.map((path) => ({ id: path, label: path.split("/").pop() ?? path })),
   ]
   if (!tabs.length) return null
@@ -62,6 +64,11 @@ function PhaseOutputs({ phase, version }: { phase: string; version: string }) {
       {showBranding && (
         <TabsContent value="branding">
           <ProjectBranding version={version} />
+        </TabsContent>
+      )}
+      {phase === "marketing" && (
+        <TabsContent value="marketing">
+          <MarketingPieces version={version} />
         </TabsContent>
       )}
       {documents.map((path) => (

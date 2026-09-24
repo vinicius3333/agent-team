@@ -6,6 +6,7 @@ export const stepLabels: Record<PipelineStep, string> = {
   architecture: "Architecture",
   branding: "Branding",
   design: "Design",
+  marketing: "Marketing",
   plan: "Plan",
   build: "Build",
   qa: "QA",
@@ -17,6 +18,7 @@ export const phaseRoles: Record<string, string> = {
   architecture: "architect",
   branding: "illustrator",
   design: "designer",
+  marketing: "marketer",
   plan: "planner",
   qa: "qa",
 }
@@ -26,6 +28,7 @@ export const phaseOutputs: Record<string, string[]> = {
   architecture: ["docs/architecture.md", "docs/adr/", "contracts/openapi.yaml"],
   branding: ["design/branding/01-logo.png", "design/branding/*.png", "design/branding/README.md"],
   design: ["design/tokens.css", "design/logo.svg", "design/logo-mark.svg", "docs/design-system.md", "docs/design.md"],
+  marketing: ["marketing/copy.json", "marketing/art/*", "marketing/<piece>-<format>.png", "marketing/manifest.json"],
   plan: ["tasks.json"],
   build: ["code and tests, one merge per task"],
   qa: [".agent-team/qa/round-<n>/: tests.json, report.json, <route>.png, verdict.json"],

@@ -1,6 +1,6 @@
 import { useMemo, useState, type FormEvent } from "react"
 import { useNavigate } from "react-router"
-import { Boxes, ChevronDown, Cloud, Code2, Globe, Image, Layers, ListTodo, Loader2, Palette, Play, ShieldCheck, User, Users, Zap } from "lucide-react"
+import { Boxes, ChevronDown, Cloud, Code2, Globe, Image, Layers, ListTodo, Megaphone, Loader2, Palette, Play, ShieldCheck, User, Users, Zap } from "lucide-react"
 import { toast } from "sonner"
 import { ApiError, api } from "@/api/client"
 import { useAsync } from "@/api/hooks"
@@ -56,6 +56,7 @@ const gateHints: Record<PlanningPhase, string> = {
   architecture: "Review the technical plan before design.",
   branding: "Review the logo and screen images before design.",
   design: "Review the UI design before the build.",
+  marketing: "Review the launch images and copy before the plan.",
   plan: "Review the task list before workers start.",
 }
 
@@ -87,6 +88,13 @@ const teamRoles = [
     hint: "Writes the design system.",
     icon: Palette,
     color: "text-chart-5 bg-chart-5/10",
+  },
+  {
+    name: "Marketer",
+    role: "marketer",
+    hint: "Writes launch copy and picks the images.",
+    icon: Megaphone,
+    color: "text-chart-3 bg-chart-3/10",
   },
   {
     name: "Planner",

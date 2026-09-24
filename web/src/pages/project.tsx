@@ -15,6 +15,7 @@ import { DetailsSheet } from "@/components/project/details-sheet"
 import { DocsTab } from "@/components/project/docs-tab"
 import { EventsCard } from "@/components/project/events"
 import { GatePanel } from "@/components/project/gate-panel"
+import { MarketingPieces } from "@/components/project/marketing-tab"
 import { LeadTab } from "@/components/project/lead-tab"
 import { GithubCard } from "@/components/project/github-card"
 import { IncidentBanner } from "@/components/project/incident-banner"
@@ -40,6 +41,7 @@ const tabs = [
   { id: "lead", label: "Lead" },
   { id: "docs", label: "Docs" },
   { id: "branding", label: "Branding" },
+  { id: "marketing", label: "Marketing" },
   { id: "qa", label: "QA" },
   { id: "attempts", label: "Agent calls" },
   { id: "system", label: "System" },
@@ -242,6 +244,9 @@ function ProjectBody({ name, detail, stream }: { name: string; detail: ProjectDe
             <Card className="p-4">
               <ProjectBranding version={detail.phases.find((phase) => phase.name === "branding")?.updatedAt ?? ""} />
             </Card>
+          </TabsContent>
+          <TabsContent value="marketing" className="mt-2">
+            <MarketingPieces version={detail.phases.find((phase) => phase.name === "marketing")?.updatedAt ?? ""} />
           </TabsContent>
           <TabsContent value="qa" className="mt-2">
             <Card className="p-4">
