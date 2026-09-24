@@ -33,6 +33,7 @@ export interface ProjectSummary {
   costUnreported: boolean
   live: boolean
   liveUrl: string | null
+  stop?: RunStop | null
 }
 
 export interface Task {
@@ -98,6 +99,29 @@ export interface ProjectConfig {
   branding: { enabled?: boolean; count?: number } | null
   qa: { enabled: boolean; maxRounds: number }
   publish: { github: { enabled: boolean } }
+  budget?: { perTaskUsd: number; runUsd: number }
+}
+
+// Why the last run stopped. kind "budget" means the run budget was reached.
+export interface RunStop {
+  outcome: "awaiting_approval" | "paused" | "failed"
+  kind: "budget" | "other"
+  reason: string
+  at: string
+}
+
+export interface RunBudget {
+  runUsd: number
+  spentUsd: number
+  // Codex calls report no cost, so they are not in spentUsd.
+  unreportedCalls: number
+}
+
+export interface ReviewerMetrics {
+  reviews: number
+  fails: number
+  followedFails: number
+  confirmedFails: number
 }
 
 export interface PullRequest {
@@ -144,6 +168,8 @@ export interface ProjectDetail extends Omit<ProjectSummary, "live" | "liveUrl"> 
   deploy: DeployInfo | null
   qa?: { round: number | null }
   feedback?: Partial<Record<string, string>>
+  budget?: RunBudget
+  reviewer?: ReviewerMetrics
 }
 
 export interface QaFinding {

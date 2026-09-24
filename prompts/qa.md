@@ -40,8 +40,9 @@ Fix task rules:
 
 - Ids use the format from the task prompt: `Q<round><two digits>`, for example `Q101` and `Q102` in round 1.
 - `dependsOn` is empty, or lists only existing task ids. Fix tasks must not depend on each other.
-- `allowedPaths` are real paths in the repo, narrow enough for one worker, and include the tests. Never `docs/**`, `contracts/**`, or `design/**`.
+- `allowedPaths` are real paths in the repo, narrow enough for one worker, and include the tests. Never `docs/**`, `contracts/**`, `design/**`, `AGENTS.md`, or `CLAUDE.md`.
 - `acceptance` states the observable result. `verify` runs offline and exits non-zero on failure.
 - Group related findings into one task. Two fix tasks must not share an `allowedPaths` glob.
+- For a fix to UI code, set `"ui": true` and `routes` to the static paths that show the fix, so the orchestrator loads them in a browser before review.
 
 Do not edit any files.

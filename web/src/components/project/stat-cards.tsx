@@ -45,7 +45,8 @@ export function StatCards() {
   const runners = new Set(detail.attempts.map((attempt) => attempt.runner))
   const unreported = detail.attempts.filter((attempt) => attempt.costUsd == null).length
   const costValue = !detail.attempts.length ? "—" : cost === 0 && unreported ? "n/a (codex)" : `${formatCost(cost)}${unreported ? " + n/a" : ""}`
-  const costHint = unreported ? `Claude reports cost. Codex reports none, so ${unreported} of ${detail.attempts.length} calls have no cost.` : `Reported by ${[...runners].join(", ") || "the runners"}.`
+  const budgetHint = detail.budget ? ` Run budget: ${formatCost(detail.budget.runUsd)}.` : ""
+  const costHint = (unreported ? `Claude reports cost. Codex reports none, so ${unreported} of ${detail.attempts.length} calls have no cost.` : `Reported by ${[...runners].join(", ") || "the runners"}.`) + budgetHint
 
   return (
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">

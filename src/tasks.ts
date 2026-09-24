@@ -11,7 +11,12 @@ export interface Task {
   readPaths: string[]
   acceptance: string[]
   verify: string
+  // Set by the planner when the task changes UI code; the orchestrator then loads `routes` in a browser after verify.
+  ui?: boolean
+  routes?: string[]
 }
+
+const staticRoutePattern = /^\/[A-Za-z0-9\-._~/?=&%]*$/
 
 export function loadTasks(path: string): Task[] {
   let parsed: unknown
@@ -41,6 +46,10 @@ export function validateTasks(value: unknown): Task[] {
     }
     if (Array.isArray(task?.allowedPaths) && task.allowedPaths.length === 0) errors.push(`${label}: allowedPaths is empty`)
     if (Array.isArray(task?.acceptance) && task.acceptance.length === 0) errors.push(`${label}: acceptance is empty`)
+    if (task?.ui !== undefined && typeof task.ui !== "boolean") errors.push(`${label}: ui must be true or false`)
+    if (task?.routes !== undefined && (!Array.isArray(task.routes) || !task.routes.every((route: unknown) => typeof route === "string" && staticRoutePattern.test(route)))) {
+      errors.push(`${label}: routes must be an array of paths that start with /, without parameters`)
+    }
   }
   for (const task of value) {
     for (const dependency of task?.dependsOn ?? []) {

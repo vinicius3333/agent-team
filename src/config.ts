@@ -48,12 +48,15 @@ export interface PipelineConfig {
   publish: PublishConfig
   deploy: { enabled: boolean }
   qa: { enabled: boolean; maxRounds: number }
-  budget: { perTaskUsd: number }
+  // runUsd caps the reported agent cost of the whole project; the run stops for a human when it is reached.
+  budget: { perTaskUsd: number; runUsd: number }
   roles: Record<Role, RoleConfig>
   stackHints: { prefer: string[]; avoid: string[] }
   allowSameVendorReview: boolean
   harness: HarnessConfig
 }
+
+export const defaultRunBudgetUsd = 30
 
 export function loadConfig(path: string): PipelineConfig {
   const raw = parse(readFileSync(path, "utf8")) ?? {}
@@ -71,7 +74,7 @@ export function loadConfig(path: string): PipelineConfig {
         name: raw.publish?.github?.name ?? null,
       },
     },
-    budget: { perTaskUsd: raw.budget?.perTaskUsd ?? 2 },
+    budget: { perTaskUsd: raw.budget?.perTaskUsd ?? 2, runUsd: raw.budget?.runUsd ?? defaultRunBudgetUsd },
     roles: normalizeRoles(raw.roles),
     stackHints: { prefer: raw.stackHints?.prefer ?? [], avoid: raw.stackHints?.avoid ?? [] },
     allowSameVendorReview: raw.allowSameVendorReview ?? false,
@@ -128,6 +131,7 @@ function validateConfig(config: PipelineConfig): void {
   if (!["private", "public"].includes(config.publish.github.visibility)) errors.push("publish.github.visibility must be private or public")
   if (config.branding.count < 2 || config.branding.count > 6) errors.push("branding.count must be between 2 and 6")
   if (!Number.isInteger(config.qa.maxRounds) || config.qa.maxRounds < 1) errors.push("qa.maxRounds must be a whole number of 1 or more")
+  if (!(config.budget.runUsd > 0)) errors.push("budget.runUsd must be a number above 0")
   if (!["web", "api", "web+api"].includes(config.target)) errors.push(`target must be web, api, or web+api`)
   for (const gate of config.autonomy.gates) {
     if (!planningPhases.includes(gate)) errors.push(`unknown gate "${gate}"`)

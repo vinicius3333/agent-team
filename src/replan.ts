@@ -43,7 +43,7 @@ export const sharedFoundationPatterns = [
 ]
 
 // Planning-phase outputs: no worker task may own them.
-const protectedPrefixes = ["docs/", "contracts/", "design/"]
+const protectedPrefixes = ["docs/", "contracts/", "design/", "AGENTS.md", "CLAUDE.md"]
 
 // Accepts `BLOCKED: {"kind":...}` and the older free-text `BLOCKED: reason` (read as kind "spec").
 export function parseBlock(summary: string): Block | null {

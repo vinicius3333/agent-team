@@ -24,6 +24,13 @@ Write these files:
    - `## Deployment`: how it runs on one VPS.
 2. `docs/adr/NNNN-<slug>.md`: one ADR per major choice (stack, database, auth, hosting). Number them `0001`, `0002`, and so on. Each ADR has: Context, Decision, Consequences.
 3. `contracts/openapi.yaml`: an OpenAPI 3.1 file for every HTTP endpoint. Skip it only if the target is web and the app has no server API at all (a static site).
+4. `AGENTS.md` at the repository root: the short guide every coding agent reads first. Keep it under 80 lines, with these sections:
+   - A first line that says: "Read docs/progress.md first. It lists what earlier tasks built."
+   - `## Commands`: the same three lines as in `docs/architecture.md`.
+   - `## Directory layout`: the main folders and what goes in each.
+   - `## Conventions`: naming, test location, code style, and error handling rules.
+
+   Do not write `CLAUDE.md`. The orchestrator creates it.
 
 ## Rules
 

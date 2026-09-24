@@ -43,9 +43,10 @@ export const pinnedDocuments = ["input.md", "docs/spec.md", "docs/architecture.m
 
 export type ProjectStatus = "blocked" | "awaiting_approval" | "running" | "done" | "failed" | "idle"
 
-export function projectStatus(project: Pick<ProjectSummary, "counts" | "phases" | "active">): ProjectStatus {
+export function projectStatus(project: Pick<ProjectSummary, "counts" | "phases" | "active" | "stop">): ProjectStatus {
   if (project.counts.blocked) return "blocked"
   if (project.phases.some((phase) => phase.status === "awaiting_approval")) return "awaiting_approval"
+  if (!project.active && project.stop?.outcome === "awaiting_approval") return "awaiting_approval"
   if (project.active) return "running"
   const phasesDone = project.phases.length > 0 && project.phases.every((phase) => phase.status === "approved" || phase.status === "skipped")
   const total = Object.values(project.counts).reduce((sum, count) => sum + (count ?? 0), 0)

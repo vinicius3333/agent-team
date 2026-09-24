@@ -51,6 +51,15 @@ export function openStore(path: string) {
       cooldown_until INTEGER NOT NULL,
       reason TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS reviews (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      task_id TEXT NOT NULL,
+      attempt INTEGER NOT NULL,
+      verdict TEXT NOT NULL,
+      flagged_files TEXT NOT NULL,
+      file_hashes TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       at TEXT NOT NULL,
@@ -151,6 +160,29 @@ export function openStore(path: string) {
         now(),
       )
     },
+    // Cost of every agent call in the project; codex reports none, so its calls are counted instead.
+    projectCost(): { usd: number; unreportedCalls: number } {
+      const row = db.prepare("SELECT COALESCE(SUM(cost_usd), 0) AS usd, COALESCE(SUM(cost_usd IS NULL), 0) AS unreported FROM attempts").get() as { usd: number; unreported: number }
+      return { usd: row.usd, unreportedCalls: row.unreported }
+    },
+    // fileHashes maps each file in the reviewed diff to a hash of its part of the diff, so a later attempt can be compared.
+    recordReview(review: { taskId: string; attempt: number; verdict: "pass" | "fail"; flaggedFiles: string[]; fileHashes: Record<string, string> }) {
+      db.prepare("INSERT INTO reviews (task_id, attempt, verdict, flagged_files, file_hashes, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(
+        review.taskId,
+        review.attempt,
+        review.verdict,
+        JSON.stringify(review.flaggedFiles),
+        JSON.stringify(review.fileHashes),
+        now(),
+      )
+    },
+    setTaskFiles(id: string, files: string[]) {
+      db.prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(`task.files.${id}`, JSON.stringify(files))
+    },
+    taskFiles(id: string): string[] {
+      const row = db.prepare("SELECT value FROM meta WHERE key = ?").get(`task.files.${id}`) as { value: string } | undefined
+      return row ? (JSON.parse(row.value) as string[]) : []
+    },
     costByRole() {
       return db
         .prepare("SELECT role, COUNT(*) AS runs, ROUND(SUM(COALESCE(cost_usd, 0)), 4) AS costUsd FROM attempts GROUP BY role")
@@ -191,6 +223,9 @@ export function openStore(path: string) {
     },
     close() {
       db.close()
+    },
+    lastEvent(): { at: string; type: string; message: string } | null {
+      return (db.prepare("SELECT at, type, message FROM events ORDER BY id DESC LIMIT 1").get() as { at: string; type: string; message: string } | undefined) ?? null
     },
     log(type: string, message: string) {
       db.prepare("INSERT INTO events (at, type, message) VALUES (?, ?, ?)").run(now(), type, message)

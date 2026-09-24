@@ -51,58 +51,78 @@ function writeReport(outDir: string, report: VisualReport): VisualReport {
   return report
 }
 
+export interface ScreenshotContainers {
+  app: string
+  shot: string
+  network: string
+}
+
 // Starts main the way deploy does, but without a tunnel, and screenshots every screen with Playwright.
-// The app joins the apps network to install its dependencies, plus a per-project internal network.
-// The browser joins only that internal network: it reaches the app and nothing else, not the internet.
 export async function captureScreenshots(options: { projectDir: string; outDir: string; screens: QaScreen[]; signal: AbortSignal }): Promise<VisualReport> {
-  const { projectDir, outDir, screens } = options
-  const names = qaContainerNames(projectDir)
-  const empty: VisualReport = { baseUrl: null, viewport: { width: 1440, height: 900 }, startError: null, routes: [] }
+  const names = qaContainerNames(options.projectDir)
   removeContainers(names.app, names.shot)
   try {
-    const dir = snapshotMain(projectDir, "qa")
-    const plan = detectDeployPlan(dir)
-    if (!plan) return writeReport(outDir, { ...empty, startError: "no deploy.json, npm start script, or index.html to serve" })
-    const baseUrl = `http://${names.app}:${plan.port}`
-    try {
-      ensureNetwork()
-      ensureNetwork(names.network, { internal: true })
-      startAppContainer({ name: names.app, dir, plan, label: "agent-team-qa=1", restart: false })
-      await execFileAsync("docker", ["network", "connect", names.network, names.app])
-      await waitForApp(names.app, plan.port)
-    } catch (error) {
-      return writeReport(outDir, { ...empty, baseUrl, startError: commandFailure(error).slice(0, 4000) })
-    }
-
-    const image = await ensureScreenshotImage()
-    await execFileAsync(
-      "docker",
-      [
-        "run",
-        "--name", names.shot,
-        "--label", "agent-team-qa=1",
-        "--network", names.network,
-        "--init",
-        "--memory", "2g", "--cpus", "2", "--pids-limit", "512", "--shm-size", "512m",
-        "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
-        "--user", "1000:1000",
-        "-e", "HOME=/tmp",
-        "-e", `BASE_URL=${baseUrl}`,
-        "-e", `ROUTES=${JSON.stringify(screens.map(({ route, slug }) => ({ route, slug })))}`,
-        "-v", `${screenshotScript}:/opt/qa/screenshot.mjs:ro`,
-        "-v", `${outDir}:/out`,
-        image, "node", "/opt/qa/screenshot.mjs",
-      ],
-      { timeout: screenshotTimeoutMs, signal: options.signal, maxBuffer: 16 * 1024 * 1024 },
-    )
-    const reportPath = join(outDir, "report.json")
-    if (!existsSync(reportPath)) throw new Error("the screenshot container wrote no report.json")
-    const raw = JSON.parse(readFileSync(reportPath, "utf8"))
-    const brandingByRoute = new Map(screens.map((screen) => [screen.route, screen.branding]))
-    const routes: RouteReport[] = (raw.routes ?? []).map((entry: RouteReport) => ({ ...entry, branding: brandingByRoute.get(entry.route) ?? null }))
-    return writeReport(outDir, { ...empty, baseUrl, viewport: raw.viewport ?? empty.viewport, routes })
+    const dir = snapshotMain(options.projectDir, "qa")
+    return await captureApp({ ...options, dir, names, label: "agent-team-qa=1" })
   } finally {
     removeContainers(names.app, names.shot)
     removeNetwork(names.network)
   }
+}
+
+// Runs the app in `dir` and screenshots every screen. The caller removes the containers and the network.
+// The app joins the apps network to install its dependencies, plus the internal network `names.network`.
+// The browser joins only that internal network: it reaches the app and nothing else, not the internet.
+// With `alias`, the browser reaches the app by that name instead of the container name.
+export async function captureApp(options: {
+  dir: string
+  outDir: string
+  screens: { route: string; slug: string; branding?: string | null }[]
+  signal: AbortSignal
+  names: ScreenshotContainers
+  label: string
+  alias?: string
+}): Promise<VisualReport> {
+  const { dir, outDir, screens, names } = options
+  const empty: VisualReport = { baseUrl: null, viewport: { width: 1440, height: 900 }, startError: null, routes: [] }
+  const plan = detectDeployPlan(dir)
+  if (!plan) return writeReport(outDir, { ...empty, startError: "no deploy.json, npm start script, or index.html to serve" })
+  const baseUrl = `http://${options.alias ?? names.app}:${plan.port}`
+  try {
+    ensureNetwork()
+    ensureNetwork(names.network, { internal: true })
+    startAppContainer({ name: names.app, dir, plan, label: options.label, restart: false })
+    await execFileAsync("docker", ["network", "connect", ...(options.alias ? ["--alias", options.alias] : []), names.network, names.app])
+    await waitForApp(names.app, plan.port)
+  } catch (error) {
+    return writeReport(outDir, { ...empty, baseUrl, startError: commandFailure(error).slice(0, 4000) })
+  }
+
+  const image = await ensureScreenshotImage()
+  await execFileAsync(
+    "docker",
+    [
+      "run",
+      "--name", names.shot,
+      "--label", options.label,
+      "--network", names.network,
+      "--init",
+      "--memory", "2g", "--cpus", "2", "--pids-limit", "512", "--shm-size", "512m",
+      "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+      "--user", "1000:1000",
+      "-e", "HOME=/tmp",
+      "-e", `BASE_URL=${baseUrl}`,
+      "-e", `ROUTES=${JSON.stringify(screens.map(({ route, slug }) => ({ route, slug })))}`,
+      "-v", `${screenshotScript}:/opt/qa/screenshot.mjs:ro`,
+      "-v", `${outDir}:/out`,
+      image, "node", "/opt/qa/screenshot.mjs",
+    ],
+    { timeout: screenshotTimeoutMs, signal: options.signal, maxBuffer: 16 * 1024 * 1024 },
+  )
+  const reportPath = join(outDir, "report.json")
+  if (!existsSync(reportPath)) throw new Error("the screenshot container wrote no report.json")
+  const raw = JSON.parse(readFileSync(reportPath, "utf8"))
+  const brandingByRoute = new Map(screens.map((screen) => [screen.route, screen.branding ?? null]))
+  const routes: RouteReport[] = (raw.routes ?? []).map((entry: RouteReport) => ({ ...entry, branding: brandingByRoute.get(entry.route) ?? null }))
+  return writeReport(outDir, { ...empty, baseUrl, viewport: raw.viewport ?? empty.viewport, routes })
 }

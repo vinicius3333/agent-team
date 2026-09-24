@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, openSync, closeSync, readdirSync, readFileSync, 
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { parseDocument } from "yaml"
-import { normalizePhaseName, planningPhases, type PipelineConfig, type PlanningPhase, type RunnerName } from "./config.ts"
+import { loadConfig, normalizePhaseName, planningPhases, type PipelineConfig, type PlanningPhase, type RunnerName } from "./config.ts"
 import { appendFeedback, archiveFeedback } from "./feedback.ts"
 import { commitAll, initRepository } from "./git.ts"
 import { openStore, type Store } from "./store.ts"
@@ -102,6 +102,20 @@ export function retryTask(store: Store, taskId: string | undefined): void {
   store.resetTask(taskId)
   store.resetReplans(taskId)
   store.log("task", `${taskId} reset for retry`)
+}
+
+const budgetRaiseFactor = 1.5
+
+// Raises budget.runUsd in pipeline.yaml by 50%, keeping the file's comments, and returns the new value.
+export function raiseRunBudget(projectDir: string, store: Store): number {
+  const path = join(projectDir, "pipeline.yaml")
+  const current = loadConfig(path).budget.runUsd
+  const raised = Math.round(current * budgetRaiseFactor * 100) / 100
+  const document = parseDocument(readFileSync(path, "utf8"))
+  document.setIn(["budget", "runUsd"], raised)
+  writeFileSync(path, document.toString())
+  store.log("budget", `budget.runUsd raised from $${current.toFixed(2)} to $${raised.toFixed(2)}`)
+  return raised
 }
 
 function processAlive(pid: number): boolean {

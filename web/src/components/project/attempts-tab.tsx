@@ -56,6 +56,42 @@ function CostByRoleCard() {
   )
 }
 
+function percent(part: number, whole: number): string {
+  return whole ? `${Math.round((part / whole) * 100)}%` : "—"
+}
+
+function ReviewerCard() {
+  const { detail } = useProjectView()
+  const metrics = detail.reviewer
+  if (!metrics?.reviews) return null
+  const rows = [
+    { label: "Reviews with a verdict", value: String(metrics.reviews) },
+    { label: "Fail rate", value: `${percent(metrics.fails, metrics.reviews)} (${metrics.fails} of ${metrics.reviews})` },
+    {
+      label: "Fails later confirmed",
+      value: metrics.followedFails ? `${metrics.confirmedFails} of ${metrics.followedFails}` : "—",
+    },
+  ]
+  return (
+    <Card className="gap-3">
+      <CardHeader>
+        <CardTitle>Reviewer</CardTitle>
+        <CardDescription>A fail counts as confirmed when the next reviewed attempt of the task changed a file the reviewer flagged.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <dl className="grid gap-3 sm:grid-cols-3">
+          {rows.map((row) => (
+            <div key={row.label}>
+              <dt className="text-xs text-muted-foreground">{row.label}</dt>
+              <dd className="text-lg font-semibold tabular-nums">{row.value}</dd>
+            </div>
+          ))}
+        </dl>
+      </CardContent>
+    </Card>
+  )
+}
+
 export function AttemptsTab() {
   const { detail, openTranscript } = useProjectView()
   if (!detail.attempts.length) {
@@ -119,6 +155,7 @@ export function AttemptsTab() {
           </Table>
         </CardContent>
       </Card>
+      <ReviewerCard />
       <CostByRoleCard />
     </div>
   )

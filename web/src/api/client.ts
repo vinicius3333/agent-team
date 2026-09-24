@@ -59,6 +59,7 @@ export const api = {
   approve: (name: string, phase: string) => post<{ started: boolean }>(`${projectPath(name)}/approve`, { phase }),
   feedback: (name: string, phase: string, message: string) => post<{ started: boolean }>(`${projectPath(name)}/feedback`, { phase, message }),
   retry: (name: string, taskId: string) => post<{ started: boolean }>(`${projectPath(name)}/retry`, { taskId }),
+  raiseBudget: (name: string) => post<{ runUsd: number; started: boolean }>(`${projectPath(name)}/raise-budget`, {}),
 }
 
 export const urls = {

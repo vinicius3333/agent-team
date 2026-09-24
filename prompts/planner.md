@@ -32,6 +32,8 @@ Each task has these fields:
 - `readPaths`: files the worker should read for context.
 - `acceptance`: at least one criterion. Copy or narrow the story's criteria.
 - `verify`: a shell command that runs offline and exits non-zero on failure.
+- `ui` (optional): `true` when `allowedPaths` include UI code (pages, components, styles). After `verify` passes, the orchestrator starts the app and loads the task's routes in a browser.
+- `routes` (optional, with `ui`): the static paths that show the task's work, for example `["/", "/settings"]`. No parameters such as `/tasks/:id`. Leave it out to load `/`.
 
 ## Rules
 
@@ -42,7 +44,7 @@ Each task has these fields:
 5. Keep feature tasks small: roughly under 300 lines of diff each.
 6. Each task's `allowedPaths` must include the tests for that task.
 7. Every user story must be covered by at least one task.
-8. Contract files (`contracts/**`) and docs (`docs/**`) are never in `allowedPaths`.
+8. Contract files (`contracts/**`), docs (`docs/**`), `AGENTS.md`, and `CLAUDE.md` are never in `allowedPaths`.
 9. `verify` must not need network access, secrets, or a running server started by hand.
 10. If `docs/design-system.md` exists, add a task that builds a `/design-system` route in the app. It renders every token and every component in the guide, with their variants and states.
 11. If `design/logo.svg` exists, add a task that copies the logo into the app and installs `design/logo.svg` in the header and `design/logo-mark.svg` as the favicon. `design/**` is read-only for workers: list those files in `readPaths`.

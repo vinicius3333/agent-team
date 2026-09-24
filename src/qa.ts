@@ -97,7 +97,7 @@ export function parseArchitectureCommands(markdown: string): { install: string |
 }
 
 // Fix tasks may only touch app code: docs, contracts, and design are inputs owned by the planning phases.
-const protectedPrefixes = ["docs/", "contracts/", "design/"]
+const protectedPrefixes = ["docs/", "contracts/", "design/", "AGENTS.md", "CLAUDE.md"]
 
 export function parseQaVerdict(text: string, round: number, existing: Task[]): QaVerdict {
   const parsed = extractJsonObject(text) as any

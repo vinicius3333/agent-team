@@ -19,6 +19,7 @@ import { GithubCard } from "@/components/project/github-card"
 import { ProjectBranding } from "@/components/project/branding"
 import { QaSection } from "@/components/project/qa-section"
 import { StatCards } from "@/components/project/stat-cards"
+import { StopBanner } from "@/components/project/stop-banner"
 import { PipelineStepper } from "@/components/project/stepper"
 import { RunnerHealthCard, runnerCooldown } from "@/components/project/system-tab"
 import { SystemTab } from "@/components/project/system-tab"
@@ -162,6 +163,7 @@ function ProjectBody({ name, detail, stream }: { name: string; detail: ProjectDe
   const status = projectStatus(detail)
   const gate = awaitingPhase(detail)
   const completed = status === "done"
+  const humanNeeded = detail.tasks.some((entry) => entry.status === "blocked" && entry.needsHuman)
   const badgeStatus = status === "done" ? "done" : status === "idle" ? "stopped" : status
 
   return (
@@ -195,13 +197,14 @@ function ProjectBody({ name, detail, stream }: { name: string; detail: ProjectDe
                 </a>
               </Button>
             )}
-            {!detail.active && !completed && !gate && <ResumeButton name={name} />}
+            {!detail.active && !completed && !gate && detail.stop?.kind !== "budget" && <ResumeButton name={name} />}
           </>
         }
       />
       <div className="flex flex-col gap-4">
         <PipelineStepper />
         {gate && <GatePanel phase={gate} />}
+        {!gate && !humanNeeded && <StopBanner />}
         <ProblemBanner detail={detail} />
         <StatCards />
         <Tabs value={tab} onValueChange={(next) => update((params) => params.set("tab", next))}>

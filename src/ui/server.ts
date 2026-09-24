@@ -6,9 +6,10 @@ import { DatabaseSync } from "node:sqlite"
 import { promisify } from "node:util"
 import { fileURLToPath } from "node:url"
 import { parse as parseYaml } from "yaml"
-import { loadConfig, normalizePhaseName, planningPhases, runnerNames, type PlanningPhase } from "../config.ts"
+import { defaultRunBudgetUsd, loadConfig, normalizePhaseName, planningPhases, runnerNames, type PlanningPhase } from "../config.ts"
 import { pendingFeedback } from "../feedback.ts"
-import { approvePhase, createProject, ProjectError, requestChanges, retryTask, runAlive, startRun as spawnRun, withProjectStore, type ProjectChoices } from "../project.ts"
+import { approvePhase, createProject, ProjectError, raiseRunBudget, requestChanges, retryTask, runAlive, startRun as spawnRun, withProjectStore, type ProjectChoices } from "../project.ts"
+import { reviewerMetrics, type ReviewRow } from "../reviews.ts"
 
 const execFileAsync = promisify(execFile)
 const builtWebDir = fileURLToPath(new URL("../../web/dist/", import.meta.url))
@@ -157,9 +158,10 @@ function summary(runsDir: string, name: string) {
       const pidRow = all(db, "SELECT value FROM meta WHERE key = 'run.pid'")[0]
       const active = pidRow ? processAlive(Number(pidRow.value)) : Boolean(lastEvent && Date.now() - Date.parse(lastEvent.at) < activeWindowMs && !/^finished/.test(lastEvent.message))
       const cost = all(db, "SELECT COALESCE(SUM(cost_usd), 0) AS total, SUM(cost_usd IS NULL) AS unreported FROM attempts")[0]
-      return { name, phases, counts, lastEvent, current: running ?? activePhase, active, costUsd: cost?.total ?? 0, costUnreported: (cost?.unreported ?? 0) > 0 }
+      const stop = parseStop(all(db, "SELECT value FROM meta WHERE key = 'run.stop'")[0]?.value)
+      return { name, phases, counts, lastEvent, current: running ?? activePhase, active, costUsd: cost?.total ?? 0, costUnreported: (cost?.unreported ?? 0) > 0, stop }
     },
-    { name, phases: [], counts: {}, lastEvent: null, current: null, active: false, costUsd: 0, costUnreported: false },
+    { name, phases: [], counts: {}, lastEvent: null, current: null, active: false, costUsd: 0, costUnreported: false, stop: null },
   )
 }
 
@@ -225,6 +227,7 @@ function readConfig(projectDir: string) {
       branding: raw.branding ?? raw.mockups ?? null,
       qa: { enabled: raw.qa?.enabled ?? true, maxRounds: raw.qa?.maxRounds ?? 3 },
       publish: { github: { enabled: Boolean(raw.publish?.github?.enabled) } },
+      budget: { perTaskUsd: raw.budget?.perTaskUsd ?? 2, runUsd: raw.budget?.runUsd ?? defaultRunBudgetUsd },
     }
   } catch {
     return null
@@ -337,15 +340,17 @@ async function detail(runsDir: string, name: string) {
         }
         return []
       })(),
-      meta: Object.fromEntries(all(db, "SELECT key, value FROM meta").filter((row) => !String(row.key).startsWith("github.item.")).map((row) => [row.key, row.value])),
+      meta: Object.fromEntries(all(db, "SELECT key, value FROM meta").filter((row) => !/^(github\.item|task\.files)\./.test(String(row.key))).map((row) => [row.key, row.value])),
       attempts: all(
         db,
         "SELECT id, subject, role, runner, model, status, failure_class AS failureClass, duration_ms AS durationMs, cost_usd AS costUsd, transcript_path AS transcriptPath, created_at AS createdAt FROM attempts ORDER BY id DESC LIMIT 300",
       ),
       events: all(db, "SELECT id, at, type, message FROM events ORDER BY id DESC LIMIT 300").reverse(),
       cooldowns: all(db, "SELECT runner, cooldown_until AS until, reason FROM runner_health"),
+      reviews: all(db, "SELECT task_id AS taskId, attempt, verdict, flagged_files AS flaggedFiles, file_hashes AS fileHashes FROM reviews ORDER BY id"),
+      spend: all(db, "SELECT COALESCE(SUM(cost_usd), 0) AS usd, COALESCE(SUM(cost_usd IS NULL), 0) AS unreportedCalls FROM attempts")[0] ?? { usd: 0, unreportedCalls: 0 },
     }),
-    { phases: [], tasks: [], attempts: [], events: [], cooldowns: [], meta: {} as Record<string, string> },
+    { phases: [], tasks: [], attempts: [], events: [], cooldowns: [], reviews: [], spend: { usd: 0, unreportedCalls: 0 }, meta: {} as Record<string, string> },
   )
   const definitionFields = (definition: any) => ({
     title: definition.title,
@@ -366,7 +371,7 @@ async function detail(runsDir: string, name: string) {
   }
   const config = readConfig(projectDir)
   const attempts = state.attempts.map(({ transcriptPath, ...attempt }: any) => ({ ...attempt, transcript: String(transcriptPath ?? "").split("/").pop() }))
-  const { meta, ...stateWithoutMeta } = state
+  const { meta, reviews, spend, ...stateWithoutMeta } = state
   const [github, gitLog, worktrees, dockerPs, deploy] = await Promise.all([
     githubInfo(projectDir, meta, Boolean(config?.publish.github.enabled)),
     command(projectDir, "git", ["log", "--oneline", "-30"]),
@@ -399,6 +404,26 @@ async function detail(runsDir: string, name: string) {
     deploy,
     qa: { round: meta["qa.round"] ? Number(meta["qa.round"]) : null },
     feedback: pendingFeedback(projectDir),
+    budget: { runUsd: config?.budget.runUsd ?? defaultRunBudgetUsd, spentUsd: spend.usd, unreportedCalls: spend.unreportedCalls },
+    reviewer: reviewerMetrics(reviews.map(parseReviewRow).filter((row: ReviewRow | null): row is ReviewRow => row !== null)),
+  }
+}
+
+function parseStop(value: string | undefined): { outcome: string; kind: string; reason: string; at: string } | null {
+  if (!value) return null
+  try {
+    const parsed = JSON.parse(value)
+    return typeof parsed?.reason === "string" ? { outcome: String(parsed.outcome), kind: parsed.kind === "budget" ? "budget" : "other", reason: parsed.reason, at: String(parsed.at) } : null
+  } catch {
+    return null
+  }
+}
+
+function parseReviewRow(row: any): ReviewRow | null {
+  try {
+    return { taskId: row.taskId, attempt: row.attempt, verdict: row.verdict, flaggedFiles: JSON.parse(row.flaggedFiles), fileHashes: JSON.parse(row.fileHashes) }
+  } catch {
+    return null
   }
 }
 
@@ -547,6 +572,11 @@ export function startUi(options: UiOptions) {
       case "retry":
         withProjectStore(projectDir, (store) => retryTask(store, requireString(body, "taskId")))
         return send(response, 200, { started: startRunIfIdle(name) })
+      case "raise-budget": {
+        if (runAlive(projectDir)) return send(response, 409, { error: "A run is already in progress." })
+        const runUsd = withProjectStore(projectDir, (store) => raiseRunBudget(projectDir, store))
+        return send(response, 200, { runUsd, started: startRunIfIdle(name) })
+      }
       default:
         return send(response, 404, { error: "not found" })
     }
