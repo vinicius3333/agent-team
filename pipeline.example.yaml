@@ -14,6 +14,11 @@ branding:
   count: 4             # total images, logo included (2 to 6). The old key "mockups:" still works
   mobile: true         # also draw a phone version of every desktop screen
 
+marketing:
+  enabled: true        # after the design phase: launch images with copy, stock or generated art, rendered with the brand
+  pieces: 3            # 1 to 6
+  formats: [og, square, story, x]   # 1200x630, 1080x1080, 1080x1920, 1600x900
+
 qa:
   enabled: true        # after the build: run the tests, screenshot every route, and compare them with the branding
   maxRounds: 3         # fix rounds before the run stops for a human
@@ -34,6 +39,7 @@ roles:
   architect: { runner: claude, model: opus }
   illustrator: { runner: codex, model: gpt-6-astra }   # image generation needs codex
   designer:  { runner: claude, model: sonnet }
+  marketer:  { runner: codex, model: gpt-6-astra }   # searches stock photos and generates images
   planner:   { runner: claude, model: opus }
   worker:
     runner: claude

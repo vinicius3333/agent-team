@@ -4,6 +4,7 @@ import { ensureDemoAccess } from "./access.ts"
 import type { Candidate, PipelineConfig, PlanningPhase, Role } from "./config.ts"
 import { groupPhaseFiles, parseCommitPlan, type PhaseCommit } from "./commits.ts"
 import { faviconDir, faviconFiles, generateFavicons, markPath, validateMark } from "./favicon.ts"
+import { copyPath, manifestPath, marketingDir, renderMarketing, validateMarketing } from "./marketing.ts"
 import { changedFiles, stagedDiff, trackedFiles } from "./git.ts"
 import { createDockerExecutor, ensureImage } from "./harness/docker.ts"
 import { hostExecutor, type Executor } from "./harness/executor.ts"
@@ -120,6 +121,24 @@ const phaseDefinitions: Record<PlanningPhase, PhaseDefinition> = {
     ],
     reviewed: true,
   },
+  marketing: {
+    role: "marketer",
+    inputs: [
+      "input.md",
+      "docs/spec.md",
+      "design/logo.svg",
+      "design/tokens.css",
+      "docs/design-system.md",
+      "design/branding/ (for the look, not for the art)",
+    ],
+    outputs: [copyPath, `${marketingDir}/art/<piece>.png or .jpg`],
+    validate: (dir, config) => void validateMarketing(dir, config.marketing.pieces),
+    commits: [
+      { message: "design(marketing): add the copy and the art", matches: [copyPath, `${marketingDir}/art/*`] },
+      { message: "design(marketing): add the rendered pieces", matches: [`${marketingDir}/*`] },
+    ],
+    reviewed: true,
+  },
   plan: {
     role: "planner",
     inputs: ["docs/spec.md", "docs/architecture.md", "docs/design.md", "contracts/"],
@@ -150,6 +169,19 @@ const designSteps: PhaseStep[] = [
       "Change the step 1 files only to fix a real mistake.",
     ].join("\n"),
     validate: validateScreens,
+  },
+]
+
+const marketingSteps: PhaseStep[] = [
+  {
+    name: "marketing",
+    instructions: `After you finish, the orchestrator renders every piece into ${marketingDir}/<piece>-<format>.png from your copy, your art, design/logo.svg, and design/tokens.css. Do not render them yourself.`,
+    validate: (dir, config) => void validateMarketing(dir, config.marketing.pieces),
+    after: async (context, dir) => {
+      const { marketing } = context.config
+      const manifest = await (context.renderMarketing ?? renderMarketing)({ dir, productName: productName(context.projectDir, dir), formats: marketing.formats, expectedPieces: marketing.pieces, signal: context.signal })
+      context.store.log("phase", `marketing: rendered ${manifest.pieces.length} pieces in ${marketing.formats.length} formats`)
+    },
   },
 ]
 
@@ -215,6 +247,8 @@ export interface PipelineContext {
   smokeCheck?: SmokeCheck
   // Replaces the Docker favicon render, the same way.
   renderFavicons?: typeof generateFavicons
+  // Replaces the Docker render of the marketing pieces.
+  renderMarketing?: typeof renderMarketing
 }
 
 // Why the run stopped, shown on the dashboard. kind "budget" offers to raise the budget.
@@ -307,11 +341,15 @@ async function runPlanningPhase(context: PipelineContext, phase: PlanningPhase):
     return "awaiting_approval"
   }
   const skipReason =
-    (phase === "design" || phase === "branding") && config.target === "api"
+    (phase === "design" || phase === "branding" || phase === "marketing") && config.target === "api"
       ? "api-only target"
       : phase === "branding" && !config.branding.enabled
         ? "branding disabled in pipeline.yaml"
-        : null
+        : phase === "marketing" && !config.marketing.enabled
+          ? "marketing disabled in pipeline.yaml"
+          : phase === "marketing" && store.phaseStatus("plan") === "approved"
+            ? "the project was planned before the marketing phase existed"
+            : null
   if (skipReason) {
     store.setPhase(phase, "approved")
     store.log("phase", `${phase} skipped: ${skipReason}`)
@@ -380,7 +418,7 @@ async function attemptPhase(context: PipelineContext, phase: PlanningPhase, defi
       return { kind: "infrastructure", reason: `${phase} ${step.name}: ${(error as Error).message}` }
     }
   }
-  const steps: PhaseStep[] = phase === "design" ? designSteps : [{ name: phase, instructions: "", validate: definition.validate }]
+  const steps: PhaseStep[] = phase === "design" ? designSteps : phase === "marketing" ? marketingSteps : [{ name: phase, instructions: "", validate: definition.validate }]
   // A fix may change the logo mark, so the favicon set is rendered again.
   const rerunOrchestratorSteps = async (): Promise<AttemptResult | null> => {
     for (const step of steps) {
@@ -464,12 +502,18 @@ function trackedAndNewFiles(dir: string): string[] {
 
 export function designReviewPrompt(input: { phase: PlanningPhase; config: PipelineConfig; files: string[]; previousError: string | null }): string {
   const { phase, files } = input
-  const images = files.filter((file) => file.startsWith("design/") && imagePattern.test(file))
+  const images = files.filter((file) => (file.startsWith("design/") || file.startsWith(`${marketingDir}/`)) && imagePattern.test(file))
   const lines = [`Review the ${phase} phase output. Project target: ${input.config.target}.`, ""]
   if (phase === "branding") {
     lines.push(
       `Expected: the logo, ${input.config.branding.count - 1} desktop screens${input.config.branding.mobile ? ", and a mobile version of each screen" : ""}, and design/branding/README.md.`,
       "Read input.md and docs/spec.md for what the product must show.",
+    )
+  } else if (phase === "marketing") {
+    lines.push(
+      `Expected: ${input.config.marketing.pieces} pieces in ${copyPath}, one art image per piece in ${marketingDir}/art/, and each piece rendered by the orchestrator in these formats: ${input.config.marketing.formats.join(", ")}.`,
+      `${manifestPath} lists every rendered file. Read input.md and docs/spec.md for the problem the product solves.`,
+      "Judge the rendered pieces: the text is legible over the art, the copy is in the language of input.md, the art shows the problem without text or other brands in it, the logo and colors match the brand, and stock photos carry a credit.",
     )
   } else {
     lines.push(
@@ -502,6 +546,9 @@ export function phasePrompt(context: Pick<PipelineContext, "projectDir" | "confi
   if (definition.role === "illustrator") {
     lines.push(`Generate ${config.branding.count} images in total: the logo first, then ${config.branding.count - 1} desktop screens.`)
     lines.push(config.branding.mobile ? "Then draw a mobile version of every desktop screen, named like the desktop file with .mobile before the extension." : "Do not draw mobile screens.")
+  }
+  if (definition.role === "marketer") {
+    lines.push(`Write ${config.marketing.pieces} pieces. The orchestrator renders each one in these formats: ${config.marketing.formats.join(", ")}.`)
   }
   if (config.stackHints.prefer.length) lines.push(`Preferred technologies: ${config.stackHints.prefer.join(", ")}.`)
   if (config.stackHints.avoid.length) lines.push(`Avoid: ${config.stackHints.avoid.join(", ")}.`)

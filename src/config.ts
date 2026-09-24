@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs"
 import { parse } from "yaml"
 
-export const planningPhases = ["spec", "architecture", "branding", "design", "plan"] as const
+export const planningPhases = ["spec", "architecture", "branding", "design", "marketing", "plan"] as const
 export type PlanningPhase = (typeof planningPhases)[number]
 
 // Phase names used by older projects, mapped to their current name.
@@ -11,7 +11,7 @@ export function normalizePhaseName(name: string): string {
   return legacyPhaseNames[name] ?? name
 }
 
-export const roles = ["pm", "architect", "illustrator", "designer", "planner", "worker", "reviewer", "qa", "doctor", "lead", "design-reviewer"] as const
+export const roles = ["pm", "architect", "illustrator", "designer", "marketer", "planner", "worker", "reviewer", "qa", "doctor", "lead", "design-reviewer"] as const
 export type Role = (typeof roles)[number]
 
 export const runnerNames = ["claude", "codex"] as const
@@ -46,6 +46,7 @@ export interface PipelineConfig {
   autonomy: { gates: PlanningPhase[] }
   // mobile: the illustrator also draws a phone version of every desktop screen.
   branding: { enabled: boolean; count: number; mobile: boolean }
+  marketing: { enabled: boolean; pieces: number; formats: MarketingFormat[] }
   publish: PublishConfig
   deploy: { enabled: boolean }
   qa: { enabled: boolean; maxRounds: number }
@@ -59,6 +60,14 @@ export interface PipelineConfig {
   harness: HarnessConfig
 }
 
+export const marketingFormats = {
+  og: { width: 1200, height: 630 },
+  square: { width: 1080, height: 1080 },
+  story: { width: 1080, height: 1920 },
+  x: { width: 1600, height: 900 },
+} as const
+export type MarketingFormat = keyof typeof marketingFormats
+
 export const defaultRunBudgetUsd = 30
 export const defaultParallelTasks = 5
 
@@ -68,6 +77,11 @@ export function loadConfig(path: string): PipelineConfig {
     target: raw.target ?? "web",
     autonomy: { gates: normalizeGates(raw.autonomy?.gates) },
     branding: normalizeBranding(raw.branding ?? raw.mockups),
+    marketing: {
+      enabled: raw.marketing?.enabled ?? true,
+      pieces: raw.marketing?.pieces ?? 3,
+      formats: raw.marketing?.formats ?? Object.keys(marketingFormats),
+    },
     deploy: { enabled: raw.deploy?.enabled ?? false },
     qa: { enabled: raw.qa?.enabled ?? true, maxRounds: raw.qa?.maxRounds ?? 3 },
     publish: {
@@ -116,6 +130,8 @@ function normalizeBranding(raw: { enabled?: boolean; count?: number; mobile?: bo
 // Roles added after a project was created get a default, so older pipeline.yaml files keep working.
 export const defaultRoles: Partial<Record<Role, Candidate>> = {
   illustrator: { runner: "codex", model: "gpt-6-astra" },
+  // Codex both searches stock photos with curl and generates images.
+  marketer: { runner: "codex", model: "gpt-6-astra" },
   qa: { runner: "claude", model: "opus" },
   doctor: { runner: "claude", model: "opus" },
   lead: { runner: "claude", model: "opus" },
@@ -138,6 +154,11 @@ function validateConfig(config: PipelineConfig): void {
   if (!["none", "docker"].includes(config.harness.isolation)) errors.push("harness.isolation must be none or docker")
   if (!["private", "public"].includes(config.publish.github.visibility)) errors.push("publish.github.visibility must be private or public")
   if (config.branding.count < 2 || config.branding.count > 6) errors.push("branding.count must be between 2 and 6")
+  if (!Number.isInteger(config.marketing.pieces) || config.marketing.pieces < 1 || config.marketing.pieces > 6) errors.push("marketing.pieces must be a whole number between 1 and 6")
+  if (!Array.isArray(config.marketing.formats) || !config.marketing.formats.length) errors.push("marketing.formats needs at least one format")
+  for (const format of config.marketing.formats ?? []) {
+    if (!(format in marketingFormats)) errors.push(`unknown marketing format "${format}"; use ${Object.keys(marketingFormats).join(", ")}`)
+  }
   if (!Number.isInteger(config.qa.maxRounds) || config.qa.maxRounds < 1) errors.push("qa.maxRounds must be a whole number of 1 or more")
   if (!Number.isInteger(config.parallelTasks) || config.parallelTasks < 1) errors.push("parallelTasks must be a whole number of 1 or more")
   if (!(config.budget.runUsd > 0)) errors.push("budget.runUsd must be a number above 0")

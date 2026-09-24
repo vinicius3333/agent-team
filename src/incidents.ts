@@ -60,7 +60,7 @@ export function fingerprint(kind: IncidentKind, reason: string): string {
 export function subjectOf(reason: string): string | null {
   const task = /\b([A-Z]{1,3}\d{2,4}[a-z]?)\b/.exec(reason)?.[1]
   if (task) return task
-  return /^(spec|architecture|branding|design|plan|deploy)\b/.exec(reason.trim())?.[1] ?? (/^QA round/.test(reason.trim()) ? "qa" : null)
+  return /^(spec|architecture|branding|design|marketing|plan|deploy)\b/.exec(reason.trim())?.[1] ?? (/^QA round/.test(reason.trim()) ? "qa" : null)
 }
 
 export function listIncidents(projectDir: string): Incident[] {

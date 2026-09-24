@@ -34,6 +34,13 @@ export const defaultAllowlist = [
   "objects.githubusercontent.com",
   "release-assets.githubusercontent.com",
   "nodejs.org",
+  // Stock photos for the marketing phase: the Openverse search API and the hosts its images live on.
+  "api.openverse.org",
+  "upload.wikimedia.org",
+  "live.staticflickr.com",
+  "*.staticflickr.com",
+  "images.pexels.com",
+  "images.unsplash.com",
 ]
 
 async function docker(args: string[]): Promise<string> {
