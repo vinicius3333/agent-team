@@ -1,4 +1,6 @@
 import { execFileSync } from "node:child_process"
+import { rmSync } from "node:fs"
+import { join } from "node:path"
 
 function git(dir: string, args: string[]): string {
   return execFileSync("git", args, { cwd: dir, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 })
@@ -24,6 +26,17 @@ export function changedFiles(dir: string): string[] {
     .split("\0")
     .filter(Boolean)
     .map((entry) => entry.slice(3))
+}
+
+// Puts paths back as they are at HEAD; a path HEAD does not have is removed.
+export function restorePaths(dir: string, paths: string[]): void {
+  for (const path of paths) {
+    if (git(dir, ["ls-tree", "--name-only", "HEAD", "--", path]).trim()) git(dir, ["checkout", "HEAD", "--", path])
+    else {
+      git(dir, ["rm", "-q", "--cached", "--force", "--ignore-unmatch", "--", path])
+      rmSync(join(dir, path), { force: true })
+    }
+  }
 }
 
 export function stagedDiff(dir: string): string {
