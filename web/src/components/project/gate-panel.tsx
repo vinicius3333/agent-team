@@ -14,7 +14,7 @@ import { phaseDocuments, stepLabels } from "@/lib/pipeline"
 import type { PipelineStep } from "@/api/types"
 import { StatusBadge } from "@/components/status-badge"
 import { DocumentView } from "./document-view"
-import { ProjectMockups } from "./mockups"
+import { ProjectBranding } from "./branding"
 import { useProjectView } from "./context"
 
 const feedbackLimit = 4000
@@ -42,9 +42,9 @@ function PlanOutput() {
 
 function PhaseOutputs({ phase, version }: { phase: string; version: string }) {
   const documents = phaseDocuments[phase] ?? []
-  const showMockups = phase === "mockups" || phase === "design"
+  const showBranding = phase === "branding" || phase === "design"
   const tabs = [
-    ...(showMockups ? [{ id: "mockups", label: "Mockups" }] : []),
+    ...(showBranding ? [{ id: "branding", label: "Branding" }] : []),
     ...documents.map((path) => ({ id: path, label: path.split("/").pop() ?? path })),
   ]
   if (!tabs.length) return null
@@ -59,9 +59,9 @@ function PhaseOutputs({ phase, version }: { phase: string; version: string }) {
           ))}
         </TabsList>
       )}
-      {showMockups && (
-        <TabsContent value="mockups">
-          <ProjectMockups version={version} />
+      {showBranding && (
+        <TabsContent value="branding">
+          <ProjectBranding version={version} />
         </TabsContent>
       )}
       {documents.map((path) => (

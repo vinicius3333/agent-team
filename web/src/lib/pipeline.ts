@@ -4,7 +4,7 @@ import { pipelineSteps } from "@/api/types"
 export const stepLabels: Record<PipelineStep, string> = {
   spec: "Spec",
   architecture: "Architecture",
-  mockups: "Mockups",
+  branding: "Branding",
   design: "Design",
   plan: "Plan",
   build: "Build",
@@ -14,7 +14,7 @@ export const stepLabels: Record<PipelineStep, string> = {
 export const phaseRoles: Record<string, string> = {
   spec: "pm",
   architecture: "architect",
-  mockups: "illustrator",
+  branding: "illustrator",
   design: "designer",
   plan: "planner",
 }
@@ -22,8 +22,8 @@ export const phaseRoles: Record<string, string> = {
 export const phaseOutputs: Record<string, string[]> = {
   spec: ["docs/spec.md"],
   architecture: ["docs/architecture.md", "docs/adr/", "contracts/openapi.yaml"],
-  mockups: ["design/mockups/*.png", "design/mockups/README.md"],
-  design: ["docs/design.md", "design/tokens.css"],
+  branding: ["design/branding/01-logo.png", "design/branding/*.png", "design/branding/README.md"],
+  design: ["design/tokens.css", "design/logo.svg", "design/logo-mark.svg", "docs/design-system.md", "docs/design.md"],
   plan: ["tasks.json"],
   build: ["code and tests, one merge per task"],
 }
@@ -31,8 +31,8 @@ export const phaseOutputs: Record<string, string[]> = {
 export const phaseDocuments: Record<string, string[]> = {
   spec: ["docs/spec.md"],
   architecture: ["docs/architecture.md"],
-  mockups: ["design/mockups/README.md"],
-  design: ["docs/design.md"],
+  branding: ["design/branding/README.md"],
+  design: ["docs/design-system.md", "docs/design.md"],
   plan: ["tasks.json"],
 }
 

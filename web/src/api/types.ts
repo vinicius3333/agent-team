@@ -1,4 +1,4 @@
-export const planningPhases = ["spec", "architecture", "mockups", "design", "plan"] as const
+export const planningPhases = ["spec", "architecture", "branding", "design", "plan"] as const
 export type PlanningPhase = (typeof planningPhases)[number]
 
 export const pipelineSteps = [...planningPhases, "build", "deploy"] as const
@@ -93,7 +93,7 @@ export interface ProjectConfig {
   target: Target
   gates: PlanningPhase[]
   roles: Record<string, RoleConfig>
-  mockups: { enabled?: boolean; count?: number } | null
+  branding: { enabled?: boolean; count?: number } | null
   publish: { github: { enabled: boolean } }
 }
 
@@ -150,5 +150,5 @@ export interface NewProjectRequest {
   gates: PlanningPhase[]
   github: boolean
   deploy: boolean
-  mockups: boolean
+  branding: boolean
 }

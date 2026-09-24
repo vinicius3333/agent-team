@@ -62,7 +62,7 @@ const providers: { value: RunnerName; label: string; hint: string }[] = [
 const gateHints: Record<PlanningPhase, string> = {
   spec: "Review the product spec before the architecture.",
   architecture: "Review the technical plan before design.",
-  mockups: "Review the mockup images before design.",
+  branding: "Review the logo and screen images before design.",
   design: "Review the UI design before the build.",
   plan: "Review the task list before workers start.",
 }
@@ -85,7 +85,7 @@ const teamRoles = [
   {
     name: "Illustrator",
     role: "illustrator",
-    hint: "Draws UI mockups.",
+    hint: "Draws the logo and key screens.",
     icon: Image,
     color: "text-chart-2 bg-chart-2/10",
   },
@@ -160,7 +160,7 @@ export function NewProjectPage() {
   const [gates, setGates] = useState<PlanningPhase[]>(["spec", "design"])
   const [github, setGithub] = useState(false)
   const [deploy, setDeploy] = useState(true)
-  const [mockups, setMockups] = useState(true)
+  const [branding, setBranding] = useState(true)
   const [errors, setErrors] = useState<FormErrors>({})
   const [touched, setTouched] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -179,7 +179,7 @@ export function NewProjectPage() {
     if (Object.keys(found).length) return
     setSubmitting(true)
     try {
-      const orderedGates = planningPhases.filter((phase) => gates.includes(phase) && (mockups || phase !== "mockups"))
+      const orderedGates = planningPhases.filter((phase) => gates.includes(phase) && (branding || phase !== "branding"))
       const created = await api.createProject({
         name,
         brief,
@@ -188,7 +188,7 @@ export function NewProjectPage() {
         gates: orderedGates,
         github,
         deploy,
-        mockups,
+        branding,
       })
       toast.success(`Started ${created.name}`)
       void refresh()
@@ -283,7 +283,7 @@ export function NewProjectPage() {
                 <p className="mb-3 text-xs text-muted-foreground">The build pauses after each checked step until you approve it.</p>
                 <div className="grid gap-3 sm:grid-cols-2">
                   {planningPhases.map((phase) => {
-                    const disabled = phase === "mockups" && !mockups
+                    const disabled = phase === "branding" && !branding
                     return (
                       <div key={phase} className={cn("flex items-start gap-3", disabled && "opacity-50")}>
                         <Checkbox
@@ -323,11 +323,11 @@ export function NewProjectPage() {
                     set: setDeploy,
                   },
                   {
-                    id: "option-mockups",
-                    label: "Draw mockups",
-                    hint: "The illustrator draws UI images before the design step.",
-                    checked: mockups,
-                    set: setMockups,
+                    id: "option-branding",
+                    label: "Draw branding",
+                    hint: "The illustrator draws a logo and desktop screens before the design step.",
+                    checked: branding,
+                    set: setBranding,
                   },
                 ].map((option) => (
                   <div key={option.id} className="flex items-start gap-3">

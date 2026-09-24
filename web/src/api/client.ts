@@ -49,7 +49,7 @@ export const api = {
   projects: () => getJson<ProjectSummary[]>("/api/projects"),
   project: (name: string) => getJson<ProjectDetail>(projectPath(name)),
   markdownFiles: (name: string) => getJson<string[]>(`${projectPath(name)}/markdown`),
-  mockups: (name: string) => getJson<string[]>(`${projectPath(name)}/mockups`),
+  branding: (name: string) => getJson<string[]>(`${projectPath(name)}/branding`),
   file: (name: string, path: string) => getText(`${projectPath(name)}/file?path=${encodeURIComponent(path)}`),
   transcript: (name: string, file: string) => getText(`${projectPath(name)}/transcript/${encodeURIComponent(file)}`),
 
@@ -62,7 +62,7 @@ export const api = {
 
 export const urls = {
   stream: (name: string) => `/api/stream/${encodeURIComponent(name)}`,
-  mockup: (name: string, file: string) => `${projectPath(name)}/mockups/${encodeURIComponent(file)}`,
+  brandingImage: (name: string, file: string) => `${projectPath(name)}/branding/${encodeURIComponent(file)}`,
   raw: (name: string, path: string) => `${projectPath(name)}/raw?path=${encodeURIComponent(path)}`,
   file: (name: string, path: string) => `${projectPath(name)}/file?path=${encodeURIComponent(path)}`,
 }

@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, openSync, closeSync, readdirSync, readFileSync, 
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { parseDocument } from "yaml"
-import { planningPhases, type PipelineConfig, type PlanningPhase, type RunnerName } from "./config.ts"
+import { normalizePhaseName, planningPhases, type PipelineConfig, type PlanningPhase, type RunnerName } from "./config.ts"
 import { appendFeedback, archiveFeedback } from "./feedback.ts"
 import { commitAll, initRepository } from "./git.ts"
 import { openStore, type Store } from "./store.ts"
@@ -26,7 +26,7 @@ export interface ProjectChoices {
   gates: PlanningPhase[]
   github: boolean
   deploy: boolean
-  mockups: boolean
+  branding: boolean
 }
 
 export function createProject(projectDir: string, brief: string, choices?: ProjectChoices): void {
@@ -48,7 +48,7 @@ function applyChoices(pipelineYaml: string, choices: ProjectChoices): string {
   document.setIn(["autonomy", "gates"], gates)
   document.setIn(["publish", "github", "enabled"], choices.github)
   document.setIn(["deploy", "enabled"], choices.deploy)
-  document.setIn(["mockups", "enabled"], choices.mockups)
+  document.setIn(["branding", "enabled"], choices.branding)
   if (choices.workerRunner === "codex") {
     document.setIn(["roles", "worker", "runner"], "codex")
     document.setIn(["roles", "worker", "model"], "gpt-5.5")
@@ -72,7 +72,8 @@ export function withProjectStore<T>(projectDir: string, use: (store: Store) => T
   }
 }
 
-function requireAwaitingApproval(store: Store, phase: string | undefined): PlanningPhase {
+function requireAwaitingApproval(store: Store, requestedPhase: string | undefined): PlanningPhase {
+  const phase = requestedPhase === undefined ? undefined : normalizePhaseName(requestedPhase)
   if (!planningPhases.includes(phase as PlanningPhase)) throw new ProjectError(400, `phase must be one of ${planningPhases.join(", ")}`)
   if (store.phaseStatus(phase!) !== "awaiting_approval") throw new ProjectError(409, `phase "${phase}" is not waiting for approval`)
   return phase as PlanningPhase

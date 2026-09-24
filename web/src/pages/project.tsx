@@ -16,7 +16,7 @@ import { DocsTab } from "@/components/project/docs-tab"
 import { EventsCard } from "@/components/project/events"
 import { GatePanel } from "@/components/project/gate-panel"
 import { GithubCard } from "@/components/project/github-card"
-import { ProjectMockups } from "@/components/project/mockups"
+import { ProjectBranding } from "@/components/project/branding"
 import { StatCards } from "@/components/project/stat-cards"
 import { PipelineStepper } from "@/components/project/stepper"
 import { RunnerHealthCard, runnerCooldown } from "@/components/project/system-tab"
@@ -34,7 +34,7 @@ import type { PipelineStep, ProjectDetail } from "@/api/types"
 const tabs = [
   { id: "overview", label: "Overview" },
   { id: "docs", label: "Docs" },
-  { id: "mockups", label: "Mockups" },
+  { id: "branding", label: "Branding" },
   { id: "attempts", label: "Agent calls" },
   { id: "system", label: "System" },
   { id: "config", label: "Config" },
@@ -208,9 +208,9 @@ function ProjectBody({ name, detail, stream }: { name: string; detail: ProjectDe
           <TabsContent value="docs" className="mt-2">
             <DocsTab path={document} onSelect={(path) => update((params) => params.set("doc", path))} />
           </TabsContent>
-          <TabsContent value="mockups" className="mt-2">
+          <TabsContent value="branding" className="mt-2">
             <Card className="p-4">
-              <ProjectMockups version={detail.phases.find((phase) => phase.name === "mockups")?.updatedAt ?? ""} />
+              <ProjectBranding version={detail.phases.find((phase) => phase.name === "branding")?.updatedAt ?? ""} />
             </Card>
           </TabsContent>
           <TabsContent value="attempts" className="mt-2">

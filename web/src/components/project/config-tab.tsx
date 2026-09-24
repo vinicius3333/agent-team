@@ -61,8 +61,8 @@ export function ConfigTab() {
             <dd className="flex flex-wrap gap-1">
               {config.gates.length ? planningPhases.filter((phase) => config.gates.includes(phase)).map((phase) => <Badge key={phase} variant="secondary">{stepLabels[phase]}</Badge>) : "none, fully autonomous"}
             </dd>
-            <dt className="text-muted-foreground">Mockups</dt>
-            <dd>{config.mockups?.enabled === false ? "off" : `on${config.mockups?.count ? `, ${config.mockups.count} images` : ""}`}</dd>
+            <dt className="text-muted-foreground">Branding</dt>
+            <dd>{config.branding?.enabled === false ? "off" : `on${config.branding?.count ? `, ${config.branding.count} images` : ""}`}</dd>
             <dt className="text-muted-foreground">GitHub</dt>
             <dd>{config.publish.github.enabled ? "on" : "off"}</dd>
           </dl>

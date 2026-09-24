@@ -3,11 +3,11 @@
   <img alt="agent-team" src="docs/brand/logo/horizontal-light.svg" width="320">
 </picture>
 
-A self-hosted orchestrator that turns a plain-text product brief into a working web app or API. A team of AI agents writes the spec, architecture, mockups, design, and task plan. Scoped worker agents then build the app one task at a time, and a reviewer checks each task.
+A self-hosted orchestrator that turns a plain-text product brief into a working web app or API. A team of AI agents writes the spec, architecture, branding, design system, and task plan. Scoped worker agents then build the app one task at a time, and a reviewer checks each task.
 
 ![A team of agents passing work around the agent-team hexagon](docs/brand/assets/readme-hero.png)
 
-All roles default to Claude. The illustrator uses Codex, because it generates the mockup images. Any role can use any supported runner.
+All roles default to Claude. The illustrator uses Codex, because it generates the logo and screen images. Any role can use any supported runner.
 
 ## Requirements
 
@@ -79,7 +79,7 @@ The server starts runs itself, so it needs `CLAUDE_CODE_OAUTH_TOKEN` (from `clau
 
 From the dashboard you can:
 
-- Create a project from a brief. It picks the target, worker provider, gates, GitHub, deploy, and mockups, then starts the run.
+- Create a project from a brief. It picks the target, worker provider, gates, GitHub, deploy, and branding, then starts the run.
 - Approve a phase that waits at a gate.
 - Request changes to a phase. The agent redoes it with your notes.
 - Retry a blocked task.
@@ -99,9 +99,12 @@ Do not expose the port to the internet. Anyone who reaches it can start paid age
 | --- | --- | --- |
 | spec | PM | `docs/spec.md` |
 | architecture | Architect | `docs/architecture.md`, `docs/adr/*`, `contracts/openapi.yaml` |
-| design | Designer | `docs/design.md`, `design/tokens.css` |
+| branding | Illustrator | `design/branding/01-logo.png`, desktop screens `02-<screen>.png` and later, `design/branding/README.md` |
+| design | Designer | `design/tokens.css`, `design/logo.svg`, `design/logo-mark.svg`, `docs/design-system.md`, `docs/design.md` |
 | plan | Planner | `tasks.json` |
 | build | Worker, then Reviewer | code and tests, one commit per task |
+
+`branding.count` (default 4, 2 to 6) sets the number of branding images, logo included. Set `branding.enabled: false` to skip the phase. Older `pipeline.yaml` files with a `mockups:` key, and `mockups` in `autonomy.gates`, still work.
 
 Role prompts live in `prompts/`. Edit them to tune behavior.
 

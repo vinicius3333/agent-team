@@ -6,7 +6,7 @@ import { DatabaseSync } from "node:sqlite"
 import { promisify } from "node:util"
 import { fileURLToPath } from "node:url"
 import { parse as parseYaml } from "yaml"
-import { loadConfig, planningPhases, runnerNames, type PlanningPhase } from "../config.ts"
+import { loadConfig, normalizePhaseName, planningPhases, runnerNames, type PlanningPhase } from "../config.ts"
 import { pendingFeedback } from "../feedback.ts"
 import { approvePhase, createProject, ProjectError, requestChanges, retryTask, runAlive, startRun as spawnRun, withProjectStore, type ProjectChoices } from "../project.ts"
 
@@ -34,8 +34,12 @@ const newProjectNamePattern = /^[a-z0-9][a-z0-9-]{1,40}$/
 const targets = ["web", "api", "web+api"]
 const transcriptMaxBytes = 200 * 1024
 const artifactMaxBytes = 500 * 1024
-const mockupMaxBytes = 20 * 1024 * 1024
-const mockupPattern = /^[A-Za-z0-9._-]+\.(png|jpe?g|webp)$/
+const imageMaxBytes = 20 * 1024 * 1024
+const brandingImagePattern = /^[A-Za-z0-9._-]+\.(png|jpe?g|webp)$/
+// The dashboard reads the state DB read-only, so it maps the pre-rename "mockups" row itself.
+const phaseNameColumn = "CASE name WHEN 'mockups' THEN 'branding' ELSE name END AS name"
+// Projects created before the rename keep their images in design/mockups/.
+const brandingDirectories = [join("design", "branding"), join("design", "mockups")]
 const activeWindowMs = 2 * 60_000
 const projectNamePattern = /^[A-Za-z0-9._-]+$/
 const transcriptNamePattern = /^[A-Za-z0-9._-]+\.log$/
@@ -140,7 +144,7 @@ function summary(runsDir: string, name: string) {
   return withDatabase(
     projectDir,
     (db) => {
-      const phases = all(db, "SELECT name, status FROM phases")
+      const phases = all(db, `SELECT ${phaseNameColumn}, status FROM phases`)
       const counts: Record<string, number> = {}
       for (const row of all(db, "SELECT status, COUNT(*) AS count FROM tasks GROUP BY status")) counts[row.status] = row.count
       const lastEvent = all(db, "SELECT at, type, message FROM events ORDER BY id DESC LIMIT 1")[0] ?? null
@@ -164,6 +168,10 @@ async function command(cwd: string, file: string, args: string[]): Promise<strin
   }
 }
 
+function brandingDirectory(projectDir: string): string | null {
+  return brandingDirectories.find((dir) => existsSync(join(projectDir, dir))) ?? null
+}
+
 function readConfig(projectDir: string) {
   try {
     const raw = parseYaml(readFileSync(join(projectDir, "pipeline.yaml"), "utf8")) ?? {}
@@ -173,9 +181,9 @@ function readConfig(projectDir: string) {
     }
     return {
       target: raw.target ?? "web",
-      gates: raw.autonomy?.gates ?? [],
+      gates: Array.isArray(raw.autonomy?.gates) ? raw.autonomy.gates.map((gate: unknown) => normalizePhaseName(String(gate))) : [],
       roles,
-      mockups: raw.mockups ?? null,
+      branding: raw.branding ?? raw.mockups ?? null,
       publish: { github: { enabled: Boolean(raw.publish?.github?.enabled) } },
     }
   } catch {
@@ -275,7 +283,7 @@ async function detail(runsDir: string, name: string) {
   const state = withDatabase(
     projectDir,
     (db) => ({
-      phases: all(db, "SELECT name, status, updated_at AS updatedAt FROM phases"),
+      phases: all(db, `SELECT ${phaseNameColumn}, status, updated_at AS updatedAt FROM phases`),
       tasks: (() => {
         const withIssue = all(db, "SELECT id, status, attempts, last_failure AS lastFailure, issue_number AS issueNumber FROM tasks ORDER BY id")
         return withIssue.length ? withIssue : all(db, "SELECT id, status, attempts, last_failure AS lastFailure FROM tasks ORDER BY id")
@@ -402,7 +410,9 @@ async function readJson(request: IncomingMessage): Promise<Record<string, unknow
 }
 
 function parseChoices(body: Record<string, unknown>): { name: string; brief: string; choices: ProjectChoices } {
-  const { name, brief, target, workerRunner, gates, github, deploy, mockups } = body
+  const { name, brief, target, workerRunner, github, deploy } = body
+  const branding = body.branding ?? body.mockups
+  const gates = Array.isArray(body.gates) ? body.gates.map((gate) => (typeof gate === "string" ? normalizePhaseName(gate) : gate)) : body.gates
   if (typeof name !== "string" || !newProjectNamePattern.test(name)) {
     throw new ProjectError(400, "The name must be 2 to 41 characters: lowercase letters, digits, and dashes, starting with a letter or digit.")
   }
@@ -412,7 +422,7 @@ function parseChoices(body: Record<string, unknown>): { name: string; brief: str
   if (!Array.isArray(gates) || !gates.every((gate) => (planningPhases as readonly unknown[]).includes(gate))) {
     throw new ProjectError(400, `Each gate must be one of ${planningPhases.join(", ")}.`)
   }
-  for (const [field, value] of Object.entries({ github, deploy, mockups })) {
+  for (const [field, value] of Object.entries({ github, deploy, branding })) {
     if (typeof value !== "boolean") throw new ProjectError(400, `The ${field} field must be true or false.`)
   }
   return {
@@ -424,7 +434,7 @@ function parseChoices(body: Record<string, unknown>): { name: string; brief: str
       gates: [...new Set(gates as PlanningPhase[])],
       github: github as boolean,
       deploy: deploy as boolean,
-      mockups: mockups as boolean,
+      branding: branding as boolean,
     },
   }
 }
@@ -526,19 +536,21 @@ export function startUi(options: UiOptions) {
           const hidden = relative.split(/[\\/]/).some((segment) => ignoredDirectories.has(segment))
           if (!type || !resolve(projectDir, relative).startsWith(projectDir + sep) || hidden) return send(response, 400, { error: "path not allowed" })
           const path = projectFile(projectDir, relative)
-          if (!path || !statSync(path).isFile() || statSync(path).size > mockupMaxBytes) return send(response, 404, { error: "not found" })
+          if (!path || !statSync(path).isFile() || statSync(path).size > imageMaxBytes) return send(response, 404, { error: "not found" })
           response.writeHead(200, { "content-type": type, "cache-control": "no-store", "x-content-type-options": "nosniff" })
           return response.end(readFileSync(path))
         }
-        if (parts[3] === "mockups" && parts.length === 4) {
-          const dir = join(projectDir, "design", "mockups")
-          const images = existsSync(dir) ? readdirSync(dir).filter((file) => mockupPattern.test(file)).sort() : []
+        const brandingRoute = parts[3] === "branding" || parts[3] === "mockups"
+        if (brandingRoute && parts.length === 4) {
+          const dir = brandingDirectory(projectDir)
+          const images = dir ? readdirSync(join(projectDir, dir)).filter((file) => brandingImagePattern.test(file)).sort() : []
           return send(response, 200, images)
         }
-        if (parts[3] === "mockups" && parts[4] && parts.length === 5) {
-          if (!mockupPattern.test(parts[4])) return send(response, 400, { error: "bad file name" })
-          const path = projectFile(projectDir, join("design", "mockups", parts[4]))
-          if (!path || statSync(path).size > mockupMaxBytes) return send(response, 404, { error: "not found" })
+        if (brandingRoute && parts[4] && parts.length === 5) {
+          if (!brandingImagePattern.test(parts[4])) return send(response, 400, { error: "bad file name" })
+          const dir = brandingDirectory(projectDir)
+          const path = dir ? projectFile(projectDir, join(dir, parts[4])) : null
+          if (!path || statSync(path).size > imageMaxBytes) return send(response, 404, { error: "not found" })
           const extension = parts[4].split(".").pop()!.toLowerCase()
           response.writeHead(200, { "content-type": `image/${extension === "jpg" ? "jpeg" : extension}`, "cache-control": "no-store" })
           return response.end(readFileSync(path))

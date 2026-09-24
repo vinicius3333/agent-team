@@ -14,7 +14,7 @@ import { startUi } from "../src/ui/server.ts"
 const scratch = mkdtempSync(join(tmpdir(), "agent-team-dashboard-"))
 after(() => rmSync(scratch, { recursive: true, force: true }))
 
-const choices: ProjectChoices = { target: "api", workerRunner: "codex", gates: ["spec", "design"], github: true, deploy: false, mockups: false }
+const choices: ProjectChoices = { target: "api", workerRunner: "codex", gates: ["spec", "design"], github: true, deploy: false, branding: false }
 
 test("createProject writes the choices into pipeline.yaml and keeps comments", () => {
   const projectDir = join(scratch, "created")
@@ -27,7 +27,7 @@ test("createProject writes the choices into pipeline.yaml and keeps comments", (
   assert.deepEqual(config.autonomy.gates, ["spec", "design"])
   assert.equal(config.publish.github.enabled, true)
   assert.equal(config.deploy.enabled, false)
-  assert.equal(config.mockups.enabled, false)
+  assert.equal(config.branding.enabled, false)
   assert.equal(config.roles.worker.runner, "codex")
   assert.equal(config.roles.worker.model, "gpt-5.5")
   assert.equal(config.roles.worker.maxRetries, 3)

@@ -360,9 +360,9 @@ function phasePanel(detail: ProjectDetail, phase: string, view: ReturnType<typeo
                 <FileText /> Open {path}
               </Button>
             ))}
-            {(phase === "mockups" || phase === "design") && (
-              <Button variant="outline" size="sm" onClick={() => view.showTab("mockups")}>
-                Open mockups gallery
+            {(phase === "branding" || phase === "design") && (
+              <Button variant="outline" size="sm" onClick={() => view.showTab("branding")}>
+                Open branding gallery
               </Button>
             )}
           </div>

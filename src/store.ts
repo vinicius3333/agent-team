@@ -61,6 +61,9 @@ export function openStore(path: string) {
   const taskColumns = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[]
   if (!taskColumns.some((column) => column.name === "issue_number")) db.exec("ALTER TABLE tasks ADD COLUMN issue_number INTEGER")
 
+  // Projects created before the rename have a "mockups" phase row.
+  db.exec("UPDATE OR IGNORE phases SET name = 'branding' WHERE name = 'mockups'")
+
   const now = () => new Date().toISOString()
 
   return {

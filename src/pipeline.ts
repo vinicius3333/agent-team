@@ -25,7 +25,7 @@ interface PhaseDefinition {
   role: Role
   inputs: string[]
   outputs: string[]
-  validate: (projectDir: string) => void
+  validate: (projectDir: string, config: PipelineConfig) => void
 }
 
 const phaseDefinitions: Record<PlanningPhase, PhaseDefinition> = {
@@ -42,24 +42,27 @@ const phaseDefinitions: Record<PlanningPhase, PhaseDefinition> = {
     outputs: ["docs/architecture.md", "docs/adr/", "contracts/openapi.yaml (if the app has an API)"],
     validate: (dir) => requireHeadings(join(dir, "docs/architecture.md"), ["## Commands"]),
   },
-  mockups: {
+  branding: {
     role: "illustrator",
     inputs: ["input.md", "docs/spec.md", "docs/architecture.md"],
-    outputs: ["design/mockups/*.png", "design/mockups/README.md"],
-    validate: (dir) => {
-      const mockupDir = join(dir, "design/mockups")
-      const images = existsSync(mockupDir) ? readdirSync(mockupDir).filter((file) => /\.(png|jpe?g|webp)$/i.test(file)) : []
-      if (images.length === 0) throw new Error("no mockup images in design/mockups/")
-    },
+    outputs: ["design/branding/01-logo.png", "design/branding/02-<screen>.png and later screens", "design/branding/README.md"],
+    validate: (dir, config) => validateBranding(dir, config.branding.count),
   },
   design: {
     role: "designer",
-    inputs: ["docs/spec.md", "docs/architecture.md", "contracts/", "design/mockups/ (UI mockup images: open and study them, use them as visual reference)"],
-    outputs: ["docs/design.md", "design/tokens.css"],
+    inputs: [
+      "docs/spec.md",
+      "docs/architecture.md",
+      "contracts/",
+      "design/branding/ (logo and desktop screen images: open and study every one, build the design system from them)",
+    ],
+    outputs: ["design/tokens.css", "design/logo.svg", "design/logo-mark.svg", "docs/design-system.md", "docs/design.md"],
     validate: (dir) => {
-      requireFile(join(dir, "docs/design.md"))
       const tokens = readFileSync(requireFile(join(dir, "design/tokens.css")), "utf8")
       if (!tokens.includes("--primary:")) throw new Error("design/tokens.css has no --primary variable")
+      for (const logo of ["design/logo.svg", "design/logo-mark.svg"]) requireSvg(join(dir, logo))
+      requireHeadings(join(dir, "docs/design-system.md"), designSystemHeadings)
+      requireFile(join(dir, "docs/design.md"))
     },
   },
   plan: {
@@ -68,6 +71,23 @@ const phaseDefinitions: Record<PlanningPhase, PhaseDefinition> = {
     outputs: ["tasks.json"],
     validate: (dir) => void loadTasks(join(dir, "tasks.json")),
   },
+}
+
+const designSystemHeadings = ["## Principles", "## Color", "## Typography", "## Spacing and radius", "## Components", "## Icons", "## Logo"]
+const imagePattern = /\.(png|jpe?g|webp)$/i
+
+export function validateBranding(dir: string, count: number): void {
+  const brandingDir = join(dir, "design/branding")
+  requireFile(join(brandingDir, "01-logo.png"))
+  requireFile(join(brandingDir, "README.md"))
+  const screens = readdirSync(brandingDir).filter((file) => imagePattern.test(file) && file !== "01-logo.png")
+  if (screens.length < count - 1) throw new Error(`design/branding/ has ${screens.length} screen images; expected at least ${count - 1}`)
+}
+
+function requireSvg(path: string): void {
+  const content = readFileSync(requireFile(path), "utf8").replace(/^\uFEFF/, "").trim()
+  const withoutProlog = content.replace(/^<\?xml[\s\S]*?\?>\s*/, "").replace(/^(<!--[\s\S]*?-->\s*)*/, "")
+  if (!/^<svg[\s>]/.test(withoutProlog) || !/<\/svg>\s*$/.test(content)) throw new Error(`${path} is not an SVG file with an <svg> root`)
 }
 
 // "paused" = stopped for a reason outside the agents' work (operator abort, no runner available); rerun to resume.
@@ -101,10 +121,10 @@ async function runPlanningPhase(context: PipelineContext, phase: PlanningPhase):
     return "awaiting_approval"
   }
   const skipReason =
-    (phase === "design" || phase === "mockups") && config.target === "api"
+    (phase === "design" || phase === "branding") && config.target === "api"
       ? "api-only target"
-      : phase === "mockups" && !config.mockups.enabled
-        ? "mockups disabled in pipeline.yaml"
+      : phase === "branding" && !config.branding.enabled
+        ? "branding disabled in pipeline.yaml"
         : null
   if (skipReason) {
     store.setPhase(phase, "approved")
@@ -151,7 +171,7 @@ async function attemptPhase(context: PipelineContext, phase: PlanningPhase, defi
     if (isInfrastructureFailure(outcome)) return { kind: "infrastructure", reason: `${outcome.failureClass}: ${outcome.result.summary}` }
     if (outcome.result.status !== "done") return { kind: "failed", reason: `agent ${outcome.result.status}: ${outcome.result.summary}` }
     try {
-      definition.validate(workspace.path)
+      definition.validate(workspace.path, context.config)
     } catch (error) {
       return { kind: "failed", reason: (error as Error).message }
     }
@@ -180,7 +200,7 @@ export function phasePrompt(context: Pick<PipelineContext, "projectDir" | "confi
     `Read these inputs: ${definition.inputs.join(", ")}.`,
     `Write these outputs: ${definition.outputs.join(", ")}.`,
   ]
-  if (definition.role === "illustrator") lines.push(`Generate ${config.mockups.count} mockup images.`)
+  if (definition.role === "illustrator") lines.push(`Generate ${config.branding.count} images in total: the logo first, then ${config.branding.count - 1} desktop screens.`)
   if (config.stackHints.prefer.length) lines.push(`Preferred technologies: ${config.stackHints.prefer.join(", ")}.`)
   if (config.stackHints.avoid.length) lines.push(`Avoid: ${config.stackHints.avoid.join(", ")}.`)
   const feedback = readFeedback(projectDir, phase)

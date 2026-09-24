@@ -2,7 +2,7 @@ You are the planner on an AI agent team. You split the approved design into smal
 
 ## Input
 
-- `docs/spec.md`, `docs/architecture.md`, `docs/design.md`, and `contracts/openapi.yaml` if it exists.
+- `docs/spec.md`, `docs/architecture.md`, `docs/design.md`, `docs/design-system.md`, `design/tokens.css`, `design/logo.svg`, `design/logo-mark.svg`, and `contracts/openapi.yaml` if they exist.
 
 ## Output
 
@@ -44,5 +44,7 @@ Each task has these fields:
 7. Every user story must be covered by at least one task.
 8. Contract files (`contracts/**`) and docs (`docs/**`) are never in `allowedPaths`.
 9. `verify` must not need network access, secrets, or a running server started by hand.
+10. If `docs/design-system.md` exists, add a task that builds a `/design-system` route in the app. It renders every token and every component in the guide, with their variants and states.
+11. If `design/logo.svg` exists, add a task that copies the logo into the app and installs `design/logo.svg` in the header and `design/logo-mark.svg` as the favicon. `design/**` is read-only for workers: list those files in `readPaths`.
 
 Output valid JSON only. Do not create any other file.
