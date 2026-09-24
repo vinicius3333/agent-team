@@ -57,7 +57,7 @@ function statValue(key: string, value: string | number | boolean): string {
   return String(value)
 }
 
-function Entry({ entry }: { entry: TranscriptEntry }) {
+export function TranscriptEntryView({ entry }: { entry: TranscriptEntry }) {
   switch (entry.kind) {
     case "message":
       return parseVerdict(entry.text) ? (
@@ -167,7 +167,7 @@ function TranscriptBody({ project, request }: { project: string; request: Transc
       </TabsList>
       <TabsContent value="timeline" className="min-h-0 overflow-y-auto p-4">
         <div className="flex flex-col gap-3">
-          {entries.length ? entries.map((entry, index) => <Entry key={index} entry={entry} />) : <p className="text-sm text-muted-foreground">Empty transcript.</p>}
+          {entries.length ? entries.map((entry, index) => <TranscriptEntryView key={index} entry={entry} />) : <p className="text-sm text-muted-foreground">Empty transcript.</p>}
         </div>
       </TabsContent>
       <TabsContent value="raw" className="relative min-h-0 overflow-y-auto p-4">

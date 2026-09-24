@@ -413,8 +413,25 @@ export interface IncidentCall {
   transcript: string
 }
 
+export interface IncidentEvent {
+  id: number
+  at: string
+  message: string
+}
+
+export interface IncidentLog {
+  file: string
+  attempt: number | null
+  // "claude-1" for an agent transcript, "npm-test" for a check output.
+  label: string
+  size: number
+  updatedAt: string
+}
+
 export interface IncidentDetail extends Incident {
   calls: IncidentCall[]
+  events: IncidentEvent[]
+  logs: IncidentLog[]
 }
 
 export interface NotificationChannel {

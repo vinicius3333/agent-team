@@ -3,20 +3,23 @@ import { Link, useParams } from "react-router"
 import { ExternalLink, FileText, GitPullRequest } from "lucide-react"
 import { api } from "@/api/client"
 import { useAsync } from "@/api/hooks"
-import type { Incident, IncidentCall } from "@/api/types"
+import type { Incident, IncidentCall, IncidentDetail, IncidentLog } from "@/api/types"
 import { EmptyState } from "@/components/empty-state"
 import { causeLabels, IncidentStatusBadge } from "@/components/incidents/incident-status"
 import { PageHeader } from "@/components/page-header"
 import type { TranscriptRequest } from "@/components/project/context"
-import { TranscriptSheet } from "@/components/project/transcript-sheet"
+import { TranscriptEntryView, TranscriptSheet } from "@/components/project/transcript-sheet"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { TokenCount } from "@/components/token-count"
 import { formatCost, formatDateTime, formatDuration, formatRelative, formatTokens } from "@/lib/format"
+import { parseTranscript } from "@/lib/transcript"
 
 const refreshMs = 10_000
+const liveRefreshMs = 3000
+const liveEntryLimit = 12
 
 function usePolled<T>(load: () => Promise<T>, key: string) {
   const [value, setValue] = useState<T | null>(null)
@@ -121,6 +124,108 @@ export function IncidentsPage() {
   )
 }
 
+function isAgentLog(log: IncidentLog): boolean {
+  return /^[a-z]+-\d+$/.test(log.label)
+}
+
+function logRequest(incident: IncidentDetail, log: IncidentLog, live: boolean): TranscriptRequest {
+  const call = incident.calls.find((candidate) => candidate.transcript === log.file)
+  return { file: log.file, subject: `doctor attempt ${log.attempt ?? "?"}`, role: isAgentLog(log) ? "doctor" : log.label, runner: call?.runner ?? "", model: call?.model ?? "", live }
+}
+
+// The newest agent transcript while the doctor works, refreshed so the page shows what it does right now.
+function LiveActivity({ project, file, live }: { project: string; file: string; live: boolean }) {
+  const [text, setText] = useState<string | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    const refresh = () =>
+      api
+        .transcript(project, file)
+        .then((value) => !cancelled && setText(value))
+        .catch(() => !cancelled && setText(""))
+    void refresh()
+    const timer = live ? setInterval(refresh, liveRefreshMs) : undefined
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [project, file, live])
+  if (text === null) return <Skeleton className="h-24" />
+  const entries = parseTranscript(text).slice(-liveEntryLimit)
+  if (!entries.length) return <p className="text-sm text-muted-foreground">The doctor started. No output yet.</p>
+  return (
+    <div className="flex max-h-[32rem] flex-col gap-3 overflow-y-auto">
+      {entries.map((entry, index) => (
+        <TranscriptEntryView key={index} entry={entry} />
+      ))}
+    </div>
+  )
+}
+
+function DoctorLog({ incident, onOpen }: { incident: IncidentDetail; onOpen: (request: TranscriptRequest) => void }) {
+  const working = incident.status === "diagnosing"
+  const newest = incident.logs.at(-1)
+  const liveLog = working && newest ? newest : null
+  return (
+    <Card className="lg:col-span-2">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          Doctor log
+          {working && (
+            <span className="inline-flex items-center gap-1.5 text-xs font-normal text-muted-foreground">
+              <span className="size-2 animate-pulse rounded-full bg-success" aria-hidden="true" /> working
+            </span>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+        <div className="flex flex-col gap-4">
+          <div>
+            <p className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Events</p>
+            {incident.events.length ? (
+              <ol className="flex flex-col gap-1.5 font-mono text-xs">
+                {incident.events.map((event) => (
+                  <li key={event.id} className="break-words">
+                    <span className="text-muted-foreground">{formatDateTime(event.at)}</span> {event.message.replace(`incident ${incident.id}: `, "")}
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="text-sm text-muted-foreground">No events yet.</p>
+            )}
+          </div>
+          <div>
+            <p className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Files</p>
+            {incident.logs.length ? (
+              <ul className="flex flex-col gap-1.5 text-sm">
+                {incident.logs.map((log) => (
+                  <li key={log.file} className="flex items-center justify-between gap-2">
+                    <span className="min-w-0">
+                      <span className="block truncate font-mono text-xs">
+                        attempt {log.attempt ?? "?"} · {log.label}
+                      </span>
+                      <span className="text-xs text-muted-foreground">updated {formatRelative(log.updatedAt)}</span>
+                    </span>
+                    <Button variant="outline" size="sm" onClick={() => onOpen(logRequest(incident, log, log === liveLog))}>
+                      <FileText /> Open
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-muted-foreground">No files yet.</p>
+            )}
+          </div>
+        </div>
+        <div className="min-w-0">
+          <p className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">{liveLog ? `Now: attempt ${liveLog.attempt ?? "?"} · ${liveLog.label}` : "Latest output"}</p>
+          {newest ? <LiveActivity key={newest.file} project={incident.project} file={newest.file} live={working} /> : <p className="text-sm text-muted-foreground">The doctor has not written anything yet.</p>}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 function callRequest(call: IncidentCall): TranscriptRequest {
   return { file: call.transcript, subject: call.subject, role: call.role, runner: call.runner, model: call.model }
 }
@@ -160,6 +265,7 @@ export function IncidentPage() {
         }
       />
       <div className="grid gap-4 lg:grid-cols-2">
+        <DoctorLog incident={incident} onOpen={setTranscript} />
         <Card>
           <CardHeader>
             <CardTitle>Stop</CardTitle>

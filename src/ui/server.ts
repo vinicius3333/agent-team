@@ -265,7 +265,22 @@ function incidentDetail(runsDir: string, name: string, id: string) {
       all(db, "SELECT subject, role, runner, model, status, failure_class AS failureClass, cost_usd AS costUsd, tokens, duration_ms AS durationMs, transcript_path AS transcriptPath, created_at AS createdAt FROM attempts WHERE subject LIKE ? ORDER BY id", `doctor-${id}-%`),
     [],
   ).map(({ transcriptPath, ...attempt }: any) => ({ ...attempt, transcript: String(transcriptPath ?? "").split("/").pop() }))
-  return { ...incident, calls: attempts }
+  const events = withDatabase(projectDir, (db) => all(db, "SELECT id, at, message FROM events WHERE type = 'doctor' AND instr(message, ?) > 0 ORDER BY id", id), [])
+  return { ...incident, calls: attempts, events, logs: incidentLogs(projectDir, id) }
+}
+
+// Every file the doctor writes for an incident, including the agent transcript while it still runs and the check outputs.
+function incidentLogs(projectDir: string, id: string) {
+  const transcriptsDir = join(projectDir, ".agent-team", "transcripts")
+  if (!existsSync(transcriptsDir)) return []
+  const prefix = `doctor-${id}-`
+  return readdirSync(transcriptsDir)
+    .filter((file) => file.startsWith(prefix) && transcriptNamePattern.test(file))
+    .map((file) => {
+      const stats = statSync(join(transcriptsDir, file))
+      return { file, attempt: Number(file.slice(prefix.length).split("-")[0]) || null, label: file.slice(prefix.length).replace(/^\d+-/, "").replace(/\.log$/, ""), size: stats.size, updatedAt: stats.mtime.toISOString() }
+    })
+    .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt))
 }
 
 async function command(cwd: string, file: string, args: string[]): Promise<string> {

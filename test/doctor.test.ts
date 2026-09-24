@@ -453,6 +453,8 @@ test("the dashboard lists incidents, shows one with its transcripts, and flags t
   const { deps } = stubDeps(installDir, [() => ({ summary: "no answer" })])
   await checkOnce({ runsDir, deps })
   const [incident] = listIncidents(projectDir)
+  mkdirSync(join(projectDir, ".agent-team", "transcripts"), { recursive: true })
+  writeFileSync(join(projectDir, ".agent-team", "transcripts", `doctor-${incident.id}-1-npm-test.log`), "ok\n")
   const server = startUi({ runsDir, port: 0, startRun: () => {} })
   t.after(() => server.close())
   await once(server, "listening")
@@ -463,6 +465,11 @@ test("the dashboard lists incidents, shows one with its transcripts, and flags t
   const detail = await (await fetch(`${base}/api/incidents/crm-test/${incident.id}`)).json()
   assert.equal(detail.calls[0].role, "doctor")
   assert.match(detail.calls[0].transcript, /^doctor-/)
+  assert.deepEqual(
+    detail.logs.map((log: { file: string; attempt: number; label: string }) => [log.file, log.attempt, log.label]),
+    [[`doctor-${incident.id}-1-npm-test.log`, 1, "npm-test"]],
+  )
+  assert.ok(detail.events.some((event: { message: string }) => event.message.includes(`incident ${incident.id}: attempt 1`)))
   assert.equal((await fetch(`${base}/api/incidents/crm-test/nope`)).status, 404)
   const projects = await (await fetch(`${base}/api/projects`)).json()
   assert.equal(projects[0].incident?.id, incident.id)
