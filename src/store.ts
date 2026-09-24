@@ -38,6 +38,60 @@ export interface Change {
 
 export const currentChangeKey = "change.current"
 
+export const findingSources = ["monitoring", "analytics", "research"] as const
+export type FindingSource = (typeof findingSources)[number]
+export const findingSeverities = ["high", "medium", "low"] as const
+export type FindingSeverity = (typeof findingSeverities)[number]
+export const findingStatuses = ["open", "approved", "dismissed"] as const
+export type FindingStatus = (typeof findingStatuses)[number]
+
+export interface Finding {
+  id: number
+  source: FindingSource
+  severity: FindingSeverity
+  title: string
+  evidence: string
+  proposal: string
+  status: FindingStatus
+  changeId: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type NewFinding = Pick<Finding, "source" | "severity" | "title" | "evidence" | "proposal">
+
+export interface HealthCheck {
+  at: string
+  ok: boolean
+  statusCode: number | null
+  latencyMs: number | null
+  error: string | null
+}
+
+export type InsightRunStatus = "running" | "done" | "failed"
+
+export interface InsightRun {
+  id: number
+  agent: FindingSource
+  startedAt: string
+  finishedAt: string | null
+  status: InsightRunStatus
+  summary: string
+  findings: number
+}
+
+export interface Metric {
+  at: string
+  key: string
+  value: number
+}
+
+const healthRetentionMs = 14 * 24 * 60 * 60_000
+
+export function findingFingerprint(source: string, title: string): string {
+  return `${source}:${title.toLowerCase().replace(/\s+/g, " ").trim()}`
+}
+
 export interface TaskRow {
   id: string
   status: TaskStatus
@@ -124,6 +178,42 @@ export function openStore(path: string) {
       type TEXT NOT NULL,
       message TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS findings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source TEXT NOT NULL,
+      severity TEXT NOT NULL,
+      title TEXT NOT NULL,
+      evidence TEXT NOT NULL,
+      proposal TEXT NOT NULL,
+      status TEXT NOT NULL,
+      change_id TEXT,
+      fingerprint TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS health_checks (
+      at TEXT NOT NULL,
+      ok INTEGER NOT NULL,
+      status_code INTEGER,
+      latency_ms INTEGER,
+      error TEXT
+    );
+    CREATE INDEX IF NOT EXISTS health_checks_at ON health_checks (at);
+    CREATE TABLE IF NOT EXISTS insight_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      agent TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      finished_at TEXT,
+      status TEXT NOT NULL,
+      summary TEXT NOT NULL DEFAULT '',
+      findings INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS metrics (
+      at TEXT NOT NULL,
+      key TEXT NOT NULL,
+      value REAL NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS metrics_key_at ON metrics (key, at);
   `)
 
   const attemptColumns = db.prepare("PRAGMA table_info(attempts)").all() as { name: string }[]
@@ -143,6 +233,8 @@ export function openStore(path: string) {
   const changeColumnsSql = "id, request, status, branch, base_commit AS baseCommit, pr_url AS prUrl, created_at AS createdAt, finished_at AS finishedAt"
   // phase_history rows are keyed by the change whose build they describe; "" is the first build.
   const lastMergedChangeId = () => (db.prepare("SELECT id FROM changes WHERE status = 'merged' ORDER BY id DESC LIMIT 1").get() as { id: string } | undefined)?.id ?? ""
+  const findingColumnsSql = "id, source, severity, title, evidence, proposal, status, change_id AS changeId, created_at AS createdAt, updated_at AS updatedAt"
+  const insightRunColumnsSql = "id, agent, started_at AS startedAt, finished_at AS finishedAt, status, summary, findings"
   const metaValue = (key: string) => (db.prepare("SELECT value FROM meta WHERE key = ?").get(key) as { value: string } | undefined)?.value ?? null
 
   return {
@@ -391,6 +483,98 @@ export function openStore(path: string) {
       actions[index].state = state
       db.prepare("UPDATE chat_messages SET actions = ? WHERE id = ?").run(JSON.stringify(actions), messageId)
       return true
+    },
+    // An open finding with the same fingerprint takes the new evidence instead of a duplicate row.
+    addFinding(finding: NewFinding): { id: number; created: boolean } {
+      const fingerprint = findingFingerprint(finding.source, finding.title)
+      const existing = db.prepare("SELECT id FROM findings WHERE fingerprint = ? AND status = 'open'").get(fingerprint) as { id: number } | undefined
+      if (existing) {
+        db.prepare("UPDATE findings SET evidence = ?, updated_at = ? WHERE id = ?").run(finding.evidence, now(), existing.id)
+        return { id: existing.id, created: false }
+      }
+      const at = now()
+      const result = db
+        .prepare("INSERT INTO findings (source, severity, title, evidence, proposal, status, fingerprint, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?)")
+        .run(finding.source, finding.severity, finding.title, finding.evidence, finding.proposal, fingerprint, at, at)
+      return { id: Number(result.lastInsertRowid), created: true }
+    },
+    // Highest severity first, then newest first.
+    listFindings(filter: { status?: FindingStatus; source?: FindingSource } = {}): Finding[] {
+      const filters = Object.entries(filter).filter(([, value]) => value !== undefined)
+      const where = filters.length ? `WHERE ${filters.map(([column]) => `${column} = ?`).join(" AND ")}` : ""
+      const params = filters.map(([, value]) => value as string)
+      const order = "CASE severity WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END, created_at DESC, id DESC"
+      return db.prepare(`SELECT ${findingColumnsSql} FROM findings ${where} ORDER BY ${order}`).all(...params) as unknown as Finding[]
+    },
+    finding(id: number): Finding | null {
+      return (db.prepare(`SELECT ${findingColumnsSql} FROM findings WHERE id = ?`).get(id) as unknown as Finding | undefined) ?? null
+    },
+    setFindingStatus(id: number, status: FindingStatus, changeId: string | null = null) {
+      db.prepare("UPDATE findings SET status = ?, change_id = COALESCE(?, change_id), updated_at = ? WHERE id = ?").run(status, changeId, now(), id)
+    },
+    openFindingCount(): number {
+      return (db.prepare("SELECT COUNT(*) AS count FROM findings WHERE status = 'open'").get() as { count: number }).count
+    },
+    addHealthCheck(check: Omit<HealthCheck, "at">, at = new Date()) {
+      db.prepare("INSERT INTO health_checks (at, ok, status_code, latency_ms, error) VALUES (?, ?, ?, ?, ?)").run(at.toISOString(), check.ok ? 1 : 0, check.statusCode, check.latencyMs, check.error)
+      db.prepare("DELETE FROM health_checks WHERE at < ?").run(new Date(at.getTime() - healthRetentionMs).toISOString())
+    },
+    // Oldest first.
+    healthChecks(since: string): HealthCheck[] {
+      const rows = db.prepare("SELECT at, ok, status_code AS statusCode, latency_ms AS latencyMs, error FROM health_checks WHERE at >= ? ORDER BY at").all(since) as unknown as (Omit<HealthCheck, "ok"> & { ok: number })[]
+      return rows.map((row) => ({ ...row, ok: row.ok === 1 }))
+    },
+    // Newest first.
+    recentHealthChecks(limit: number, onlyFailed = false): HealthCheck[] {
+      const rows = db.prepare(`SELECT at, ok, status_code AS statusCode, latency_ms AS latencyMs, error FROM health_checks ${onlyFailed ? "WHERE ok = 0" : ""} ORDER BY at DESC LIMIT ?`).all(limit) as unknown as (Omit<HealthCheck, "ok"> & { ok: number })[]
+      return rows.map((row) => ({ ...row, ok: row.ok === 1 }))
+    },
+    startInsightRun(agent: FindingSource): number {
+      const result = db.prepare("INSERT INTO insight_runs (agent, started_at, status) VALUES (?, ?, 'running')").run(agent, now())
+      return Number(result.lastInsertRowid)
+    },
+    finishInsightRun(id: number, status: Exclude<InsightRunStatus, "running">, summary: string, findings: number) {
+      db.prepare("UPDATE insight_runs SET status = ?, summary = ?, findings = ?, finished_at = ? WHERE id = ?").run(status, summary, findings, now(), id)
+    },
+    lastInsightRun(agent: FindingSource): InsightRun | null {
+      return (db.prepare(`SELECT ${insightRunColumnsSql} FROM insight_runs WHERE agent = ? ORDER BY id DESC LIMIT 1`).get(agent) as unknown as InsightRun | undefined) ?? null
+    },
+    lastInsightRuns(): InsightRun[] {
+      return db.prepare(`SELECT ${insightRunColumnsSql} FROM insight_runs WHERE id IN (SELECT MAX(id) FROM insight_runs GROUP BY agent) ORDER BY agent`).all() as unknown as InsightRun[]
+    },
+    // Funnel rows describe only the latest run, so a new funnel replaces the old one.
+    // Rows with the same key and time replace each other, so a daily series can be written again.
+    recordMetrics(metrics: Metric[]) {
+      db.exec("BEGIN")
+      try {
+        if (metrics.some((metric) => metric.key.startsWith("funnel."))) db.exec("DELETE FROM metrics WHERE key LIKE 'funnel.%'")
+        const remove = db.prepare("DELETE FROM metrics WHERE key = ? AND at = ?")
+        const insert = db.prepare("INSERT INTO metrics (at, key, value) VALUES (?, ?, ?)")
+        for (const metric of metrics) {
+          remove.run(metric.key, metric.at)
+          insert.run(metric.at, metric.key, metric.value)
+        }
+        db.exec("COMMIT")
+      } catch (error) {
+        db.exec("ROLLBACK")
+        throw error
+      }
+    },
+    // Oldest first.
+    metricSeries(key: string, since = ""): Metric[] {
+      return db.prepare("SELECT at, key, value FROM metrics WHERE key = ? AND at >= ? ORDER BY at").all(key, since) as unknown as Metric[]
+    },
+    // The newest value per key and the one before it.
+    latestMetrics(): Record<string, { value: number; previous: number | null; at: string }> {
+      const rows = db
+        .prepare("SELECT key, value, at, ROW_NUMBER() OVER (PARTITION BY key ORDER BY at DESC, rowid DESC) AS rank FROM metrics")
+        .all() as { key: string; value: number; at: string; rank: number }[]
+      const latest: Record<string, { value: number; previous: number | null; at: string }> = {}
+      for (const row of rows.filter((row) => row.rank <= 2).sort((a, b) => a.rank - b.rank)) {
+        if (row.rank === 1) latest[row.key] = { value: row.value, previous: null, at: row.at }
+        else if (latest[row.key]) latest[row.key].previous = row.value
+      }
+      return latest
     },
     log(type: string, message: string) {
       db.prepare("INSERT INTO events (at, type, message) VALUES (?, ?, ?)").run(now(), type, message)
