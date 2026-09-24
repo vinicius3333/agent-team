@@ -110,14 +110,30 @@ async function waitForTunnelUrl(projectDir: string): Promise<string> {
   throw new Error("tunnel did not report a URL")
 }
 
-export async function deployProject(projectDir: string, store: Store): Promise<string | null> {
+export type DeployResult = { url: string; error: null } | { url: null; error: string }
+
+// A fresh quick-tunnel hostname can take a few seconds to resolve; wait so the URL we report works.
+async function waitForPublicUrl(url: string): Promise<void> {
+  const deadline = Date.now() + tunnelTimeoutMs
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(10_000) })
+      if (response.status < 500) return
+    } catch {}
+    await sleep(3000)
+  }
+  throw new Error(`tunnel URL ${url} did not answer`)
+}
+
+export async function deployProject(projectDir: string, store: Store): Promise<DeployResult> {
   const { app, tunnel } = names(projectDir)
   try {
     const dir = snapshot(projectDir)
     const plan = detectDeployPlan(dir)
     if (!plan) {
-      store.log("deploy", "skipped: no deploy.json, npm start script, or index.html to serve")
-      return null
+      const error = "no deploy.json, npm start script, or index.html to serve"
+      store.log("deploy", `failed: ${error}`)
+      return { url: null, error }
     }
     store.log("deploy", `starting app: ${plan.install ? `${plan.install} && ` : ""}${plan.start} (port ${plan.port})`)
     ensureNetwork()
@@ -147,13 +163,15 @@ export async function deployProject(projectDir: string, store: Store): Promise<s
       tunnelImage, "tunnel", "--no-autoupdate", "--url", `http://${app}:${plan.port}`,
     ])
     const url = await waitForTunnelUrl(projectDir)
+    await waitForPublicUrl(url)
     store.setMeta("deploy.url", url)
     store.log("deploy", `live at ${url}`)
-    return url
+    return { url, error: null }
   } catch (error) {
     const failure = error as { stderr?: string; message: string }
-    store.log("deploy", `failed: ${(failure.stderr || failure.message).trim().slice(0, 500)}`)
-    return null
+    const reason = (failure.stderr || failure.message).trim()
+    store.log("deploy", `failed: ${reason.slice(0, 500)}`)
+    return { url: null, error: reason.slice(0, 4000) }
   }
 }
 

@@ -73,7 +73,7 @@ function status(projectDir: string): void {
   const store = openProjectStore(projectDir)
   const phases = new Map(store.phases().map((phase) => [phase.name, phase.status]))
   console.log("Phases")
-  for (const phase of planningPhases) console.log(`  ${phase.padEnd(13)} ${phases.get(phase) ?? "pending"}`)
+  for (const phase of [...planningPhases, "deploy"]) console.log(`  ${phase.padEnd(13)} ${phases.get(phase) ?? "pending"}`)
   const tasks = store.tasks()
   if (tasks.length) {
     console.log("Tasks")
@@ -114,7 +114,7 @@ function retry(projectDir: string, taskId: string | undefined): void {
 
 async function deploy(projectDir: string): Promise<void> {
   const store = openProjectStore(projectDir)
-  const url = await deployProject(projectDir, store)
+  const { url } = await deployProject(projectDir, store)
   if (!url) process.exitCode = 1
 }
 

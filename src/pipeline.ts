@@ -13,6 +13,7 @@ import type { Store } from "./store.ts"
 import { filesOutsideScope, loadTasks, type Task } from "./tasks.ts"
 
 const phaseAttempts = 2
+const deployAttempts = 3
 const commandTimeoutMs = 10 * 60 * 1000
 const planningTools = ["read", "edit", "write", "bash:mkdir", "bash:ls"]
 const reviewerTools = ["read"]
@@ -198,8 +199,9 @@ async function runTasks(context: PipelineContext): Promise<RunOutcome> {
     if (outcome !== "completed") return outcome
   }
   store.log("run", "all tasks merged")
-  const url = context.config.deploy.enabled ? await deployProject(projectDir, store) : null
-  context.github.runCompleted(url)
+  const deploy = await runDeployPhase(context)
+  if (deploy.outcome !== "completed") return deploy.outcome
+  context.github.runCompleted(deploy.url)
   return "completed"
 }
 
@@ -291,6 +293,95 @@ async function attemptTask(context: PipelineContext, task: Task, attempt: number
     return { kind: "passed" }
   } catch (error) {
     store.log("harness", `${task.id} attempt ${attempt} crashed: ${(error as Error).message}`)
+    return { kind: "infrastructure", reason: (error as Error).message }
+  } finally {
+    await executor.dispose()
+    removeWorkspace(projectDir, workspace)
+  }
+}
+
+// Deploy is the last phase. When the app does not come up, a worker agent gets the failure and fixes
+// the start setup (deploy.json, start script), the fix lands through the normal merge path, and deploy retries.
+async function runDeployPhase(context: PipelineContext): Promise<{ outcome: RunOutcome; url: string | null }> {
+  const { projectDir, config, store } = context
+  if (!config.deploy.enabled) {
+    store.setPhase("deploy", "approved")
+    return { outcome: "completed", url: null }
+  }
+  if (store.phaseStatus("deploy") === "approved" && store.meta("deploy.url")) return { outcome: "completed", url: store.meta("deploy.url") }
+  store.setPhase("deploy", "running")
+  let failure: string | null = null
+  for (let attempt = 1; attempt <= deployAttempts; attempt++) {
+    if (failure) {
+      store.log("deploy", `attempt ${attempt}: asking the worker to fix the deploy`)
+      const fix = await attemptDeployFix(context, attempt, failure)
+      if (fix.kind === "infrastructure") {
+        store.setPhase("deploy", "pending")
+        store.log("deploy", `paused: ${fix.reason.slice(0, 300)}`)
+        return { outcome: "paused", url: null }
+      }
+      if (fix.kind !== "passed") {
+        failure = `${failure}\n\nThe previous fix attempt failed: ${fix.reason}`
+        continue
+      }
+    }
+    const result = await deployProject(projectDir, store)
+    if (result.url) {
+      store.setPhase("deploy", "approved")
+      return { outcome: "completed", url: result.url }
+    }
+    failure = result.error
+  }
+  store.setPhase("deploy", "failed")
+  store.log("deploy", `gave up after ${deployAttempts} attempts. Fix it, then: agent-team run ${projectDir}`)
+  return { outcome: "failed", url: null }
+}
+
+async function attemptDeployFix(context: PipelineContext, attempt: number, failure: string): Promise<AttemptResult> {
+  const { projectDir } = context
+  const name = `deploy-fix-${attempt}`
+  const workspace = createWorkspace(projectDir, name)
+  const executor = await createExecutor(context, workspace.path, name)
+  try {
+    const setupCommand = detectSetupCommand(workspace.path)
+    if (setupCommand) {
+      const setup = await runCommand(context, executor, setupCommand, `${name}-setup`)
+      if (!setup.passed) return { kind: "infrastructure", reason: `workspace setup failed (${setupCommand}):\n${setup.output}` }
+    }
+    const prompt = [
+      "The finished app failed to start in production. Make it deployable without changing its features.",
+      "",
+      "The platform runs `<install> && <start>` from deploy.json in a node:22 container with PORT=3000, HOST=0.0.0.0, and NODE_ENV=production, then probes http://127.0.0.1:$PORT.",
+      "Without deploy.json it falls back to `npm start`, then to serving a static index.html.",
+      "",
+      "Write or fix deploy.json at the repository root ({ \"install\": ..., \"start\": ..., \"port\": 3000 }) and the start script so the app serves on 0.0.0.0:$PORT. Keep the tests passing. Do not edit docs/ or contracts/.",
+      "",
+      "Deploy failure:",
+      failure,
+    ].join("\n")
+    const worker = await runAgent(context, executor, "worker", `${name}-worker`, ["read", "edit", "write", "bash:npm", "bash:npx", "bash:node", "bash:ls"], prompt)
+    if (isInfrastructureFailure(worker)) return { kind: "infrastructure", reason: `worker ${worker.failureClass}: ${worker.result.summary}` }
+    if (worker.result.status !== "done") return { kind: "failed", reason: `worker ${worker.result.status}: ${worker.result.summary}` }
+
+    const forbidden = changedFiles(workspace.path).filter((file) => file.startsWith("docs/") || file.startsWith("contracts/"))
+    if (forbidden.length) return { kind: "failed", reason: `edited files outside the deploy scope: ${forbidden.join(", ")}` }
+    const packagePath = join(workspace.path, "package.json")
+    const hasTests = existsSync(packagePath) && Boolean(JSON.parse(readFileSync(packagePath, "utf8")).scripts?.test)
+    if (hasTests) {
+      const tests = await runCommand(context, executor, "npm test", `${name}-verify`)
+      if (!tests.passed) return { kind: "failed", reason: `npm test failed after the deploy fix:\n${tests.output}` }
+    }
+
+    const title = "fix(deploy): make the app start in production"
+    commitAndRebase(workspace, title)
+    context.github.land({
+      branch: workspace.branch,
+      title,
+      body: ["The deploy phase could not start the app. The worker agent changed the start setup.", "", "```", failure.slice(0, 3000), "```"].join("\n"),
+      localMerge: () => fastForwardMain(projectDir, workspace.branch),
+    })
+    return { kind: "passed" }
+  } catch (error) {
     return { kind: "infrastructure", reason: (error as Error).message }
   } finally {
     await executor.dispose()
