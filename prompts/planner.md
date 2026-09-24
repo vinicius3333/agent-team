@@ -46,6 +46,7 @@ Each task has these fields:
 7. Every user story must be covered by at least one task.
 8. Contract files (`contracts/**`), docs (`docs/**`), `AGENTS.md`, and `CLAUDE.md` are never in `allowedPaths`.
 9. `verify` must not need network access, secrets, or a running server started by hand.
+9a. `verify` must also type-check or build the code the task touches, not only run its tests. Tests alone let build errors through: a project once passed every task and still failed to build for production. Use the project's type-check or build script, for example `npm run typecheck && npm test -- tests/auth`. Every task that changes the build setup or the server entry point runs the full production build (the `install` command in `deploy.json`).
 10. If `docs/design-system.md` exists, add a task that builds a `/design-system` route in the app. It renders every token and every component in the guide, with their variants and states.
 11. If `design/logo.svg` exists, add a task that copies the logo into the app and installs `design/logo.svg` in the header and `design/logo-mark.svg` as the favicon. `design/**` is read-only for workers: list those files in `readPaths`.
 

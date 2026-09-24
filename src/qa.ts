@@ -113,25 +113,23 @@ export function parseQaVerdict(text: string, round: number, existing: Task[]): Q
   return { verdict: "fail", findings, tasks: validateFixTasks(parsed.tasks, round, existing) }
 }
 
+// The harness numbers fix tasks itself, so a missing or odd id from the reviewer cannot fail the round.
 export function validateFixTasks(value: unknown, round: number, existing: Task[]): Task[] {
   if (!Array.isArray(value) || value.length === 0) throw new Error("a fail verdict needs at least one fix task")
-  const idPattern = new RegExp(`^Q${round}\\d{2}$`)
+  const tasks = value.map((task, index) => ({ ...(task ?? {}), id: `Q${round}${String(index + 1).padStart(2, "0")}` }))
   const existingIds = new Set(existing.map((task) => task.id))
   const errors: string[] = []
-  for (const [index, task] of value.entries()) {
-    const label = task?.id ?? `#${index}`
-    if (typeof task?.id === "string" && !idPattern.test(task.id)) errors.push(`${label}: id must look like Q${round}01`)
-    if (existingIds.has(task?.id)) errors.push(`${label}: id already exists in tasks.json`)
-    for (const dependency of Array.isArray(task?.dependsOn) ? task.dependsOn : []) {
-      if (!existingIds.has(dependency)) errors.push(`${label}: may depend only on existing tasks, not ${dependency}`)
+  for (const task of tasks) {
+    for (const dependency of Array.isArray(task.dependsOn) ? task.dependsOn : []) {
+      if (!existingIds.has(dependency)) errors.push(`${task.id}: may depend only on existing tasks, not ${dependency}`)
     }
-    for (const path of Array.isArray(task?.allowedPaths) ? task.allowedPaths : []) {
-      if (typeof path !== "string" || protectedPrefixes.some((prefix) => path.startsWith(prefix))) errors.push(`${label}: allowedPaths may not include ${path}`)
+    for (const path of Array.isArray(task.allowedPaths) ? task.allowedPaths : []) {
+      if (typeof path !== "string" || protectedPrefixes.some((prefix) => path.startsWith(prefix))) errors.push(`${task.id}: allowedPaths may not include ${path}`)
     }
   }
   if (errors.length) throw new Error(`invalid fix tasks:\n- ${errors.join("\n- ")}`)
-  validateTasks([...existing, ...value])
-  return value as Task[]
+  validateTasks([...existing, ...tasks])
+  return tasks as Task[]
 }
 
 export function formatFindings(findings: QaFinding[]): string {
