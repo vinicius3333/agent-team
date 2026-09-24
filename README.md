@@ -408,7 +408,7 @@ agent-team can tell you when a run needs you, so you do not have to watch the da
 | `live` | The app is live. The message never has the demo password. | no |
 | `stopped` | Ctrl+C, a dashboard stop, or a service restart. Off by default; add it to a channel's `events` to get it. | no |
 
-Each channel can limit `events` and `projects`. Links go to the dashboard page for the event, from `dashboardUrl`. The dashboard has no login, so the links only work on your tailnet.
+Each channel can limit `events` and `projects`. Links go to the dashboard page for the event, from `dashboardUrl`. The links open the login page first when the dashboard has a login (see [Access](#access)).
 
 ### How it works
 
@@ -455,18 +455,17 @@ node src/cli.ts eval compare evals/results/<a>.json evals/results/<b>.json
 
 ## Limits
 
-- Tasks still run one at a time.
 - Node's built-in `fetch` ignores `HTTPS_PROXY`, so app code that calls outside hosts with raw `fetch` fails inside the sandbox.
 - With `isolation: none`, agents run with full access to the machine user. Use that only on a disposable VPS.
 
 ## Roadmap
 
-Done: sequential pipeline, both runners, Docker sandbox, retries and fallbacks, network allowlist, scope guard at edit time, web dashboard with project creation and gates, branding and design system, QA gates, preview deploy, doctor.
+Done: pipeline with parallel tasks, both runners, Docker sandbox, retries and fallbacks, network allowlist, scope guard at edit time, web dashboard with project creation and gates, branding and design system, QA gates, preview deploy, doctor, dashboard login, notifications, stack templates, change requests, eval suite.
 
 Next:
 
-1. Parallel task scheduler for tasks with separate `allowedPaths`
-2. Gate approvals from the phone (Telegram)
+1. Gate approvals from the phone (Telegram)
+2. Eval full tier: four more briefs and a hidden acceptance check per brief
 
 ## License
 
