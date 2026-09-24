@@ -54,10 +54,11 @@ const phaseDefinitions: Record<PlanningPhase, PhaseDefinition> = {
   design: {
     role: "designer",
     inputs: ["docs/spec.md", "docs/architecture.md", "contracts/", "design/mockups/ (UI mockup images: open and study them, use them as visual reference)"],
-    outputs: ["docs/design.md", "design/tokens.json"],
+    outputs: ["docs/design.md", "design/tokens.css"],
     validate: (dir) => {
       requireFile(join(dir, "docs/design.md"))
-      JSON.parse(readFileSync(requireFile(join(dir, "design/tokens.json")), "utf8"))
+      const tokens = readFileSync(requireFile(join(dir, "design/tokens.css")), "utf8")
+      if (!tokens.includes("--primary:")) throw new Error("design/tokens.css has no --primary variable")
     },
   },
   plan: {

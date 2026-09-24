@@ -375,7 +375,7 @@ const columns = [["pending", "Pending"], ["running", "Running"], ["merged", "Mer
 const artifacts = ["input.md", "docs/spec.md", "docs/architecture.md", "mockups", "docs/design.md", "tasks.json"]
 const state = { projects: [], selected: null, detail: null, stream: null, artifact: "input.md", logPinned: true, section: "tasks", transcript: null, drawerTab: "timeline", panel: null, docMode: "rendered", reader: false, markdownFiles: [], docCache: {} }
 const phaseRoles = { spec: "pm", architecture: "architect", mockups: "illustrator", design: "designer", plan: "planner" }
-const phaseOutputs = { spec: ["docs/spec.md"], architecture: ["docs/architecture.md", "docs/adr/", "contracts/openapi.yaml"], mockups: ["design/mockups/*.png", "design/mockups/README.md"], design: ["docs/design.md", "design/tokens.json"], plan: ["tasks.json"], build: ["code and tests, one merge per task"] }
+const phaseOutputs = { spec: ["docs/spec.md"], architecture: ["docs/architecture.md", "docs/adr/", "contracts/openapi.yaml"], mockups: ["design/mockups/*.png", "design/mockups/README.md"], design: ["docs/design.md", "design/tokens.css"], plan: ["tasks.json"], build: ["code and tests, one merge per task"] }
 const phaseArtifacts = { spec: "docs/spec.md", architecture: "docs/architecture.md", mockups: "mockups", design: "docs/design.md", plan: "tasks.json" }
 
 const escape = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c])

@@ -28,6 +28,7 @@ Write these files:
 ## Rules
 
 - Prefer boring, well-documented tools with a large community. Avoid new or niche libraries.
+- When the target includes web, use React with Tailwind CSS v4, shadcn/ui components, and Lucide icons, unless a stack hint says otherwise. The designer and workers depend on this.
 - The app must work well on mobile browsers (360px wide and up) when the target includes web.
 - Every endpoint must trace to a user story. Name the story (`US-03`) in the endpoint description.
 - The test command must run offline, without network access, and exit non-zero on failure. Pick a test runner that works out of the box with the stack.

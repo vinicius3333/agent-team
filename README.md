@@ -58,7 +58,7 @@ npm install
 | --- | --- | --- |
 | spec | PM | `docs/spec.md` |
 | architecture | Architect | `docs/architecture.md`, `docs/adr/*`, `contracts/openapi.yaml` |
-| design | Designer | `docs/design.md`, `design/tokens.json` |
+| design | Designer | `docs/design.md`, `design/tokens.css` |
 | plan | Planner | `tasks.json` |
 | build | Worker, then Reviewer | code and tests, one commit per task |
 
