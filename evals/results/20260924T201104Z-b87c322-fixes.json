@@ -1,0 +1,180 @@
+{
+  "resultId": "20260924T201104Z-b87c322-fixes",
+  "gitSha": "b87c322",
+  "dirty": false,
+  "label": "fixes",
+  "tier": "smoke",
+  "configHash": "8f697822c14c1399",
+  "config": {
+    "roles": {
+      "pm": {
+        "runner": "claude",
+        "model": "opus"
+      },
+      "architect": {
+        "runner": "claude",
+        "model": "opus"
+      },
+      "illustrator": {
+        "runner": "codex",
+        "model": "gpt-6-astra"
+      },
+      "designer": {
+        "runner": "claude",
+        "model": "sonnet"
+      },
+      "marketer": {
+        "runner": "codex",
+        "model": "gpt-6-astra"
+      },
+      "planner": {
+        "runner": "claude",
+        "model": "opus"
+      },
+      "worker": {
+        "runner": "claude",
+        "model": "sonnet",
+        "maxRetries": 3,
+        "fallbacks": []
+      },
+      "reviewer": {
+        "runner": "claude",
+        "model": "opus",
+        "fallbacks": []
+      },
+      "design-reviewer": {
+        "runner": "claude",
+        "model": "opus"
+      },
+      "qa": {
+        "runner": "claude",
+        "model": "opus"
+      },
+      "lead": {
+        "runner": "claude",
+        "model": "opus"
+      }
+    },
+    "harness": {
+      "isolation": "docker",
+      "docker": {
+        "cpus": 2,
+        "memory": "4g",
+        "pidsLimit": 512
+      },
+      "network": {
+        "allowlist": true,
+        "extraDomains": []
+      },
+      "transientRetries": 2,
+      "backoffMs": 15000,
+      "cooldownMs": 900000,
+      "agentTimeoutMs": 1800000
+    }
+  },
+  "runnerVersions": {
+    "claude": "2.1.282 (Claude Code)",
+    "codex": "codex-cli 0.155.1"
+  },
+  "aborted": null,
+  "briefs": [
+    {
+      "id": "landing-page",
+      "briefHash": "f92c2067aafd712e",
+      "outcome": "awaiting_approval",
+      "stop": {
+        "outcome": "awaiting_approval",
+        "kind": "other",
+        "reason": "T005 blocked after 3 attempts: the design reviewer rejected the screens.\nReasons: The '/' screenshots are completely blank at desktop and mobile: the Hero component is never rendered because src/App.tsx still returns an empty <main>, so the h1 'Brewline' with its Coffee icon, the pitch sentence and the 'Join the waitlist' button are all missing from the page.\nFixes: In src/App.tsx, import { Hero } from \"@/features/hero/Hero\" and render <Hero /> inside <main> (in the section order from docs/architecture.md: SiteHeader, Hero, Pricing, Faq, Waitlist, SiteFooter; leave slots for sections that don't exist yet). If this task may not edit App.tsx, the orchestrator must give it that file. Then take new screenshots. Separately, the theme owner should add `body { @apply bg-background text-foreground font-sans; }` in src/index.css so the page uses the #fbf6ef background instead of white.",
+        "at": "2026-09-24T20:38:26.422Z"
+      },
+      "phases": {
+        "spec": "approved",
+        "architecture": "approved",
+        "branding": "approved",
+        "design": "approved",
+        "marketing": "approved",
+        "plan": "approved"
+      },
+      "tasks": {
+        "total": 10,
+        "merged": 3,
+        "blocked": 2,
+        "replans": 1
+      },
+      "attempts": {
+        "total": 25,
+        "byRole": {
+          "architect": 1,
+          "design-reviewer": 4,
+          "designer": 2,
+          "planner": 2,
+          "pm": 1,
+          "reviewer": 7,
+          "worker": 8
+        },
+        "fallbacks": 0
+      },
+      "reviews": {
+        "total": 7,
+        "fail": 1
+      },
+      "qa": {
+        "rounds": 0,
+        "verdict": null,
+        "fixTasks": 0
+      },
+      "costUsd": 10.1757,
+      "unreportedCalls": 0,
+      "tokens": 11902282,
+      "wallMs": 1641449
+    },
+    {
+      "id": "notes-api",
+      "briefHash": "496f315c1f35dd1a",
+      "outcome": "completed",
+      "stop": null,
+      "phases": {
+        "spec": "approved",
+        "architecture": "approved",
+        "branding": "approved",
+        "design": "approved",
+        "marketing": "approved",
+        "plan": "approved",
+        "qa": "approved",
+        "deploy": "approved"
+      },
+      "tasks": {
+        "total": 8,
+        "merged": 8,
+        "blocked": 0,
+        "replans": 0
+      },
+      "attempts": {
+        "total": 22,
+        "byRole": {
+          "architect": 1,
+          "planner": 1,
+          "pm": 1,
+          "qa": 1,
+          "reviewer": 9,
+          "worker": 9
+        },
+        "fallbacks": 0
+      },
+      "reviews": {
+        "total": 9,
+        "fail": 1
+      },
+      "qa": {
+        "rounds": 1,
+        "verdict": "pass",
+        "fixTasks": 0
+      },
+      "costUsd": 6.0353,
+      "unreportedCalls": 0,
+      "tokens": 4827599,
+      "wallMs": 761744
+    }
+  ]
+}
