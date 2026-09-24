@@ -8,6 +8,7 @@ import { appendFeedback, archiveFeedback } from "./feedback.ts"
 import { commitAll, commitOf, commitPaths, createBranch, initRepository } from "./git.ts"
 import { changeTitle, createGitHub } from "./github.ts"
 import { commitAndRebase, createWorkspace, fastForward, removeWorkspace } from "./harness/workspace.ts"
+import { changeOpenedPrefix } from "./notify/events.ts"
 import { openStore, type Change, type Store } from "./store.ts"
 import { applyTemplate, customTemplate, findTemplate, type StackTemplate } from "./templates.ts"
 
@@ -274,10 +275,18 @@ export function openChange(projectDir: string, store: Store, rawRequest: unknown
   }
   store.openChange({ id, request, branch, baseCommit }, changePhases)
   const change = store.change(id)!
-  store.log("change", `opened change ${id} on ${branch}: ${changeTitle(change)}`)
+  store.log("change", `${changeOpenedPrefix} ${id} on ${branch}: ${changeTitle(change)}`)
   const config = loadConfig(join(projectDir, "pipeline.yaml"))
   createGitHub({ projectDir, config, store }).changeOpened(change)
   return change
+}
+
+// For autonomy.changeMerge: manual. The next run merges the change branch into main and deploys.
+export function approveChangeMerge(store: Store, id: string | undefined): void {
+  const change = store.currentChange()
+  if (!change || change.id !== id) throw new ProjectError(404, `change "${id}" is not the open change`)
+  store.setMeta(`change.${change.id}.mergeApproved`, "1")
+  store.log("gate", `change ${change.id}: merge into main approved`)
 }
 
 // main never moved during the change, so its tasks.json and docs are already the ones from before it.

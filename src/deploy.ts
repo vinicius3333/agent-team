@@ -68,11 +68,12 @@ export function removeNetwork(name: string): void {
 }
 
 // Copies main (committed files only) to .agent-team/<purpose>/app, so the app never runs from a worktree agents edit.
-export function snapshotMain(projectDir: string, purpose: "deploy" | "qa"): string {
+// QA of an open change snapshots the change branch; deploy always runs main.
+export function snapshotMain(projectDir: string, purpose: "deploy" | "qa", ref = "main"): string {
   const dir = join(projectDir, ".agent-team", purpose, "app")
   rmSync(dir, { recursive: true, force: true })
   mkdirSync(dir, { recursive: true })
-  execFileSync("sh", ["-c", `git archive main | tar -x -C "${dir}"`], { cwd: projectDir, stdio: ["ignore", "pipe", "pipe"] })
+  execFileSync("sh", ["-c", `git archive "${ref}" | tar -x -C "${dir}"`], { cwd: projectDir, stdio: ["ignore", "pipe", "pipe"] })
   return dir
 }
 

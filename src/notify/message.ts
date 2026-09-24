@@ -68,6 +68,10 @@ function describe(project: string, notification: Notification, dashboardUrl: str
       return { line: "run completed", body: "The run finished.", url: projectLink(dashboardUrl, project) }
     case "live":
       return { line: "app is live", body: `Live at ${notification.liveUrl}. The password is on the dashboard.`, url: projectLink(dashboardUrl, project) }
+    case "change": {
+      const line = notification.severity === "action" ? `change ${notification.changeId} waits for a merge` : notification.reason.startsWith("merged") ? `change ${notification.changeId} merged` : `change ${notification.changeId} opened`
+      return { line, body: truncate(notification.reason, bodyMaxLength), url: projectLink(dashboardUrl, project) }
+    }
     case "incident": {
       const gaveUp = notification.severity === "action"
       const url = dashboardUrl && notification.incidentId ? `${dashboardUrl}/incidents/${encodeURIComponent(project)}/${encodeURIComponent(notification.incidentId)}` : null

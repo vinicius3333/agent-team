@@ -301,7 +301,6 @@ export function openStore(path: string) {
         db.prepare("INSERT INTO phase_history (change_id, name, status, updated_at) SELECT ?, name, status, updated_at FROM phases").run(previous)
         db.prepare("INSERT INTO changes (id, request, status, branch, base_commit, created_at) VALUES (?, ?, 'open', ?, ?, ?)").run(change.id, change.request, change.branch, change.baseCommit, now())
         for (const phase of resetPhases) this.setPhase(phase, "pending")
-        db.prepare("DELETE FROM meta WHERE key = 'qa.round'").run()
         this.setMeta(currentChangeKey, change.id)
         db.exec("COMMIT")
       } catch (error) {

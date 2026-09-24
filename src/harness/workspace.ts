@@ -77,6 +77,27 @@ export function fastForward(repoDir: string, ref: string, base = "main"): void {
   else git(repoDir, ["fetch", "-q", ".", `${ref}:${base}`])
 }
 
+// Merges ref into the workspace branch with a merge commit (history of a shared branch is never rewritten).
+// Returns the conflicting files; on a conflict the merge is aborted and the workspace is left as it was.
+export function mergeInto(workspace: Workspace, ref: string, message: string): string[] {
+  try {
+    git(workspace.path, ["merge", "-q", "--no-ff", "-m", message, ref])
+    return []
+  } catch (error) {
+    const conflicts = git(workspace.path, ["diff", "--name-only", "--diff-filter=U"]).split("\n").filter(Boolean)
+    try {
+      git(workspace.path, ["merge", "--abort"])
+    } catch {}
+    if (!conflicts.length) throw error
+    return conflicts
+  }
+}
+
+// Merges a branch into the checked-out main of the project folder with a merge commit.
+export function mergeIntoMain(repoDir: string, branch: string, message: string): void {
+  git(repoDir, ["merge", "-q", "--no-ff", "-m", message, branch])
+}
+
 export function removeAllWorkspaces(repoDir: string): void {
   const root = worktreeRoot(repoDir)
   if (existsSync(root)) rmSync(root, { recursive: true, force: true })

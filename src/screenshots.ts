@@ -90,11 +90,11 @@ export interface ScreenshotContainers {
 }
 
 // Starts main the way deploy does, but without a tunnel, and screenshots every screen with Playwright.
-export async function captureScreenshots(options: { projectDir: string; outDir: string; screens: QaScreen[]; signal: AbortSignal; login?: LoginOptions }): Promise<VisualReport> {
+export async function captureScreenshots(options: { projectDir: string; outDir: string; screens: QaScreen[]; signal: AbortSignal; login?: LoginOptions; ref?: string }): Promise<VisualReport> {
   const names = qaContainerNames(options.projectDir)
   removeContainers(names.app, names.shot)
   try {
-    const dir = snapshotMain(options.projectDir, "qa")
+    const dir = snapshotMain(options.projectDir, "qa", options.ref)
     return await captureApp({ ...options, dir, names, label: "agent-team-qa=1" })
   } finally {
     removeContainers(names.app, names.shot)
