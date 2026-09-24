@@ -48,7 +48,7 @@ function StatCards({ snapshot }: { snapshot: OperateSnapshot }) {
   const wau = metrics.wau
   const conversion = metrics.signup_conversion
   return (
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
       <StatCard icon={Clock} label="Uptime 7d" value={health.uptime7d === null ? null : `${health.uptime7d.toFixed(2)}%`} tone={uptimeTone(health)} empty={healthHint} />
       <StatCard icon={Zap} label="p95 latency" value={health.p95LatencyMs24h === null ? null : `${formatNumber(health.p95LatencyMs24h)} ms`} tone={latencyTone(health)} empty={healthHint} />
       <StatCard icon={Users} label="Weekly active users" value={wau ? formatNumber(wau.value) : null} tone={trendTone(wau)} delta={percentDelta(wau)} chart={<Sparkline points={series.wau} />} empty={posthogHint} />
@@ -126,7 +126,7 @@ export function OperateOverview() {
   if (!snapshot) {
     if (error) return <Card><EmptyState title="Could not load Operate data">{error.message}</EmptyState></Card>
     return (
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         {[0, 1, 2, 3].map((index) => <Skeleton key={index} className="h-32" />)}
       </div>
     )
