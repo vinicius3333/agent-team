@@ -24,20 +24,20 @@ publish:
 roles:
   pm:        { runner: claude, model: opus }
   architect: { runner: claude, model: opus }
-  illustrator: { runner: codex, model: gpt-5.5 }
+  illustrator: { runner: codex, model: gpt-6-astra }   # image generation needs codex
   designer:  { runner: claude, model: sonnet }
   planner:   { runner: claude, model: opus }
   worker:
-    runner: codex
-    model: gpt-5.5
-    maxRetries: 3
-    fallbacks:           # tried in order when the primary hits a limit, auth error, or timeout
-      - { runner: claude, model: sonnet }
-  reviewer:
     runner: claude
     model: sonnet
-    fallbacks:
-      - { runner: codex, model: gpt-5.5 }
+    maxRetries: 3
+    fallbacks: []        # tried in order when the primary hits a limit, auth error, or timeout
+  reviewer:
+    runner: claude
+    model: opus          # a stronger model than the worker, since both use claude
+    fallbacks: []
+
+allowSameVendorReview: true   # worker and reviewer both run on claude
 
 stackHints:            # optional; empty = architect chooses
   prefer: []

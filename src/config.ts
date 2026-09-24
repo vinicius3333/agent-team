@@ -89,7 +89,7 @@ export function loadConfig(path: string): PipelineConfig {
 
 // Roles added after a project was created get a default, so older pipeline.yaml files keep working.
 const defaultRoles: Partial<Record<Role, Candidate>> = {
-  illustrator: { runner: "codex", model: "gpt-5.5" },
+  illustrator: { runner: "codex", model: "gpt-6-astra" },
 }
 
 function normalizeRoles(rawRoles: Record<string, any> | undefined): Record<Role, RoleConfig> {
