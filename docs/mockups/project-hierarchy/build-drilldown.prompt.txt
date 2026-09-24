@@ -1,0 +1,18 @@
+Use case: ui-mockup. Generate ONE polished desktop UI prototype screenshot, exactly 1440x900 landscape, no browser chrome. The attached image is brand and style reference: agent-team violet/black faceted hexagon logo, Inter typography, rounded white cards with thin #e6e6ec borders, violet primary #7c3aed, light background #f7f7fa, ink text #0b0b10, muted text #62627a, success green #15803d, warning amber #b45309, destructive red #dc2626, Lucide line icons. Flat crisp production dashboard screenshot, precise readable English, restrained borders and very subtle shadows.
+
+Navigation: ONE single white left sidebar, 260px wide, full height, fine right divider. There is NO second navigation column and NO horizontal tab bar or phase bar anywhere in the page. At top of sidebar the hexagon logo and "agent-team" wordmark.
+At the top right of the sidebar, on the same row as the logo, a small ghost icon button with the Lucide "panel-left-close" icon and tooltip-free, used to collapse the sidebar.
+Sidebar section label "PROJECTS" in small muted caps, then a collapsible project tree:
+- "Dad Jokes" EXPANDED, chevron pointing down, small green dot meaning live. Under it, indented 16px, three phase groups, each a small muted caps label with a status icon:
+  - "BUILD" with small green check, collapsed, chevron right, muted.
+  - "LAUNCH" with small green check, collapsed, chevron right, muted.
+  - "OPERATE" expanded, chevron down, small violet dot. Under it, indented again with a thin vertical guide line, items with Lucide icons: "Overview", "Health", "Analytics", "Competitors", "Next steps" with small violet count badge "5", "Changes".
+- "Recipe Box" collapsed, chevron right, small violet dot meaning building.
+- "Invoice API" collapsed, chevron right, gray dot.
+Then a divider, then "Incidents" and "Settings" at the bottom of the sidebar. IMPORTANT: "System" (gear icon) is a direct child of the project "Dad Jokes", at the SAME indent level as BUILD, LAUNCH and OPERATE, listed right after the OPERATE group. It is NOT inside the OPERATE group.
+Main content starts right of the sidebar with 32px gutters. Single breadcrumb, the only one on the page: "Dad Jokes / Operate / Changes / C003 Shorten signup / T002". Title "Dad Jokes" with green badge "Live".
+The sidebar item "Changes" is selected with a pale violet rounded background and violet text and icon; no other item is highlighted.
+Content shows a hierarchy drill-down. There is NO second breadcrumb below the title. 
+Left card "Changes" list, 360px wide, rows: "C000 Initial build" green "Merged" badge, muted "18 tasks, Sep 2"; "C001 CSV export" green "Merged", "4 tasks"; "C002 Dark mode" green "Merged", "3 tasks"; "C003 Shorten signup" violet "Building" badge, "3 tasks", this row selected with violet left border.
+Middle card "C003 Shorten signup" with small status stepper "Plan - Build - QA - Deploy" where Build is active, and a task list: "T001 Allow voting before email confirm" green "Merged"; "T002 Deferred confirmation banner" violet "In review", selected; "T003 Update signup analytics events" gray "Queued".
+Right card "T002 Agent calls" timeline with three rows, each with runner icon, role, duration and cost: "Worker - Claude Sonnet - 4m 12s - $0.38" green check; "Reviewer - Claude Opus - 1m 05s - $0.21" amber "Changes requested"; "Worker - Claude Sonnet - running" with violet spinner. A small link "Open transcript" under each row.

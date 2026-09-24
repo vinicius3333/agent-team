@@ -1,0 +1,15 @@
+Use case: ui-mockup. Generate ONE polished desktop UI prototype screenshot, exactly 1440x900 landscape, no browser chrome. The attached image is brand and style reference: agent-team violet/black faceted hexagon logo, Inter typography, rounded white cards with thin #e6e6ec borders, violet primary #7c3aed, light background #f7f7fa, ink text #0b0b10, muted text #62627a, success green #15803d, warning amber #b45309, destructive red #dc2626, Lucide line icons. Flat crisp production dashboard screenshot, precise readable English, restrained borders and very subtle shadows.
+
+Navigation: ONE single white left sidebar, 260px wide, full height, fine right divider. There is NO second navigation column and NO horizontal tab bar or phase bar anywhere in the page. At top of sidebar the hexagon logo and "agent-team" wordmark.
+At the top right of the sidebar, on the same row as the logo, a small ghost icon button with the Lucide "panel-left-close" icon and tooltip-free, used to collapse the sidebar.
+Sidebar section label "PROJECTS" in small muted caps, then a collapsible project tree:
+- "Recipe Box" EXPANDED, chevron pointing down, small green dot meaning live. Under it, indented 16px, three phase groups, each a small muted caps label with a status icon:
+  - "BUILD" expanded, chevron down, small violet dot. Under it, indented with a thin vertical guide line: "Overview", "Lead", "Office", "Docs", "Branding", "Tasks", "QA".
+  - "LAUNCH" collapsed, chevron right, gray and dimmed (not reached yet).
+  - "OPERATE" collapsed, chevron right, gray and dimmed (not reached yet).
+- "Dad Jokes" collapsed, chevron right, small green dot meaning live.
+- "Invoice API" collapsed, chevron right, gray dot.
+Then a divider, then "Incidents" and "Settings" at the bottom of the sidebar. IMPORTANT: "System" (gear icon) is a direct child of the project "Recipe Box", at the SAME indent level as BUILD, LAUNCH and OPERATE, listed right after the OPERATE group. It is NOT inside the OPERATE group.
+Main content starts right of the sidebar with 32px gutters. Breadcrumb "Recipe Box / Build / Tasks". Title "Recipe Box" with violet badge "Building".
+The sidebar item "Tasks" is selected with a pale violet rounded background and violet text and icon; no other item is highlighted.
+Content: compact horizontal stepper "Spec, Architecture, Branding, Design, Plan" with green checks, "Build" violet active, "QA" gray. Below, a card "Tasks" with muted subtitle "7 of 12 merged, 1 blocked" and a table: columns "ID", "Task", "Owner", "Status", "Attempts". Rows: "T001 Recipe model and API" Worker, green "Merged", 1; "T002 Recipe list page" green "Merged", 1; "T003 Ingredient search" green "Merged", 2; "T004 Photo upload" violet "Building" with spinner, 1; "T005 Shopping list" red "Blocked", 3; "T006 Meal planner" gray "Queued", 0; "T007 Share recipe link" gray "Queued", 0. Right column card "Live agents" with two rows: "Worker on T004, Claude Sonnet, editing src/photos/upload.ts" and "Reviewer idle". Under it a small card "Spend" with "$4.20 of $30.00" and a thin violet progress bar.
