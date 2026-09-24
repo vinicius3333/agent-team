@@ -159,6 +159,7 @@ export interface ProjectDetail extends Omit<ProjectSummary, "live" | "liveUrl"> 
   tasks: Task[]
   attempts: Attempt[]
   events: ProjectEvent[]
+  activeTime: { ms: number; openSince: string | null }
   cooldowns: Cooldown[]
   config: ProjectConfig | null
   github: GithubInfo | null

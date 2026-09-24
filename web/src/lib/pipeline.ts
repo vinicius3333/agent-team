@@ -175,10 +175,11 @@ export function costByRole(attempts: Attempt[]): CostByRole[] {
 }
 
 export function elapsedMs(detail: ProjectDetail): number | null {
-  const first = detail.events[0]?.at
-  const last = detail.events.at(-1)?.at
-  if (!first || !last) return null
-  return (detail.active ? Date.now() : Date.parse(last)) - Date.parse(first)
+  const { ms, openSince } = detail.activeTime
+  const lastEvent = detail.events.at(-1)?.at
+  if (!openSince) return ms || null
+  const end = detail.active ? Date.now() : Date.parse(lastEvent ?? openSince)
+  return ms + end - Date.parse(openSince)
 }
 
 export function describeCandidate(role: RoleConfig | undefined): string {

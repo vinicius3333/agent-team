@@ -64,6 +64,27 @@ function projectFile(projectDir: string, relative: string): string | null {
   return real.startsWith(realpathSync(projectDir) + sep) ? real : null
 }
 
+export interface ActiveTime {
+  ms: number
+  openSince: string | null
+}
+
+// Time spent inside runs only: each "finished:" event closes a run, and the gap until the next event (a blocked or stopped project) is not counted.
+export function activeTime(events: { at: string; type: string; message: string }[]): ActiveTime {
+  let ms = 0
+  let openSince: string | null = null
+  let last: string | null = null
+  for (const event of events) {
+    openSince ??= event.at
+    last = event.at
+    if (event.type === "run" && event.message.startsWith("finished")) {
+      ms += Date.parse(event.at) - Date.parse(openSince)
+      openSince = null
+    }
+  }
+  return { ms, openSince: openSince && last ? openSince : null }
+}
+
 function withDatabase<T>(projectDir: string, read: (db: DatabaseSync) => T, fallback: T): T {
   const path = join(projectDir, ".agent-team", "state.db")
   if (!existsSync(path)) return fallback
@@ -346,11 +367,12 @@ async function detail(runsDir: string, name: string) {
         "SELECT id, subject, role, runner, model, status, failure_class AS failureClass, duration_ms AS durationMs, cost_usd AS costUsd, transcript_path AS transcriptPath, created_at AS createdAt FROM attempts ORDER BY id DESC LIMIT 300",
       ),
       events: all(db, "SELECT id, at, type, message FROM events ORDER BY id DESC LIMIT 300").reverse(),
+      activeTime: activeTime(all(db, "SELECT at, type, message FROM events ORDER BY id")),
       cooldowns: all(db, "SELECT runner, cooldown_until AS until, reason FROM runner_health"),
       reviews: all(db, "SELECT task_id AS taskId, attempt, verdict, flagged_files AS flaggedFiles, file_hashes AS fileHashes FROM reviews ORDER BY id"),
       spend: all(db, "SELECT COALESCE(SUM(cost_usd), 0) AS usd, COALESCE(SUM(cost_usd IS NULL), 0) AS unreportedCalls FROM attempts")[0] ?? { usd: 0, unreportedCalls: 0 },
     }),
-    { phases: [], tasks: [], attempts: [], events: [], cooldowns: [], reviews: [], spend: { usd: 0, unreportedCalls: 0 }, meta: {} as Record<string, string> },
+    { phases: [], tasks: [], attempts: [], events: [], activeTime: { ms: 0, openSince: null } as ActiveTime, cooldowns: [], reviews: [], spend: { usd: 0, unreportedCalls: 0 }, meta: {} as Record<string, string> },
   )
   const definitionFields = (definition: any) => ({
     title: definition.title,

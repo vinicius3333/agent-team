@@ -149,3 +149,15 @@ test("the server falls back to the SPA index and answers 503 when the UI is not 
   assert.match(asset.headers.get("cache-control") ?? "", /immutable/)
   assert.equal((await fetch(`${built}/api/nope`)).status, 404)
 })
+
+test("activeTime skips the time a project sat stopped between runs", async () => {
+  const { activeTime } = await import("../src/ui/server.ts")
+  const events = [
+    { at: "2026-09-24T01:00:00Z", type: "phase", message: "spec" },
+    { at: "2026-09-24T01:10:00Z", type: "run", message: "finished: failed" },
+    { at: "2026-09-24T05:00:00Z", type: "task", message: "T005 reset for retry" },
+    { at: "2026-09-24T05:05:00Z", type: "task", message: "T005 merged" },
+  ]
+  assert.deepEqual(activeTime(events), { ms: 10 * 60_000, openSince: "2026-09-24T05:00:00Z" })
+  assert.deepEqual(activeTime(events.slice(0, 2)), { ms: 10 * 60_000, openSince: null })
+})
