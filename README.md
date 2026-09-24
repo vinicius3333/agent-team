@@ -14,7 +14,9 @@ All roles default to Claude. The illustrator uses Codex, because it generates th
 - Node.js 22.18 or later (runs TypeScript directly, uses built-in `node:sqlite`)
 - git
 - The `claude` CLI (Claude Code), logged in
-- The `codex` CLI, logged in
+- The `codex` CLI, logged in (used for image generation)
+- Docker (agent sandbox, QA screenshots, and the live preview)
+- The `gh` CLI, logged in with the `project` scope, if you want GitHub publishing
 
 ## Install
 
@@ -25,73 +27,68 @@ npm run build:ui
 
 `npm run build:ui` builds the dashboard in `web/` into `web/dist/`. Run it again after you pull changes to `web/`.
 
-## Usage
+## Quick start
 
-1. Write your idea in a file, for example `brief.md`.
-2. Create a project:
+Most work happens in the dashboard. You type the brief in a form, and the agents take it from there.
 
-   ```sh
-   node src/cli.ts init ~/projects/my-app --brief brief.md
-   ```
-
-   This creates the folder, runs `git init`, writes `input.md`, and copies `pipeline.example.yaml` to `pipeline.yaml`. Edit `pipeline.yaml` to choose models, gates, and budget.
-3. Run the pipeline:
+1. Start the dashboard with the folder that will hold your projects:
 
    ```sh
-   node src/cli.ts run ~/projects/my-app
+   CLAUDE_CODE_OAUTH_TOKEN=... node src/cli.ts ui ~/projects --port 4400
    ```
 
-   The run stops at each gate listed in `autonomy.gates`. Read the artifact, then approve it and run again:
+   The server starts agent runs itself, so it needs `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`) in its environment.
+2. Open `http://127.0.0.1:4400` (see [Access](#access) to reach it from another machine).
+3. Click **New project** and fill in the form:
 
-   ```sh
-   node src/cli.ts approve ~/projects/my-app spec
-   node src/cli.ts run ~/projects/my-app
-   ```
+   | Field | What it does |
+   | --- | --- |
+   | Project name | Folder and repository name. Lowercase letters, digits, and dashes. |
+   | Product brief | Your idea in plain words: who uses it and what they can do. The PM agent turns it into a spec. |
+   | Target | Web app, API, or both. |
+   | Worker provider | Claude (default) or Codex for the workers that write the code. |
+   | Approval gates | Phases where the run stops for your review: spec, architecture, branding, design, plan. |
+   | Create GitHub repo | Repository, one issue per task, a pull request per phase and task, and a project board. |
+   | Deploy when ready | Runs the finished app and gives you a public preview URL. |
+   | Branding | Generates the logo and the main screens before the design phase. |
 
-4. Check progress and cost:
+4. Click **Start build**. The project page shows the pipeline, tasks, live events, agent calls, cost, and elapsed time (only while a run is active).
 
-   ```sh
-   node src/cli.ts status ~/projects/my-app
-   ```
+## Working with a run
 
-5. Retry a blocked task after you fix the cause:
+| Situation | What you see | What to do |
+| --- | --- | --- |
+| A phase waits at a gate | An approval panel with the phase output (docs, branding images, task list) | **Approve** to continue, or write notes and click **Request changes**. The agent redoes the phase with your notes. |
+| A task needs a decision | A banner with the reason, for example a scope change that touches shared files | Edit `tasks.json` if needed, then **Retry**. |
+| The run stopped or paused | A banner with the reason and the key error lines | Fix the cause, then **Resume run**. |
+| The run hit its budget | A budget banner | **Raise budget and resume** adds 50% to `budget.runUsd`. |
+| QA failed | The QA tab: findings, test output, and each screenshot next to its branding image | Nothing. Fix tasks run on their own, up to `qa.maxRounds`. |
+| The app is live | A **Live** badge and the preview URL | Open it. |
 
-   ```sh
-   node src/cli.ts retry ~/projects/my-app T007
-   ```
+## Access
 
-6. Redeploy the live preview, or stop it:
-
-   ```sh
-   node src/cli.ts deploy ~/projects/my-app
-   node src/cli.ts undeploy ~/projects/my-app
-   ```
-
-## Dashboard
-
-The dashboard shows every project in a folder and lets you drive them from the browser. Start it with the folder that holds your projects:
-
-```sh
-CLAUDE_CODE_OAUTH_TOKEN=... node src/cli.ts ui ~/projects --port 4400
-```
-
-The server starts runs itself, so it needs `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`) in its environment.
-
-From the dashboard you can:
-
-- Create a project from a brief. It picks the target, worker provider, gates, GitHub, deploy, and branding, then starts the run.
-- Approve a phase that waits at a gate.
-- Request changes to a phase. The agent redoes it with your notes.
-- Retry a blocked task.
-- Resume a paused or stopped run.
-- Follow phases, tasks, agent calls, cost, transcripts, and the live preview.
-
-The server listens on `127.0.0.1` only and has no login. Reach it from another machine in one of two ways:
+The dashboard listens on `127.0.0.1` only and has no login. Reach it from another machine in one of two ways:
 
 - SSH tunnel: `ssh -L 4400:127.0.0.1:4400 you@server`, then open `http://localhost:4400`.
 - Tailscale: `tailscale serve --bg --https=4400 http://127.0.0.1:4400`, then open `https://<machine>.<tailnet>.ts.net:4400`. Only devices on your tailnet can reach it.
 
-Do not expose the port to the internet. Anyone who reaches it can start paid agent runs.
+Do not expose the port to the internet. Anyone who reaches it can start paid agent runs. The server answers only `localhost`, `127.0.0.1`, and `*.ts.net` hosts; add others with `AGENT_TEAM_UI_HOSTS`.
+
+## Command line
+
+Everything the dashboard does also works from the command line, which is useful for scripts:
+
+```sh
+node src/cli.ts init ~/projects/my-app --brief brief.md   # create a project from a brief file
+node src/cli.ts run ~/projects/my-app                     # start or resume the run
+node src/cli.ts approve ~/projects/my-app spec            # approve a gate, then run again
+node src/cli.ts status ~/projects/my-app                  # phases, tasks, and cost
+node src/cli.ts retry ~/projects/my-app T007              # retry a blocked task
+node src/cli.ts deploy ~/projects/my-app                  # redeploy the live preview
+node src/cli.ts undeploy ~/projects/my-app                # stop the live preview
+```
+
+`init` creates the folder, runs `git init`, writes `input.md`, and copies `pipeline.example.yaml` to `pipeline.yaml`. Edit `pipeline.yaml` to choose models, gates, and budget.
 
 ## Pipeline
 
@@ -167,7 +164,7 @@ The harness runs every agent call. It isolates each attempt, retries infrastruct
 | --- | --- |
 | Workspace | Each task attempt gets a fresh git worktree on branch `agent/<task>-<attempt>`, created from `main`. A failed attempt is thrown away and never touches `main`. A passing attempt is rebased on `main` and merged fast-forward. |
 | Sandbox | With `harness.isolation: docker`, each agent call and verify command runs in its own container: read-only root, only the worktree writable, all capabilities dropped, CPU, memory, and process limits. The CLIs get copies of their auth files, never the real directories. |
-| Network | Agent containers join an internal Docker network with no route out. Their only exit is the `agent-team-proxy` container (tinyproxy), which allows HTTPS to an allowlist: Claude, OpenAI, npm, PyPI, GitHub, plus `harness.network.extraDomains`. |
+| Network | Agent containers join an internal Docker network with no route out. Their only exit is the `agent-team-proxy` container (tinyproxy), which allows HTTPS to an allowlist: Claude, OpenAI, npm, PyPI, GitHub, nodejs.org, plus `harness.network.extraDomains`. |
 | Credentials | Containers get copies of `~/.claude/.credentials.json` and `~/.codex/auth.json`. Tokens refreshed inside a container are written back to the host. If `CLAUDE_CODE_OAUTH_TOKEN` is set (from `claude setup-token`), it is passed by name instead. |
 | Setup | Each fresh worktree installs dependencies first (`npm ci`, `pnpm`, or `yarn`, detected from the lockfile). |
 | Failure classes | `rate_limit`, `auth`, `unavailable`, `missing_binary`, `timeout`, `aborted`, `agent_failure`. Only runner output (stderr, error events) is classified, never the agent's own work. |
@@ -175,6 +172,11 @@ The harness runs every agent call. It isolates each attempt, retries infrastruct
 | Fallback | `rate_limit`, `auth`, `missing_binary`, and `timeout` move to the next entry in the role's `fallbacks`. |
 | Cooldown | A rate-limited runner rests for `cooldownMs` (4x after an auth error) and is skipped meanwhile. When every runner rests, the harness waits up to 1 hour, then pauses the run. |
 | Attempts | Infrastructure failures pause the run without using up a task's attempts. Only agent failures count toward `maxRetries`. |
+| Scope | Claude workers can edit only their task's `allowedPaths`; other edits are denied at once. A check after the run catches the rest. |
+| Blocked tasks | A worker that cannot finish in scope reports why. The planner may widen the scope, add a prerequisite task, or split the task, once. Changes to shared or foreign files wait for you. |
+| Retries | A retry gets the rejected diff and the reason. A failing check runs twice before it counts, to catch flaky tests. |
+| Shared context | The architect writes `AGENTS.md` (loaded by both CLIs). The harness appends each merged task to `docs/progress.md`. Workers also get a map of the files. |
+| Budget | `budget.perTaskUsd` per task and `budget.runUsd` (default 30) per project. |
 | Stop | Ctrl+C stops the agents, kills their containers, and removes worktrees. Run again to resume. Exit code 75 means paused. |
 
 Commands: `agent-team reset-cooldowns <projectDir>` clears runner cooldowns after you fix a login.
@@ -187,11 +189,13 @@ Commands: `agent-team reset-cooldowns <projectDir>` clears runner cooldowns afte
 
 ## Roadmap
 
-1. CLI MVP: sequential pipeline, both runners (this release)
-2. Harness: worktrees, Docker sandbox, retries, fallbacks (done); parallel task scheduler
-3. Scope guard hooks inside the agent (network allowlist done)
-4. Web control UI (done) and Telegram gate approvals
-5. Preview deploy per run
+Done: sequential pipeline, both runners, Docker sandbox, retries and fallbacks, network allowlist, scope guard at edit time, web dashboard with project creation and gates, branding and design system, QA gates, preview deploy.
+
+Next:
+
+1. Parallel task scheduler for tasks with separate `allowedPaths`
+2. Doctor: a monitor that diagnoses stopped runs and fixes them
+3. Gate approvals from the phone (Telegram)
 
 ## License
 
