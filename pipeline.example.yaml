@@ -6,9 +6,21 @@ autonomy:
 budget:
   perTaskUsd: 2
 
+mockups:
+  enabled: true        # the illustrator generates UI mockup images before the design phase
+  count: 3
+
+publish:
+  github:
+    enabled: false     # create a GitHub repo for the project and push after every merge (needs `gh auth login` on the host)
+    owner: null        # user or org; null = the logged-in gh account
+    visibility: private
+    name: null         # null = project folder name
+
 roles:
   pm:        { runner: claude, model: opus }
   architect: { runner: claude, model: opus }
+  illustrator: { runner: codex, model: gpt-5.5 }
   designer:  { runner: claude, model: sonnet }
   planner:   { runner: claude, model: opus }
   worker:

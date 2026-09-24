@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync } from "node:fs"
+import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import type { Candidate, PipelineConfig, PlanningPhase, Role } from "./config.ts"
 import { changedFiles, stagedDiff } from "./git.ts"
@@ -7,6 +7,7 @@ import { hostExecutor, type Executor } from "./harness/executor.ts"
 import { defaultAllowlist, ensureEgressProxy } from "./harness/network.ts"
 import type { Harness, HarnessOutcome } from "./harness/harness.ts"
 import { createWorkspace, detectSetupCommand, mergeWorkspace, removeWorkspace } from "./harness/workspace.ts"
+import { publishProject } from "./publish.ts"
 import type { Store } from "./store.ts"
 import { filesOutsideScope, loadTasks, type Task } from "./tasks.ts"
 
@@ -38,9 +39,19 @@ const phaseDefinitions: Record<PlanningPhase, PhaseDefinition> = {
     outputs: ["docs/architecture.md", "docs/adr/", "contracts/openapi.yaml (if the app has an API)"],
     validate: (dir) => requireHeadings(join(dir, "docs/architecture.md"), ["## Commands"]),
   },
+  mockups: {
+    role: "illustrator",
+    inputs: ["input.md", "docs/spec.md", "docs/architecture.md"],
+    outputs: ["design/mockups/*.png", "design/mockups/README.md"],
+    validate: (dir) => {
+      const mockupDir = join(dir, "design/mockups")
+      const images = existsSync(mockupDir) ? readdirSync(mockupDir).filter((file) => /\.(png|jpe?g|webp)$/i.test(file)) : []
+      if (images.length === 0) throw new Error("no mockup images in design/mockups/")
+    },
+  },
   design: {
     role: "designer",
-    inputs: ["docs/spec.md", "docs/architecture.md", "contracts/"],
+    inputs: ["docs/spec.md", "docs/architecture.md", "contracts/", "design/mockups/ (UI mockup images: open and study them, use them as visual reference)"],
     outputs: ["docs/design.md", "design/tokens.json"],
     validate: (dir) => {
       requireFile(join(dir, "docs/design.md"))
@@ -84,9 +95,15 @@ async function runPlanningPhase(context: PipelineContext, phase: PlanningPhase):
     store.log("gate", `phase "${phase}" is waiting for approval: agent-team approve ${projectDir} ${phase}`)
     return "awaiting_approval"
   }
-  if (phase === "design" && config.target === "api") {
+  const skipReason =
+    (phase === "design" || phase === "mockups") && config.target === "api"
+      ? "api-only target"
+      : phase === "mockups" && !config.mockups.enabled
+        ? "mockups disabled in pipeline.yaml"
+        : null
+  if (skipReason) {
     store.setPhase(phase, "approved")
-    store.log("phase", "design skipped for an api-only target")
+    store.log("phase", `${phase} skipped: ${skipReason}`)
     return "completed"
   }
 
@@ -133,6 +150,7 @@ async function attemptPhase(context: PipelineContext, phase: PlanningPhase, defi
       return { kind: "failed", reason: (error as Error).message }
     }
     mergeWorkspace(projectDir, workspace, `docs(${phase}): add ${phase} artifacts`)
+    publishProject(context)
     return { kind: "passed" }
   } catch (error) {
     return { kind: "infrastructure", reason: (error as Error).message }
@@ -149,6 +167,7 @@ function phasePrompt(context: PipelineContext, definition: PhaseDefinition, prev
     `Read these inputs: ${definition.inputs.join(", ")}.`,
     `Write these outputs: ${definition.outputs.join(", ")}.`,
   ]
+  if (definition.role === "illustrator") lines.push(`Generate ${config.mockups.count} mockup images.`)
   if (config.stackHints.prefer.length) lines.push(`Preferred technologies: ${config.stackHints.prefer.join(", ")}.`)
   if (config.stackHints.avoid.length) lines.push(`Avoid: ${config.stackHints.avoid.join(", ")}.`)
   if (previousError) lines.push(`Your previous output was rejected. Fix this: ${previousError}`)
@@ -246,6 +265,7 @@ async function attemptTask(context: PipelineContext, task: Task, attempt: number
     } catch (error) {
       return { kind: "failed", reason: `merge failed: ${(error as Error).message}` }
     }
+    publishProject(context)
     return { kind: "passed" }
   } catch (error) {
     store.log("harness", `${task.id} attempt ${attempt} crashed: ${(error as Error).message}`)
