@@ -224,6 +224,15 @@ export function openStore(path: string) {
       const row = db.prepare("SELECT COALESCE(SUM(cost_usd), 0) AS usd, COALESCE(SUM(cost_usd IS NULL), 0) AS unreported FROM attempts WHERE role NOT IN ('doctor', 'lead')").get() as { usd: number; unreported: number }
       return { usd: row.usd, unreportedCalls: row.unreported }
     },
+    // Store-backed numbers for one eval brief, so the eval code writes no SQL.
+    evalSummary() {
+      const tasks = db.prepare("SELECT COUNT(*) AS total, COALESCE(SUM(status = 'merged'), 0) AS merged, COALESCE(SUM(status = 'blocked'), 0) AS blocked, COALESCE(SUM(replans), 0) AS replans, COALESCE(SUM(id LIKE 'Q%'), 0) AS qaFixes FROM tasks").get() as { total: number; merged: number; blocked: number; replans: number; qaFixes: number }
+      const attempts = db.prepare("SELECT role, runner, model, COUNT(*) AS count FROM attempts GROUP BY role, runner, model").all() as { role: string; runner: string; model: string; count: number }[]
+      const reviews = db.prepare("SELECT COUNT(*) AS total, COALESCE(SUM(verdict = 'fail'), 0) AS fail FROM reviews").get() as { total: number; fail: number }
+      const tokens = db.prepare("SELECT COALESCE(SUM(tokens), 0) AS tokens FROM attempts WHERE role NOT IN ('doctor', 'lead')").get() as { tokens: number }
+      const cost = this.projectCost()
+      return { tasks, attempts, reviews, tokens: tokens.tokens, costUsd: cost.usd, unreportedCalls: cost.unreportedCalls }
+    },
     // fileHashes maps each file in the reviewed diff to a hash of its part of the diff, so a later attempt can be compared.
     recordReview(review: { taskId: string; attempt: number; verdict: "pass" | "fail"; flaggedFiles: string[]; fileHashes: Record<string, string> }) {
       db.prepare("INSERT INTO reviews (task_id, attempt, verdict, flagged_files, file_hashes, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(

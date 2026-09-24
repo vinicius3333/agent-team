@@ -1,0 +1,179 @@
+{
+  "resultId": "20260924T184959Z-dcc28f7-baseline",
+  "gitSha": "dcc28f7",
+  "dirty": true,
+  "label": "baseline",
+  "tier": "smoke",
+  "configHash": "8f697822c14c1399",
+  "config": {
+    "roles": {
+      "pm": {
+        "runner": "claude",
+        "model": "opus"
+      },
+      "architect": {
+        "runner": "claude",
+        "model": "opus"
+      },
+      "illustrator": {
+        "runner": "codex",
+        "model": "gpt-6-astra"
+      },
+      "designer": {
+        "runner": "claude",
+        "model": "sonnet"
+      },
+      "marketer": {
+        "runner": "codex",
+        "model": "gpt-6-astra"
+      },
+      "planner": {
+        "runner": "claude",
+        "model": "opus"
+      },
+      "worker": {
+        "runner": "claude",
+        "model": "sonnet",
+        "maxRetries": 3,
+        "fallbacks": []
+      },
+      "reviewer": {
+        "runner": "claude",
+        "model": "opus",
+        "fallbacks": []
+      },
+      "design-reviewer": {
+        "runner": "claude",
+        "model": "opus"
+      },
+      "qa": {
+        "runner": "claude",
+        "model": "opus"
+      },
+      "lead": {
+        "runner": "claude",
+        "model": "opus"
+      }
+    },
+    "harness": {
+      "isolation": "docker",
+      "docker": {
+        "cpus": 2,
+        "memory": "4g",
+        "pidsLimit": 512
+      },
+      "network": {
+        "allowlist": true,
+        "extraDomains": []
+      },
+      "transientRetries": 2,
+      "backoffMs": 15000,
+      "cooldownMs": 900000,
+      "agentTimeoutMs": 1800000
+    }
+  },
+  "runnerVersions": {
+    "claude": "2.1.281 (Claude Code)",
+    "codex": "codex-cli 0.155.1"
+  },
+  "aborted": null,
+  "briefs": [
+    {
+      "id": "landing-page",
+      "briefHash": "8dcf3960ea4f7149",
+      "outcome": "awaiting_approval",
+      "stop": {
+        "outcome": "awaiting_approval",
+        "kind": "budget",
+        "reason": "run budget reached: $3.29 reported of $3.00 (budget.runUsd). Stopped before phase-plan-1. Raise budget.runUsd in pipeline.yaml, then resume",
+        "at": "2026-09-24T19:05:49.894Z"
+      },
+      "phases": {
+        "spec": "approved",
+        "architecture": "approved",
+        "branding": "approved",
+        "design": "approved",
+        "marketing": "approved",
+        "plan": "pending"
+      },
+      "tasks": {
+        "total": 0,
+        "merged": 0,
+        "blocked": 0,
+        "replans": 0
+      },
+      "attempts": {
+        "total": 7,
+        "byRole": {
+          "architect": 1,
+          "design-reviewer": 2,
+          "designer": 3,
+          "pm": 1
+        },
+        "fallbacks": 0
+      },
+      "reviews": {
+        "total": 0,
+        "fail": 0
+      },
+      "qa": {
+        "rounds": 0,
+        "verdict": null,
+        "fixTasks": 0
+      },
+      "costUsd": 3.2886,
+      "unreportedCalls": 0,
+      "tokens": 3314281,
+      "wallMs": 949837
+    },
+    {
+      "id": "notes-api",
+      "briefHash": "428a5b8717bed668",
+      "outcome": "awaiting_approval",
+      "stop": {
+        "outcome": "awaiting_approval",
+        "kind": "budget",
+        "reason": "run budget reached: $2.20 reported of $2.00 (budget.runUsd). Stopped before T004-worker-1. Raise budget.runUsd in pipeline.yaml, then resume",
+        "at": "2026-09-24T19:14:59.658Z"
+      },
+      "phases": {
+        "spec": "approved",
+        "architecture": "approved",
+        "branding": "approved",
+        "design": "approved",
+        "marketing": "approved",
+        "plan": "approved"
+      },
+      "tasks": {
+        "total": 9,
+        "merged": 2,
+        "blocked": 0,
+        "replans": 0
+      },
+      "attempts": {
+        "total": 8,
+        "byRole": {
+          "architect": 1,
+          "planner": 1,
+          "pm": 1,
+          "reviewer": 2,
+          "worker": 3
+        },
+        "fallbacks": 0
+      },
+      "reviews": {
+        "total": 2,
+        "fail": 0
+      },
+      "qa": {
+        "rounds": 0,
+        "verdict": null,
+        "fixTasks": 0
+      },
+      "costUsd": 2.2025,
+      "unreportedCalls": 1,
+      "tokens": 1178993,
+      "wallMs": 549631
+    }
+  ]
+}

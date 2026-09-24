@@ -4,3 +4,5 @@ node_modules/
 .agent-team/
 web/dist/
 web/node_modules/
+evals/runs/
+evals/revs/
