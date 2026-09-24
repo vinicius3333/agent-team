@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { after, test } from "node:test"
 import { loadConfig } from "../src/config.ts"
+import { healthSummary, percentile, probe, probeProject } from "../src/operate/health.ts"
 import { openStore } from "../src/store.ts"
 
 const scratch = mkdtempSync(join(tmpdir(), "agent-team-operate-"))
@@ -117,4 +118,57 @@ test("loadConfig reads the operate block and fills defaults", () => {
   assert.equal(config.roles.monitor.model, "sonnet")
   assert.equal(config.roles.researcher.runner, "claude")
   assert.throws(() => loadConfig(writePipeline("operate-bad", "operate:\n  healthPath: health\n  schedule: { monitoring: -1 }\n  competitors: [example.com]\n")), /healthPath[\s\S]*monitoring[\s\S]*competitors/)
+})
+
+const minute = 60_000
+const hour = 60 * minute
+
+function stubFetch(handler: (url: string, init?: RequestInit) => Response | Promise<Response>): typeof fetch {
+  return (async (input: string | URL | Request, init?: RequestInit) => handler(String(input), init)) as typeof fetch
+}
+
+test("probe counts 2xx and 3xx as up and reports errors", async () => {
+  const up = await probe("https://app.example", "/health", stubFetch((url) => {
+    assert.equal(url, "https://app.example/health")
+    return new Response("ok", { status: 200 })
+  }))
+  assert.equal(up.ok, true)
+  assert.equal(up.statusCode, 200)
+  assert.equal((await probe("https://app.example", "/", stubFetch(() => new Response(null, { status: 302 })))).ok, true)
+  assert.deepEqual({ ...(await probe("https://app.example", "/", stubFetch(() => new Response("", { status: 503 })))), latencyMs: 0 }, { ok: false, statusCode: 503, latencyMs: 0, error: "HTTP 503" })
+  const timeout = await probe("https://app.example", "/", stubFetch(() => {
+    throw Object.assign(new Error("aborted"), { name: "TimeoutError" })
+  }))
+  assert.deepEqual(timeout, { ok: false, statusCode: null, latencyMs: null, error: "no answer in 10s" })
+})
+
+test("healthSummary computes uptime over 7 days and p95 latency over 24 hours", () => {
+  const store = freshStore()
+  const now = Date.parse("2026-09-24T12:00:00Z")
+  assert.deepEqual(healthSummary(store, now), { uptime7d: null, p95LatencyMs24h: null, lastCheckAt: null, state: "unknown" })
+  store.addHealthCheck({ ok: false, statusCode: 500, latencyMs: 5000, error: "HTTP 500" }, new Date(now - 3 * 24 * hour))
+  for (let index = 1; index <= 19; index++) store.addHealthCheck({ ok: true, statusCode: 200, latencyMs: index * 10, error: null }, new Date(now - (20 - index) * minute))
+  const summary = healthSummary(store, now)
+  assert.equal(summary.uptime7d, 95)
+  assert.equal(summary.p95LatencyMs24h, 190)
+  assert.equal(summary.state, "up")
+  assert.equal(healthSummary(store, now + 2 * hour).state, "unknown")
+  assert.equal(percentile([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20], 0.95), 19)
+  store.close()
+})
+
+test("probeProject waits 5 minutes between probes and logs down after 3 failures, then recovered", async () => {
+  const store = freshStore()
+  const failing = async () => ({ ok: false, statusCode: 502, latencyMs: 20, error: "HTTP 502" })
+  assert.equal(await probeProject(store, "/", { probe: failing }), null)
+  store.setMeta("deploy.url", "https://app.example")
+  store.setPhase("deploy", "approved")
+  const start = Date.parse("2026-09-24T12:00:00Z")
+  for (let index = 0; index < 3; index++) assert.ok(await probeProject(store, "/", { now: start + index * 5 * minute, probe: failing }))
+  assert.equal(await probeProject(store, "/", { now: start + 11 * minute, probe: failing }), null)
+  await probeProject(store, "/", { now: start + 15 * minute, probe: failing })
+  await probeProject(store, "/", { now: start + 20 * minute, probe: async () => ({ ok: true, statusCode: 200, latencyMs: 80, error: null }) })
+  const messages = store.recentEvents(10).map((event) => `${event.type}: ${event.message}`).reverse()
+  assert.deepEqual(messages, ["operate: health: down (HTTP 502)", "operate: health: recovered"])
+  store.close()
 })
