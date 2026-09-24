@@ -182,19 +182,24 @@ test("reviewerMetrics counts fails the next attempt confirmed", () => {
 })
 
 test("merged tasks feed the progress log, dependency files, the reviewer, and the UI smoke check", async () => {
-  const { projectDir, store, run } = setupProject("progress", [task("T001", { phase: "foundation" }), task("T002", { dependsOn: ["T001"], ui: true, routes: ["/items"] })])
+  const agents = "# Agents\n\n## Commands\n\n- test: true\n"
+  const { projectDir, store, run } = setupProject("progress", [task("T001", { phase: "foundation" }), task("T002", { dependsOn: ["T001"], ui: true, routes: ["/items"] })], { "AGENTS.md": agents })
   const smokeCalls: string[] = []
   const smoke: SmokeCheck = async ({ task: smoked, attempt, worktree }) => {
     smokeCalls.push(`${smoked.id}-${attempt}`)
     assert.ok(worktree.includes(".agent-team/worktrees/"))
-    return attempt === 2 ? { kind: "failed", reason: "/items logged console errors:\n  - TypeError: boom" } : { kind: "passed", routes: 1 }
+    return attempt === 1 && smoked.id === "T002" ? { kind: "failed", reason: "/items logged console errors:\n  - TypeError: boom" } : { kind: "passed", routes: 1 }
   }
   const { harness, jobs } = stubHarness({
     worker: [
       (job, workdir) => {
         const id = job.subject.split("-")[0]
         writeFile(workdir, `src/${id.toLowerCase()}/index.ts`)
-        if (job.subject === "T002-worker-1") writeFile(workdir, "AGENTS.md", "# hacked\n")
+        // next dev adds its own rules to AGENTS.md when a worker runs the app by hand.
+        if (job.subject === "T002-worker-1") {
+          writeFile(workdir, "AGENTS.md", `${agents}<!-- BEGIN:nextjs-agent-rules -->\n<!-- END:nextjs-agent-rules -->\n`)
+          writeFile(workdir, "CLAUDE.md", "# hacked\n")
+        }
         return `Built ${id}.\nLine two.\nLine three.\nLine four is cut.`
       },
     ],
@@ -209,16 +214,18 @@ test("merged tasks feed the progress log, dependency files, the reviewer, and th
   assert.doesNotMatch(progress, /Line four/)
 
   const workers = jobs.filter((job) => job.role === "worker")
-  assert.equal(workers.length, 4, "T001 once; T002 fails on AGENTS.md, then on the smoke check, then passes")
+  assert.equal(workers.length, 3, "T001 once; T002 fails on the smoke check, then passes")
   assert.doesNotMatch(workers[0].taskPrompt, /docs\/progress\.md/)
   assert.match(workers[1].taskPrompt, /- T001: src\/t001\/index\.ts/)
   assert.match(workers[1].taskPrompt, /"docs\/progress\.md"/)
   assert.match(workers[1].taskPrompt, /## Code map[\s\S]*docs\/\n  progress\.md/)
-  assert.match(workers[2].taskPrompt, /only the orchestrator writes: AGENTS\.md/)
-  assert.match(workers[3].taskPrompt, /UI smoke check failed:\n\/items logged console errors/)
-  assert.deepEqual(smokeCalls, ["T002-2", "T002-3"], "the smoke check runs after verify, only for ui tasks")
-  assert.ok(readEvents(projectDir, "smoke").some((message) => /T002 attempt 2: UI smoke check failed/.test(message)))
-  assert.equal(store.task("T002").attempts, 3)
+  assert.match(workers[2].taskPrompt, /UI smoke check failed:\n\/items logged console errors/)
+  assert.doesNotMatch(workers[2].taskPrompt, /nextjs-agent-rules|# hacked/, "files only the orchestrator writes are restored before the diff")
+  assert.deepEqual(smokeCalls, ["T002-1", "T002-2"], "the smoke check runs after verify, only for ui tasks")
+  assert.ok(readEvents(projectDir, "smoke").some((message) => /T002 attempt 1: UI smoke check failed/.test(message)))
+  assert.ok(readEvents(projectDir, "task").some((message) => /T002 attempt 1: restored files that only the orchestrator writes: AGENTS\.md, CLAUDE\.md/.test(message)))
+  assert.equal(store.task("T002").attempts, 2)
+  assert.equal(showMain(projectDir, "AGENTS.md"), agents)
 
   const reviewers = jobs.filter((job) => job.role === "reviewer")
   assert.match(reviewers[0].systemPrompt, /The worker agent \(claude stub\) wrote the code/)

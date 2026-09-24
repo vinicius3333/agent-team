@@ -5,7 +5,7 @@ import { loadConfig, type Candidate, type PipelineConfig, type PlanningPhase, ty
 import { groupPhaseFiles, parseCommitPlan, type PhaseCommit } from "./commits.ts"
 import { faviconDir, faviconFiles, generateFavicons, markPath, validateMark } from "./favicon.ts"
 import { copyPath, manifestPath, marketingDir, renderMarketing, validateMarketing } from "./marketing.ts"
-import { changedFiles, fileAtRef, isAncestor, stagedDiff, trackedFiles } from "./git.ts"
+import { changedFiles, fileAtRef, isAncestor, restorePaths, stagedDiff, trackedFiles } from "./git.ts"
 import { createDockerExecutor, ensureImage } from "./harness/docker.ts"
 import { hostExecutor, type Executor } from "./harness/executor.ts"
 import { defaultAllowlist, ensureEgressProxy } from "./harness/network.ts"
@@ -1148,9 +1148,13 @@ async function attemptTask(context: PipelineContext, task: Task, attempt: number
     const block = parseBlock(worker.result.summary)
     if (block) return { kind: "blocked", reason: formatBlock(block), block }
 
+    // Workers cannot write these, but tools they run can (next dev adds its own block to AGENTS.md), so put them back.
+    const forbidden = changedFiles(workspace.path).filter((file) => orchestratorFiles.includes(file))
+    if (forbidden.length) {
+      restorePaths(workspace.path, forbidden)
+      store.log("task", `${task.id} attempt ${attempt}: restored files that only the orchestrator writes: ${forbidden.join(", ")}`)
+    }
     const changed = changedFiles(workspace.path)
-    const forbidden = changed.filter((file) => orchestratorFiles.includes(file))
-    if (forbidden.length) return rejected(`edited files that only the orchestrator writes: ${forbidden.join(", ")}`)
     const outside = filesOutsideScope(changed, task.allowedPaths)
     if (outside.length) return rejected(`edited files outside allowedPaths: ${outside.join(", ")}`)
 
