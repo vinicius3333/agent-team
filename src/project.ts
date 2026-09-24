@@ -5,8 +5,10 @@ import { fileURLToPath } from "node:url"
 import { parseDocument, type Document } from "yaml"
 import { loadConfig, normalizePhaseName, planningPhases, roles, runnerNames, type Candidate, type PipelineConfig, type PlanningPhase, type Role, type RunnerName } from "./config.ts"
 import { appendFeedback, archiveFeedback } from "./feedback.ts"
-import { commitAll, commitPaths, initRepository } from "./git.ts"
-import { openStore, type Store } from "./store.ts"
+import { commitAll, commitOf, commitPaths, createBranch, initRepository } from "./git.ts"
+import { changeTitle, createGitHub } from "./github.ts"
+import { commitAndRebase, createWorkspace, fastForward, removeWorkspace } from "./harness/workspace.ts"
+import { openStore, type Change, type Store } from "./store.ts"
 import { applyTemplate, customTemplate, findTemplate, type StackTemplate } from "./templates.ts"
 
 export const cliPath = fileURLToPath(new URL("./cli.ts", import.meta.url))
@@ -181,9 +183,14 @@ function requireAwaitingApproval(store: Store, requestedPhase: string | undefine
   return phase as PlanningPhase
 }
 
+// During a change the phase outputs live on the change branch, so edits in the main checkout are not committed: main must not move.
+function commitHumanEdits(projectDir: string, store: Store, phase: PlanningPhase): void {
+  if (!store.currentChange()) commitAll(projectDir, `docs(${phase}): apply human edits`)
+}
+
 export function approvePhase(projectDir: string, store: Store, phase: string | undefined): void {
   const approved = requireAwaitingApproval(store, phase)
-  commitAll(projectDir, `docs(${approved}): apply human edits`)
+  commitHumanEdits(projectDir, store, approved)
   archiveFeedback(projectDir, approved)
   store.setPhase(approved, "approved")
   store.log("gate", `phase "${approved}" approved`)
@@ -192,7 +199,7 @@ export function approvePhase(projectDir: string, store: Store, phase: string | u
 export function requestChanges(projectDir: string, store: Store, phase: string | undefined, message: string): void {
   const reviewed = requireAwaitingApproval(store, phase)
   // The rerun agent works in a worktree from main, so human edits must be committed for it to see them.
-  commitAll(projectDir, `docs(${reviewed}): apply human edits`)
+  commitHumanEdits(projectDir, store, reviewed)
   appendFeedback(projectDir, reviewed, message)
   store.setPhase(reviewed, "pending")
   store.log("gate", `phase "${reviewed}": changes requested`)
@@ -218,6 +225,83 @@ export function raiseRunBudget(projectDir: string, store: Store): number {
   writeFileSync(path, document.toString())
   store.log("budget", `budget.runUsd raised from $${current.toFixed(2)} to $${raised.toFixed(2)}`)
   return raised
+}
+
+export const changeRequestMaxLength = 4000
+// The phases a change reruns; design joins them when the architecture delta asks for it.
+export const changePhases = ["spec", "architecture", "plan", "qa", "deploy"]
+
+export function changePath(id: string, file: string): string {
+  return `docs/changes/${id}/${file}`
+}
+
+// Done means the last run got through QA and deploy (deploy counts as approved when it is off) with every task merged.
+export function buildComplete(store: Store): boolean {
+  if (!["plan", "qa", "deploy"].every((phase) => store.phaseStatus(phase) === "approved")) return false
+  const tasks = store.tasks()
+  return tasks.length > 0 && tasks.every((task) => task.status === "merged")
+}
+
+function changeSlug(request: string): string {
+  const slug = changeTitle({ request }).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40).replace(/-+$/, "")
+  return slug || "change"
+}
+
+// Records the request on a new change/<id>-<slug> branch from main and resets the phases a change reruns.
+export function openChange(projectDir: string, store: Store, rawRequest: unknown): Change {
+  const request = typeof rawRequest === "string" ? rawRequest.trim() : ""
+  if (!request) throw new ProjectError(400, "Describe the change first.")
+  if (request.length > changeRequestMaxLength) throw new ProjectError(400, `Keep the change request under ${changeRequestMaxLength} characters.`)
+  if (processAlive(Number(store.meta("run.pid")))) throw new ProjectError(409, "A run is in progress. Wait for it to stop.")
+  const open = store.currentChange()
+  if (open) throw new ProjectError(409, `Change ${open.id} is still open. Finish or abandon it first.`)
+  if (!buildComplete(store)) throw new ProjectError(409, "Finish or fix the current run first.")
+
+  const id = `C${String(store.changes().length + 1).padStart(3, "0")}`
+  const branch = `change/${id}-${changeSlug(request)}`
+  const baseCommit = commitOf(projectDir, "main")
+  createBranch(projectDir, branch, baseCommit)
+  const workspace = createWorkspace(projectDir, `change-${id}`, branch)
+  try {
+    const path = join(workspace.path, changePath(id, "request.md"))
+    mkdirSync(join(path, ".."), { recursive: true })
+    writeFileSync(path, `${request}
+`)
+    commitAndRebase(workspace, `docs(changes): add the ${id} request`)
+    fastForward(projectDir, workspace.branch, branch)
+  } finally {
+    removeWorkspace(projectDir, workspace)
+  }
+  store.openChange({ id, request, branch, baseCommit }, changePhases)
+  const change = store.change(id)!
+  store.log("change", `opened change ${id} on ${branch}: ${changeTitle(change)}`)
+  const config = loadConfig(join(projectDir, "pipeline.yaml"))
+  createGitHub({ projectDir, config, store }).changeOpened(change)
+  return change
+}
+
+// main never moved during the change, so its tasks.json and docs are already the ones from before it.
+export function abandonChange(projectDir: string, store: Store, id: string | undefined): void {
+  const change = id ? store.change(id) : null
+  if (!change) throw new ProjectError(404, `unknown change "${id}"`)
+  if (change.status !== "open") throw new ProjectError(409, `Change ${change.id} is ${change.status}, not open.`)
+  if (processAlive(Number(store.meta("run.pid")))) throw new ProjectError(409, "A run is in progress. Stop it first.")
+  const mainTaskIds = new Set(readTaskIds(projectDir))
+  for (const task of store.tasks()) {
+    if (!mainTaskIds.has(task.id)) store.removeTask(task.id)
+  }
+  store.restorePhases()
+  store.finishChange(change.id, "abandoned")
+  store.setMeta("run.stop", "")
+  store.log("change", `abandoned change ${change.id}; phases restored and its tasks removed`)
+  const config = loadConfig(join(projectDir, "pipeline.yaml"))
+  createGitHub({ projectDir, config, store }).changeAbandoned(change)
+}
+
+function readTaskIds(projectDir: string): string[] {
+  const path = join(projectDir, "tasks.json")
+  if (!existsSync(path)) return []
+  return (JSON.parse(readFileSync(path, "utf8")) as { id: string }[]).map((task) => task.id)
 }
 
 export function processAlive(pid: number): boolean {
