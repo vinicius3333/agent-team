@@ -166,11 +166,14 @@ export function retryTask(store: Store, taskId: string | undefined): void {
 
 const budgetRaiseFactor = 1.5
 
-// Raises budget.runUsd in pipeline.yaml by 50%, keeping the file's comments, and returns the new value.
-export function raiseRunBudget(projectDir: string, store: Store): number {
+// Raises budget.runUsd in pipeline.yaml, by 50% unless a new limit is given, keeping the file's comments, and returns the new value.
+export function raiseRunBudget(projectDir: string, store: Store, runUsd?: number): number {
   const path = join(projectDir, "pipeline.yaml")
   const current = loadConfig(path).budget.runUsd
-  const raised = Math.round(current * budgetRaiseFactor * 100) / 100
+  if (runUsd !== undefined && !(Number.isFinite(runUsd) && runUsd > current && runUsd <= current * 100)) {
+    throw new ProjectError(400, `The new budget must be above the current $${current.toFixed(2)}.`)
+  }
+  const raised = Math.round((runUsd ?? current * budgetRaiseFactor) * 100) / 100
   const document = parseDocument(readFileSync(path, "utf8"))
   document.setIn(["budget", "runUsd"], raised)
   writeFileSync(path, document.toString())

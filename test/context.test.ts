@@ -274,7 +274,8 @@ test("a failed workspace setup pauses with the key npm lines on the detail API",
 
 test("the run budget stops the run for approval, and the dashboard raises it", async (t) => {
   const { projectDir, config, store, run } = setupProject("budget", [task("T001"), task("T002")])
-  config.budget.runUsd = 1
+  const pipelinePath = join(projectDir, "pipeline.yaml")
+  writeFileSync(pipelinePath, readFileSync(pipelinePath, "utf8").replace(/runUsd: [\d.]+/, "runUsd: 1"))
   config.parallelTasks = 1
   const recorder = stubHarness(
     {
@@ -309,20 +310,22 @@ test("the run budget stops the run for approval, and the dashboard raises it", a
   assert.equal((await post({ "x-agent-team": "1" }, "x".repeat(70 * 1024))).status, 413)
   const detail = await (await fetch(`${base}/api/projects/budget`)).json()
   assert.equal(detail.stop.kind, "budget")
-  assert.deepEqual(detail.budget, { runUsd: 30, spentUsd: 1.2, spentTokens: 0, unreportedCalls: 1 })
+  assert.deepEqual(detail.budget, { runUsd: 1, spentUsd: 1.2, spentTokens: 0, unreportedCalls: 1 })
   assert.deepEqual(detail.reviewer, { reviews: 1, fails: 0, followedFails: 0, confirmedFails: 0 })
 
   store.setMeta("run.pid", String(process.pid))
-  assert.equal((await post({ "x-agent-team": "1" })).status, 409)
+  const raisedLive = await post({ "x-agent-team": "1" })
+  assert.equal(raisedLive.status, 200, "a live run picks up the new budget before its next agent call")
+  assert.deepEqual(await raisedLive.json(), { runUsd: 1.5, started: false })
+  assert.deepEqual(started, [])
   store.setMeta("run.pid", "")
   const raised = await post({ "x-agent-team": "1" })
-  assert.equal(raised.status, 200)
-  assert.deepEqual(await raised.json(), { runUsd: 45, started: true })
+  assert.deepEqual(await raised.json(), { runUsd: 2.25, started: true })
   assert.deepEqual(started, [projectDir])
-  const yaml = readFileSync(join(projectDir, "pipeline.yaml"), "utf8")
-  assert.match(yaml, /runUsd: 45/)
+  const yaml = readFileSync(pipelinePath, "utf8")
+  assert.match(yaml, /runUsd: 2.25/)
   assert.match(yaml, /# web \| api \| web\+api/, "comments survive")
-  assert.equal(loadConfig(join(projectDir, "pipeline.yaml")).budget.runUsd, 45)
+  assert.equal(loadConfig(pipelinePath).budget.runUsd, 2.25)
 })
 
 function gitLog(projectDir: string): string[] {

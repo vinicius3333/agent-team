@@ -1,7 +1,7 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { basename, join } from "node:path"
 import { ensureDemoAccess } from "./access.ts"
-import type { Candidate, PipelineConfig, PlanningPhase, Role } from "./config.ts"
+import { loadConfig, type Candidate, type PipelineConfig, type PlanningPhase, type Role } from "./config.ts"
 import { groupPhaseFiles, parseCommitPlan, type PhaseCommit } from "./commits.ts"
 import { faviconDir, faviconFiles, generateFavicons, markPath, validateMark } from "./favicon.ts"
 import { copyPath, manifestPath, marketingDir, renderMarketing, validateMarketing } from "./marketing.ts"
@@ -584,11 +584,18 @@ async function runTasks(context: PipelineContext): Promise<RunOutcome> {
 // QA fix tasks and replans change tasks.json, so a replan waits for the running tasks, then reloads it.
 async function buildTasks(context: PipelineContext): Promise<RunOutcome> {
   const { projectDir, config, store } = context
+  const tasksPath = join(projectDir, "tasks.json")
+  let loadedText = ""
   const load = () => {
-    const tasks = loadTasks(join(projectDir, "tasks.json"))
+    loadedText = readFileSync(tasksPath, "utf8")
+    const tasks = loadTasks(tasksPath)
     store.syncTasks(tasks.map((task) => task.id))
     context.github.syncTaskIssues(tasks)
     return tasks
+  }
+  // The project lead can add or change tasks on main while the build runs.
+  const reloadIfChanged = () => {
+    if (readFileSync(tasksPath, "utf8") !== loadedText) tasks = load()
   }
   let tasks = load()
   const running = new Map<string, { task: Task; result: Promise<{ id: string; outcome: TaskOutcome }> }>()
@@ -596,6 +603,7 @@ async function buildTasks(context: PipelineContext): Promise<RunOutcome> {
   let replanned = false
   for (;;) {
     if (!stop && !replanned) {
+      reloadIfChanged()
       stop = blockedStop(context, tasks.filter((task) => !running.has(task.id)))
       if (!stop) {
         for (const task of tasks) {
@@ -1524,16 +1532,25 @@ export interface AgentOptions {
   promptVariables?: Record<string, string>
 }
 
+// Rereads pipeline.yaml so a budget raised from the dashboard applies to the live run.
+function currentRunBudget(context: PipelineContext): number {
+  try {
+    context.config.budget.runUsd = loadConfig(join(context.projectDir, "pipeline.yaml")).budget.runUsd
+  } catch {}
+  return context.config.budget.runUsd
+}
+
 // Returned instead of calling an agent once the run budget is spent; callers treat it as a pause.
 function budgetStop(context: PipelineContext, subject: string): HarnessOutcome | null {
-  const { config, store } = context
+  const { store } = context
   const state = runState(context)
   const spent = store.projectCost()
-  if (spent.usd < config.budget.runUsd) return null
+  const runUsd = currentRunBudget(context)
+  if (spent.usd < runUsd) return null
   if (!state.budgetExceeded) {
     state.budgetExceeded = true
     const codex = spent.unreportedCalls ? `; ${spent.unreportedCalls} calls (codex) reported no cost and are not counted` : ""
-    const message = `run budget reached: $${spent.usd.toFixed(2)} reported of $${config.budget.runUsd.toFixed(2)} (budget.runUsd)${codex}. Stopped before ${subject}. Raise budget.runUsd in pipeline.yaml, then resume`
+    const message = `run budget reached: $${spent.usd.toFixed(2)} reported of $${runUsd.toFixed(2)} (budget.runUsd)${codex}. Stopped before ${subject}. Raise budget.runUsd in pipeline.yaml, then resume`
     state.stopReason = message
     store.log("budget", message)
   }

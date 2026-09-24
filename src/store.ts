@@ -13,7 +13,32 @@ export type LeadAction = { state: LeadActionState; reason: string } & (
   | { kind: "approve"; phase: string }
   | { kind: "request_changes"; phase: string; message: string }
   | { kind: "raise_budget" }
+  | { kind: "add_task"; task: TaskDraft }
+  | { kind: "edit_task"; taskId: string; changes: TaskChanges }
 )
+
+// A task the lead proposes; applying it appends a full task to tasks.json.
+export interface TaskDraft {
+  title: string
+  story: string
+  allowedPaths: string[]
+  readPaths: string[]
+  acceptance: string[]
+  dependsOn: string[]
+  verify: string
+  ui: boolean
+}
+
+export type TaskChanges = Partial<Pick<TaskDraft, "title" | "story" | "allowedPaths" | "readPaths" | "acceptance" | "verify">>
+
+// Extra data kept with a chat message: images the person attached, what the lead read, and follow-up prompts.
+export interface ChatDetails {
+  attachments: string[]
+  filesRead: string[]
+  followUps: string[]
+}
+
+export const emptyChatDetails: ChatDetails = { attachments: [], filesRead: [], followUps: [] }
 
 export interface ChatMessage {
   id: number
@@ -21,6 +46,7 @@ export interface ChatMessage {
   author: ChatAuthor
   body: string
   actions: LeadAction[]
+  details: ChatDetails
 }
 
 export interface TaskRow {
@@ -98,6 +124,8 @@ export function openStore(path: string) {
   const attemptColumns = db.prepare("PRAGMA table_info(attempts)").all() as { name: string }[]
   if (!attemptColumns.some((column) => column.name === "failure_class")) db.exec("ALTER TABLE attempts ADD COLUMN failure_class TEXT")
   if (!attemptColumns.some((column) => column.name === "tokens")) db.exec("ALTER TABLE attempts ADD COLUMN tokens INTEGER")
+  const chatColumns = db.prepare("PRAGMA table_info(chat_messages)").all() as { name: string }[]
+  if (!chatColumns.some((column) => column.name === "details")) db.exec("ALTER TABLE chat_messages ADD COLUMN details TEXT NOT NULL DEFAULT '{}'")
   const taskColumns = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[]
   if (!taskColumns.some((column) => column.name === "issue_number")) db.exec("ALTER TABLE tasks ADD COLUMN issue_number INTEGER")
   if (!taskColumns.some((column) => column.name === "replans")) db.exec("ALTER TABLE tasks ADD COLUMN replans INTEGER NOT NULL DEFAULT 0")
@@ -280,14 +308,20 @@ export function openStore(path: string) {
     recentEvents(limit: number): { at: string; type: string; message: string }[] {
       return db.prepare("SELECT at, type, message FROM events ORDER BY id DESC LIMIT ?").all(limit) as { at: string; type: string; message: string }[]
     },
-    addChatMessage(author: ChatAuthor, body: string, actions: LeadAction[] = []): number {
-      const result = db.prepare("INSERT INTO chat_messages (at, author, body, actions) VALUES (?, ?, ?, ?)").run(now(), author, body, JSON.stringify(actions))
+    addChatMessage(author: ChatAuthor, body: string, actions: LeadAction[] = [], details: Partial<ChatDetails> = {}): number {
+      const result = db
+        .prepare("INSERT INTO chat_messages (at, author, body, actions, details) VALUES (?, ?, ?, ?, ?)")
+        .run(now(), author, body, JSON.stringify(actions), JSON.stringify({ ...emptyChatDetails, ...details }))
       return Number(result.lastInsertRowid)
     },
     // Oldest first.
     chatMessages(limit: number): ChatMessage[] {
-      const rows = db.prepare("SELECT id, at, author, body, actions FROM chat_messages ORDER BY id DESC LIMIT ?").all(limit) as { id: number; at: string; author: ChatAuthor; body: string; actions: string }[]
-      return rows.reverse().map((row) => ({ ...row, actions: JSON.parse(row.actions) as LeadAction[] }))
+      const rows = db.prepare("SELECT id, at, author, body, actions, details FROM chat_messages ORDER BY id DESC LIMIT ?").all(limit) as { id: number; at: string; author: ChatAuthor; body: string; actions: string; details: string }[]
+      return rows.reverse().map((row) => ({ ...row, actions: JSON.parse(row.actions) as LeadAction[], details: { ...emptyChatDetails, ...JSON.parse(row.details) } }))
+    },
+    chatAction(messageId: number, index: number): LeadAction | null {
+      const row = db.prepare("SELECT actions FROM chat_messages WHERE id = ? AND author = 'lead'").get(messageId) as { actions: string } | undefined
+      return row ? ((JSON.parse(row.actions) as LeadAction[])[index] ?? null) : null
     },
     setChatActionState(messageId: number, index: number, state: LeadActionState): boolean {
       const row = db.prepare("SELECT actions FROM chat_messages WHERE id = ? AND author = 'lead'").get(messageId) as { actions: string } | undefined
