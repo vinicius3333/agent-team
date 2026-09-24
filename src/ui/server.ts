@@ -10,7 +10,9 @@ import { defaultRoles as laterRoleDefaults, defaultRunBudgetUsd, loadConfig, nor
 import { demoAccessMetaKey, readDemoAccess } from "../access.ts"
 import { pendingFeedback } from "../feedback.ts"
 import { customTemplate, findTemplate, listTemplates, readStack } from "../templates.ts"
-import { approvePhase, changeRoleModels, chooseTemplate, createProject, parseRoleModels, listProjects, ProjectError, raiseRunBudget, requestChanges, retryTask, runAlive, runLogPath, startRun as spawnRun, withProjectStore, type ProjectChoices } from "../project.ts"
+import { abandonChange, approveChangeMerge, approvePhase, changePath, changeRoleModels, chooseTemplate, createProject, openChange, parseRoleModels, listProjects, ProjectError, raiseRunBudget, requestChanges, retryTask, runAlive, runLogPath, startRun as spawnRun, withProjectStore, type ProjectChoices } from "../project.ts"
+import { fileAtRef } from "../git.ts"
+import { changeIdPattern } from "../tasks.ts"
 import { listIncidents, openIncident, readIncident } from "../incidents.ts"
 import { askLead, chatMessageMaxLength } from "../lead.ts"
 import { summarizeActivity } from "../activity.ts"
@@ -178,9 +180,30 @@ function all(db: DatabaseSync, sql: string, ...params: (string | number)[]): any
   }
 }
 
+interface ChangeRow {
+  id: string
+  request: string
+  status: string
+  branch: string
+  baseCommit: string
+  prUrl: string | null
+  createdAt: string
+  finishedAt: string | null
+}
+
+function changeRows(projectDir: string): ChangeRow[] {
+  return withDatabase(projectDir, (db) => all(db, "SELECT id, request, status, branch, base_commit AS baseCommit, pr_url AS prUrl, created_at AS createdAt, finished_at AS finishedAt FROM changes ORDER BY id"), [] as ChangeRow[])
+}
+
+function openChangeRow(projectDir: string): ChangeRow | null {
+  return changeRows(projectDir).find((change) => change.status === "open") ?? null
+}
+
+// During a change the new tasks are on its branch; main keeps the tasks from before it.
 function readTasksFile(projectDir: string): any[] {
+  const change = openChangeRow(projectDir)
   try {
-    const parsed = JSON.parse(readFileSync(join(projectDir, "tasks.json"), "utf8"))
+    const parsed = JSON.parse(change ? (fileAtRef(projectDir, change.branch, "tasks.json") ?? "[]") : readFileSync(join(projectDir, "tasks.json"), "utf8"))
     return Array.isArray(parsed) ? parsed : []
   } catch {
     return []
@@ -245,8 +268,17 @@ function brandingDirectory(projectDir: string): string | null {
   return brandingDirectories.find((dir) => existsSync(join(projectDir, dir))) ?? null
 }
 
-function qaRoundPath(round: number | string): string {
-  return join(".agent-team", "qa", `round-${round}`)
+// The newest change that has QA rounds, else the first build's rounds.
+function qaDirectory(projectDir: string): string {
+  const withRounds = changeRows(projectDir)
+    .map((change) => change.id)
+    .filter((id) => changeIdPattern.test(id) && existsSync(join(projectDir, ".agent-team", "qa", id)))
+  const latest = withRounds.at(-1)
+  return latest ? join(".agent-team", "qa", latest) : join(".agent-team", "qa")
+}
+
+function qaRoundPath(directory: string, round: number | string): string {
+  return join(directory, `round-${round}`)
 }
 
 function readQaJson(projectDir: string, relative: string): unknown {
@@ -261,20 +293,21 @@ function readQaJson(projectDir: string, relative: string): unknown {
 
 // Newest round first. Every path goes through projectFile, so a symlink in .agent-team/qa cannot leave the project.
 function qaRounds(projectDir: string) {
-  const base = projectFile(projectDir, join(".agent-team", "qa"))
+  const directory = qaDirectory(projectDir)
+  const base = projectFile(projectDir, directory)
   if (!base || !statSync(base).isDirectory()) return []
   return readdirSync(base)
     .map((entry) => Number(qaRoundDirectoryPattern.exec(entry)?.[1] ?? NaN))
     .filter((round) => Number.isInteger(round))
     .sort((a, b) => b - a)
     .map((round) => {
-      const dir = projectFile(projectDir, qaRoundPath(round))
-      const images = dir && statSync(dir).isDirectory() ? readdirSync(dir).filter((file) => qaImagePattern.test(file) && projectFile(projectDir, join(qaRoundPath(round), file))).sort() : []
+      const dir = projectFile(projectDir, qaRoundPath(directory, round))
+      const images = dir && statSync(dir).isDirectory() ? readdirSync(dir).filter((file) => qaImagePattern.test(file) && projectFile(projectDir, join(qaRoundPath(directory, round), file))).sort() : []
       return {
         round,
-        tests: readQaJson(projectDir, join(qaRoundPath(round), "tests.json")),
-        report: readQaJson(projectDir, join(qaRoundPath(round), "report.json")),
-        verdict: readQaJson(projectDir, join(qaRoundPath(round), "verdict.json")),
+        tests: readQaJson(projectDir, join(qaRoundPath(directory, round), "tests.json")),
+        report: readQaJson(projectDir, join(qaRoundPath(directory, round), "report.json")),
+        verdict: readQaJson(projectDir, join(qaRoundPath(directory, round), "verdict.json")),
         images,
       }
     })
@@ -307,6 +340,7 @@ function readConfig(projectDir: string) {
     return {
       target: raw.target ?? "web",
       gates: Array.isArray(raw.autonomy?.gates) ? raw.autonomy.gates.map((gate: unknown) => normalizePhaseName(String(gate))) : [],
+      changeMerge: raw.autonomy?.changeMerge === "manual" ? "manual" : "auto",
       roles,
       branding: raw.branding ?? raw.mockups ?? null,
       qa: { enabled: raw.qa?.enabled ?? true, maxRounds: raw.qa?.maxRounds ?? 3 },
@@ -450,9 +484,10 @@ async function detail(runsDir: string, name: string) {
       cooldowns: all(db, "SELECT runner, cooldown_until AS until, reason FROM runner_health"),
       reviews: all(db, "SELECT task_id AS taskId, attempt, verdict, flagged_files AS flaggedFiles, file_hashes AS fileHashes FROM reviews ORDER BY id"),
       liveRecords: all(db, "SELECT value FROM meta WHERE substr(key, 1, ?) = ?", liveAgentPrefix.length, liveAgentPrefix).map((row) => String(row.value)),
+      changeCosts: Object.fromEntries(all(db, "SELECT change_id AS changeId, ROUND(SUM(COALESCE(cost_usd, 0)), 4) AS usd FROM attempts WHERE change_id IS NOT NULL GROUP BY change_id").map((row) => [row.changeId, row.usd])) as Record<string, number>,
       spend: all(db, "SELECT COALESCE(SUM(cost_usd), 0) AS usd, COALESCE(SUM(cost_usd IS NULL), 0) AS unreportedCalls, COALESCE(SUM(tokens), 0) AS tokens FROM attempts WHERE role NOT IN ('doctor', 'lead')")[0] ?? { usd: 0, unreportedCalls: 0, tokens: 0 },
     }),
-    { phases: [], tasks: [], attempts: [], liveRecords: [] as string[], events: [], activeTime: { ms: 0, openSince: null } as ActiveTime, cooldowns: [], reviews: [], spend: { usd: 0, unreportedCalls: 0, tokens: 0 }, meta: {} as Record<string, string> },
+    { phases: [], tasks: [], attempts: [], changeCosts: {} as Record<string, number>, liveRecords: [] as string[], events: [], activeTime: { ms: 0, openSince: null } as ActiveTime, cooldowns: [], reviews: [], spend: { usd: 0, unreportedCalls: 0, tokens: 0 }, meta: {} as Record<string, string> },
   )
   const definitionFields = (definition: any) => ({
     title: definition.title,
@@ -473,8 +508,12 @@ async function detail(runsDir: string, name: string) {
   }
   const config = readConfig(projectDir)
   const attempts = state.attempts.map(({ transcriptPath, ...attempt }: any) => ({ ...attempt, transcript: String(transcriptPath ?? "").split("/").pop() }))
-  const { meta, reviews, spend, liveRecords, ...stateWithoutMeta } = state
+  const { meta, reviews, spend, liveRecords, changeCosts, ...stateWithoutMeta } = state
   const runActive = runAlive(projectDir)
+  const changes = changeRows(projectDir)
+  const openChange = changes.find((change) => change.status === "open") ?? null
+  const phaseStatus = (name: string) => state.phases.find((phase: any) => phase.name === name)?.status
+  const buildComplete = ["plan", "qa", "deploy"].every((name) => phaseStatus(name) === "approved") && state.tasks.length > 0 && state.tasks.every((task: any) => task.status === "merged")
   const [github, gitLog, worktrees, dockerPs, deploy, live] = await Promise.all([
     githubInfo(projectDir, meta, Boolean(config?.publish.github.enabled)),
     command(projectDir, "git", ["log", "--oneline", "-30"]),
@@ -512,6 +551,17 @@ async function detail(runsDir: string, name: string) {
     feedback: pendingFeedback(projectDir),
     budget: { runUsd: config?.budget.runUsd ?? defaultRunBudgetUsd, spentUsd: spend.usd, spentTokens: spend.tokens, unreportedCalls: spend.unreportedCalls },
     chat: { messages: chatMessages(projectDir), thinking: leadBusy.has(name) },
+    changes: changes.map((change) => ({ ...change, title: change.request.trim().split("\n")[0], costUsd: changeCosts[change.id] ?? 0 })).reverse(),
+    change: openChange
+      ? {
+          id: openChange.id,
+          branch: openChange.branch,
+          specDelta: fileAtRef(projectDir, openChange.branch, changePath(openChange.id, "spec.md")),
+          architectureDelta: fileAtRef(projectDir, openChange.branch, changePath(openChange.id, "architecture.md")),
+          mergeWaiting: config?.changeMerge === "manual" && phaseStatus("qa") === "approved" && meta[`change.${openChange.id}.mergeApproved`] !== "1",
+        }
+      : null,
+    canRequestChange: !runActive && !openChange && buildComplete,
     reviewer: reviewerMetrics(reviews.map(parseReviewRow).filter((row: ReviewRow | null): row is ReviewRow => row !== null)),
   }
 }
@@ -765,9 +815,28 @@ export function startUi(options: UiOptions) {
     }
 
     const name = parts[2]
-    if (!knownProject(name) || parts.length !== 4) return send(response, 404, { error: "unknown project" })
+    if (!knownProject(name)) return send(response, 404, { error: "unknown project" })
     const projectDir = join(runsDir, name)
+    if (parts[3] === "changes" && parts.length === 6) {
+      if (!changeIdPattern.test(parts[4])) return send(response, 404, { error: "unknown change" })
+      if (parts[5] === "abandon") {
+        withProjectStore(projectDir, (store) => abandonChange(projectDir, store, parts[4]))
+        return send(response, 200, { abandoned: true })
+      }
+      if (parts[5] === "merge") {
+        if (runAlive(projectDir)) return send(response, 409, { error: "A run is already in progress." })
+        withProjectStore(projectDir, (store) => approveChangeMerge(store, parts[4]))
+        return send(response, 200, { started: startRunIfIdle(name) })
+      }
+      return send(response, 404, { error: "not found" })
+    }
+    if (parts.length !== 4) return send(response, 404, { error: "unknown project" })
     switch (parts[3]) {
+      case "changes": {
+        if (runAlive(projectDir)) return send(response, 409, { error: "A run is already in progress." })
+        const change = withProjectStore(projectDir, (store) => openChange(projectDir, store, body.request))
+        return send(response, 201, { id: change.id, branch: change.branch, started: startRunIfIdle(name) })
+      }
       case "run":
         if (!startRunIfIdle(name)) return send(response, 409, { error: "A run is already in progress." })
         return send(response, 202, { started: true })
@@ -889,7 +958,7 @@ export function startUi(options: UiOptions) {
           const [round, file] = [parts[4], parts[5]]
           const isImage = qaImagePattern.test(file)
           if (!qaRoundPattern.test(round) || (!isImage && !qaJsonFiles.includes(file))) return send(response, 400, { error: "bad file name" })
-          const path = projectFile(projectDir, join(qaRoundPath(round), file))
+          const path = projectFile(projectDir, join(qaRoundPath(qaDirectory(projectDir), round), file))
           if (!path || !statSync(path).isFile() || statSync(path).size > imageMaxBytes) return send(response, 404, { error: "not found" })
           response.writeHead(200, { ...securityHeaders, "content-type": isImage ? "image/png" : "application/json; charset=utf-8", "cache-control": "no-store" })
           return response.end(readFileSync(path))
