@@ -11,6 +11,7 @@ import { createHarness, liveAgentPrefix } from "./harness/harness.ts"
 import { removeAllWorkspaces } from "./harness/workspace.ts"
 import { runPipeline } from "./pipeline.ts"
 import { approvePhase, createProject, openProjectStore, retryTask, withProjectStore } from "./project.ts"
+import { generateSessionSecret, hashPassword, passwordMinLength } from "./ui/auth.ts"
 import { startUi } from "./ui/server.ts"
 
 const usage = `Usage:
@@ -22,8 +23,10 @@ const usage = `Usage:
   agent-team reset-cooldowns <projectDir>
   agent-team deploy <projectDir>
   agent-team undeploy <projectDir>
-  agent-team ui <runsDir> [--port 4400] [--host 127.0.0.1]
-  agent-team doctor <runsDir> [--once]`
+  agent-team ui <runsDir> [--port 4400] [--host 127.0.0.1] [--insecure-no-auth]
+  agent-team doctor <runsDir> [--once]
+  agent-team hash-password
+  agent-team session-secret`
 
 function init(projectDir: string, briefPath: string | undefined): void {
   if (!briefPath) throw new Error("init needs --brief <file>")
@@ -101,6 +104,52 @@ function resetCooldowns(projectDir: string): void {
   store.log("harness", "runner cooldowns cleared")
 }
 
+function readHidden(question: string): Promise<string> {
+  const input = process.stdin
+  process.stderr.write(question)
+  input.setRawMode(true)
+  input.setEncoding("utf8")
+  input.resume()
+  return new Promise((resolve, reject) => {
+    let value = ""
+    const finish = (error?: Error) => {
+      input.off("data", onData)
+      input.setRawMode(false)
+      input.pause()
+      process.stderr.write("\n")
+      if (error) reject(error)
+      else resolve(value)
+    }
+    const onData = (chunk: string) => {
+      for (const character of chunk) {
+        if (character === "\r" || character === "\n") return finish()
+        if (character === "\u0003" || character === "\u0004") return finish(new Error("Cancelled."))
+        if (character === "\u007f" || character === "\b") value = value.slice(0, -1)
+        else value += character
+      }
+    }
+    input.on("data", onData)
+  })
+}
+
+async function readPiped(): Promise<string> {
+  const chunks: Buffer[] = []
+  for await (const chunk of process.stdin) chunks.push(chunk as Buffer)
+  return Buffer.concat(chunks).toString("utf8").replace(/\r?\n$/, "")
+}
+
+async function printPasswordHash(): Promise<void> {
+  let password: string
+  if (process.stdin.isTTY) {
+    password = await readHidden("Password: ")
+    if ((await readHidden("Password again: ")) !== password) throw new Error("The passwords do not match.")
+  } else {
+    password = await readPiped()
+  }
+  if (password.length < passwordMinLength) throw new Error(`Use a password of at least ${passwordMinLength} characters.`)
+  console.log(hashPassword(password))
+}
+
 async function doctor(runsDir: string, once: boolean): Promise<void> {
   const controller = new AbortController()
   const stop = () => controller.abort()
@@ -111,8 +160,10 @@ async function doctor(runsDir: string, once: boolean): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const { positionals, values } = parseArgs({ allowPositionals: true, options: { brief: { type: "string" }, port: { type: "string" }, host: { type: "string" }, once: { type: "boolean" } } })
+  const { positionals, values } = parseArgs({ allowPositionals: true, options: { brief: { type: "string" }, port: { type: "string" }, host: { type: "string" }, once: { type: "boolean" }, "insecure-no-auth": { type: "boolean" } } })
   const [command, target, extra] = positionals
+  if (command === "hash-password") return printPasswordHash()
+  if (command === "session-secret") return console.log(generateSessionSecret())
   if (!command || !target) {
     console.log(usage)
     process.exitCode = 1
@@ -137,7 +188,7 @@ async function main(): Promise<void> {
     case "undeploy":
       return undeployProject(projectDir, openProjectStore(projectDir))
     case "ui":
-      startUi({ runsDir: projectDir, port: Number(values.port ?? 4400), host: values.host })
+      startUi({ runsDir: projectDir, port: Number(values.port ?? 4400), host: values.host, allowInsecureBind: values["insecure-no-auth"] ?? false })
       return
     case "doctor":
       return doctor(projectDir, values.once ?? false)
