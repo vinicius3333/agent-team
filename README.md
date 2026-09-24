@@ -74,13 +74,53 @@ Most work happens in the dashboard. You type the brief in a form, and the agents
 
 ## Access
 
-The dashboard listens on `127.0.0.1` by default (change it with `--host`) and has no login. Reach it from another machine in one of these ways:
+The dashboard listens on `127.0.0.1` by default (change it with `--host`). On loopback with no login set, it opens without a password, as before. Once you set a login, every `/api` route needs it, on loopback too.
+
+### Turn on the login
+
+1. Make a password hash. The command asks twice and does not echo; you can also pipe the password in.
+
+   ```sh
+   node src/cli.ts hash-password
+   ```
+
+2. Make a session secret, so a restart does not log everyone out:
+
+   ```sh
+   node src/cli.ts session-secret
+   ```
+
+3. Set both before you start the dashboard:
+
+   ```sh
+   export AGENT_TEAM_UI_PASSWORD_HASH='scrypt$32768$8$1$...'
+   export AGENT_TEAM_UI_SESSION_SECRET='...'
+   ```
+
+   Use single quotes: the hash contains `$`. `AGENT_TEAM_UI_SESSION_HOURS` sets how long a login lasts (default 168, one week).
+
+A login sets an HttpOnly cookie. Five wrong passwords from one address lock it for 15 minutes; 30 wrong passwords from anywhere lock all logins for 15 minutes. To log everyone out, change the session secret and restart.
+
+### Let a proxy do the login
+
+If a reverse proxy already logs users in (Authelia, Caddy, Tailscale), let it pass the user name in a header:
+
+```sh
+export AGENT_TEAM_UI_TRUSTED_PROXIES=172.17.0.0/16
+export AGENT_TEAM_UI_PROXY_USER_HEADER=Remote-User
+```
+
+The server reads the header only from the listed IPs or CIDRs. You can set this and a password together. For a team, prefer the proxy: the logs then show who did what, while the shared password logs everyone as one user.
+
+### Reach it from another machine
 
 - SSH tunnel: `ssh -L 4400:127.0.0.1:4400 you@server`, then open `http://localhost:4400`.
-- Tailscale: `tailscale serve --bg --https=4400 http://127.0.0.1:4400`, then open `https://<machine>.<tailnet>.ts.net:4400`. Only devices on your tailnet can reach it.
-- Reverse proxy with a login: run with `--host` on an address the proxy can reach but the internet cannot, such as the docker0 gateway `172.17.0.1`. Put basic auth in the proxy and add its host name to `AGENT_TEAM_UI_HOSTS`. The Dokploy deploy in `docker-compose.yml` does this for `agent-team.137-131-153-58.sslip.io`.
+- Tailscale: `tailscale serve --bg --https=4400 http://127.0.0.1:4400`, then open `https://<machine>.<tailnet>.ts.net:4400`. Only devices on your tailnet can reach it. Never use `tailscale funnel` without a login: it puts the dashboard on the internet.
+- Reverse proxy: run with `--host` on an address the proxy can reach, such as the docker0 gateway `172.17.0.1`, and add the proxy's host name to `AGENT_TEAM_UI_HOSTS`. The Dokploy deploy in `docker-compose.yml` does this for `agent-team.137-131-153-58.sslip.io`. Put the hash and secret in `~/.config/agent-team/doctor.env` on the host; the container reads that file at start.
 
-Do not expose the port to the internet. Anyone who reaches it can start paid agent runs. The server answers only `localhost`, `127.0.0.1`, and `*.ts.net` hosts; add others with `AGENT_TEAM_UI_HOSTS`.
+The server refuses to listen on a non-loopback address without a login. `--insecure-no-auth` skips that check for setups where a proxy does the login and you do not want to list it; the server prints a warning at every start. Anyone who reaches an open port can start paid agent runs and read every project file.
+
+The server answers only `localhost`, `127.0.0.1`, and `*.ts.net` hosts; add others with `AGENT_TEAM_UI_HOSTS`.
 
 ## Command line
 
