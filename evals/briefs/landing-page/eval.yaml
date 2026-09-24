@@ -1,4 +1,4 @@
 tier: smoke
 target: web
-budgetUsd: 15
+budgetUsd: 22
 timeoutMinutes: 60

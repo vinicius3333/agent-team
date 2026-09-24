@@ -1,0 +1,192 @@
+{
+  "resultId": "20260924T212651Z-a421598-all-fixes",
+  "gitSha": "a421598",
+  "dirty": true,
+  "label": "all-fixes",
+  "tier": "smoke",
+  "configHash": "1b1e51364597b44d",
+  "config": {
+    "roles": {
+      "pm": {
+        "runner": "claude",
+        "model": "opus"
+      },
+      "architect": {
+        "runner": "claude",
+        "model": "opus"
+      },
+      "illustrator": {
+        "runner": "codex",
+        "model": "gpt-6-astra"
+      },
+      "designer": {
+        "runner": "claude",
+        "model": "sonnet"
+      },
+      "marketer": {
+        "runner": "codex",
+        "model": "gpt-6-astra"
+      },
+      "planner": {
+        "runner": "claude",
+        "model": "opus"
+      },
+      "worker": {
+        "runner": "claude",
+        "model": "sonnet",
+        "maxRetries": 3,
+        "fallbacks": []
+      },
+      "reviewer": {
+        "runner": "claude",
+        "model": "opus",
+        "fallbacks": []
+      },
+      "design-reviewer": {
+        "runner": "claude",
+        "model": "opus"
+      },
+      "qa": {
+        "runner": "claude",
+        "model": "opus"
+      },
+      "lead": {
+        "runner": "claude",
+        "model": "opus"
+      },
+      "monitor": {
+        "runner": "claude",
+        "model": "sonnet"
+      },
+      "analyst": {
+        "runner": "claude",
+        "model": "sonnet"
+      },
+      "researcher": {
+        "runner": "claude",
+        "model": "sonnet"
+      }
+    },
+    "harness": {
+      "isolation": "docker",
+      "docker": {
+        "cpus": 2,
+        "memory": "4g",
+        "pidsLimit": 512
+      },
+      "network": {
+        "allowlist": true,
+        "extraDomains": []
+      },
+      "transientRetries": 2,
+      "backoffMs": 15000,
+      "cooldownMs": 900000,
+      "agentTimeoutMs": 1800000
+    }
+  },
+  "runnerVersions": {
+    "claude": "2.1.282 (Claude Code)",
+    "codex": "codex-cli 0.155.1"
+  },
+  "aborted": null,
+  "briefs": [
+    {
+      "id": "landing-page",
+      "briefHash": "f92c2067aafd712e",
+      "outcome": "awaiting_approval",
+      "stop": {
+        "outcome": "awaiting_approval",
+        "kind": "other",
+        "reason": "T007 needs a human decision: the replanner escalated: The architecture (docs/architecture.md:27,55,94) and T007's acceptance criteria require both src/features/faq/Faq.tsx and src/features/faq/faq.ts in the same folder. On this case-insensitive filesystem, the extensionless import `@/features/faq/Faq` in src/App.tsx:5 resolves to faq.ts (the compiler tries .ts before .tsx), so the build fails with the TS casing error. The worker's proposed fix (import `@/features/faq/faq`) is wrong: it would imp\nBLOCKED: scope (needs src/App.tsx): TypeScript 7 (tsgo, the compiler pinned in this repo) enforces strict cross-file casing consistency: any two paths under the tsconfig `include` that resolve to the same conceptual name but differ only in letter-case is a hard build error (TS1149/TS1261), independent of actual filesystem case-sensitivity. src/App.tsx:5 (outside my allowedPaths, owned by T002) has `import { Faq } from \"@/features/faq/Faq\";` — a capitalized specifier. The acceptance criteria mandate a real file at `src/features/faq/faq.ts` (lowercase) holding `FaqItem`/`FAQ_ITEMS`. I verified experimentally (multiple `tsc -b` runs, cache cleared) that as soon as both `src/features/faq/faq.ts` exists and is included via the tsconfig's `include: [\"src\"]` glob, the build fails with 'Already included file name .../Faq.ts differs from file name .../faq.ts only in casing' — this fires purely because App.tsx's fixed import casing (`Faq`) doesn't match the real on-disk name (`faq.ts`), regardless of how every other file in src/features/faq/** references it (I made every internal import consistently reference `@/features/faq/Faq` to match App.tsx exactly, and it still fails against the glob-matched real path). There is no fix possible from within src/features/faq/** alone. The unblock is a one-line change in src/App.tsx: `import { Faq } from \"@/features/faq/Faq\";` → `import { Faq } from \"@/features/faq/faq\";` (lowercase, matching the real file).",
+        "at": "2026-09-24T22:04:57.976Z"
+      },
+      "phases": {
+        "spec": "approved",
+        "architecture": "approved",
+        "branding": "approved",
+        "design": "approved",
+        "marketing": "approved",
+        "plan": "approved"
+      },
+      "tasks": {
+        "total": 10,
+        "merged": 8,
+        "blocked": 1,
+        "replans": 1
+      },
+      "attempts": {
+        "total": 34,
+        "byRole": {
+          "architect": 1,
+          "design-reviewer": 8,
+          "designer": 2,
+          "planner": 2,
+          "pm": 1,
+          "reviewer": 9,
+          "worker": 11
+        },
+        "fallbacks": 0
+      },
+      "reviews": {
+        "total": 9,
+        "fail": 0
+      },
+      "qa": {
+        "rounds": 0,
+        "verdict": null,
+        "fixTasks": 0
+      },
+      "costUsd": 15.176,
+      "unreportedCalls": 0,
+      "tokens": 21169929,
+      "wallMs": 2286465
+    },
+    {
+      "id": "notes-api",
+      "briefHash": "496f315c1f35dd1a",
+      "outcome": "completed",
+      "stop": null,
+      "phases": {
+        "spec": "approved",
+        "architecture": "approved",
+        "branding": "approved",
+        "design": "approved",
+        "marketing": "approved",
+        "plan": "approved",
+        "qa": "approved",
+        "deploy": "approved"
+      },
+      "tasks": {
+        "total": 7,
+        "merged": 7,
+        "blocked": 0,
+        "replans": 0
+      },
+      "attempts": {
+        "total": 18,
+        "byRole": {
+          "architect": 1,
+          "planner": 1,
+          "pm": 1,
+          "qa": 1,
+          "reviewer": 7,
+          "worker": 7
+        },
+        "fallbacks": 0
+      },
+      "reviews": {
+        "total": 7,
+        "fail": 0
+      },
+      "qa": {
+        "rounds": 1,
+        "verdict": "pass",
+        "fixTasks": 0
+      },
+      "costUsd": 5.0348,
+      "unreportedCalls": 0,
+      "tokens": 3919840,
+      "wallMs": 549779
+    }
+  ]
+}
