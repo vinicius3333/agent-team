@@ -7,6 +7,7 @@ import { loadConfig, normalizePhaseName, planningPhases, roles, runnerNames, typ
 import { appendFeedback, archiveFeedback } from "./feedback.ts"
 import { commitAll, commitPaths, initRepository } from "./git.ts"
 import { openStore, type Store } from "./store.ts"
+import { applyTemplate, customTemplate, findTemplate, type StackTemplate } from "./templates.ts"
 
 export const cliPath = fileURLToPath(new URL("./cli.ts", import.meta.url))
 // The directory the CLI runs from; the doctor copies hotfixes here.
@@ -75,28 +76,69 @@ export interface ProjectChoices {
   github: boolean
   deploy: boolean
   branding: boolean
+  // A stack template name; undefined or "custom" lets the architect choose the stack.
+  template?: string
 }
 
-export function createProject(projectDir: string, brief: string, choices?: ProjectChoices): void {
+const baseIgnores = [".agent-team/", "node_modules/"]
+
+// Resolves a template choice for a target; ProjectError 400 when the name is unknown or serves another target.
+export function chooseTemplate(name: string | undefined, target: PipelineConfig["target"]): StackTemplate | null {
+  if (name === undefined || name === customTemplate) return null
+  let template: StackTemplate | null
+  try {
+    template = findTemplate(name)
+  } catch (error) {
+    throw new ProjectError(400, (error as Error).message)
+  }
+  if (!template) throw new ProjectError(400, `Unknown stack template "${name}". Run agent-team templates to list them.`)
+  if (!template.targets.includes(target)) throw new ProjectError(400, `The ${name} template serves ${template.targets.join(", ")}, not ${target}.`)
+  return template
+}
+
+// Partial choices (from the CLI) change only the fields they set.
+export function createProject(projectDir: string, brief: string, choices?: Partial<ProjectChoices>): void {
   if (existsSync(projectDir) && readdirSync(projectDir).length > 0) throw new ProjectError(409, `${projectDir} already exists and is not empty`)
-  mkdirSync(projectDir, { recursive: true })
-  writeFileSync(join(projectDir, "input.md"), brief)
   const pipeline = readFileSync(examplePipelinePath, "utf8")
-  writeFileSync(join(projectDir, "pipeline.yaml"), choices ? applyChoices(pipeline, choices) : pipeline)
-  writeFileSync(join(projectDir, ".gitignore"), ".agent-team/\nnode_modules/\n")
+  const target = choices?.target ?? (parseDocument(pipeline).get("target") as PipelineConfig["target"])
+  const template = chooseTemplate(choices?.template, target)
+  mkdirSync(projectDir, { recursive: true })
   initRepository(projectDir)
+  if (template) {
+    applyTemplate(template, projectDir)
+    writeGitignore(projectDir)
+    commitAll(projectDir, `chore: start from ${template.name} template v${template.version}`)
+  } else {
+    writeGitignore(projectDir)
+  }
+  writeFileSync(join(projectDir, "input.md"), brief)
+  writeFileSync(join(projectDir, "pipeline.yaml"), choices ? applyChoices(pipeline, choices, template) : pipeline)
   commitAll(projectDir, "chore: start project from brief")
 }
 
-function applyChoices(pipelineYaml: string, choices: ProjectChoices): string {
+// Keeps the scaffold's own ignore lines and adds the ones every project needs.
+function writeGitignore(projectDir: string): void {
+  const path = join(projectDir, ".gitignore")
+  const existing = existsSync(path) ? readFileSync(path, "utf8").split("\n").filter(Boolean) : []
+  writeFileSync(path, `${[...new Set([...baseIgnores, ...existing])].join("\n")}\n`)
+}
+
+function applyChoices(pipelineYaml: string, choices: Partial<ProjectChoices>, template: StackTemplate | null): string {
   const document = parseDocument(pipelineYaml)
-  document.set("target", choices.target)
-  const gates = document.createNode(choices.gates)
-  gates.flow = true
-  document.setIn(["autonomy", "gates"], gates)
-  document.setIn(["publish", "github", "enabled"], choices.github)
-  document.setIn(["deploy", "enabled"], choices.deploy)
-  document.setIn(["branding", "enabled"], choices.branding)
+  if (choices.target !== undefined) document.set("target", choices.target)
+  if (template) {
+    const pin = document.createNode({ name: template.name, version: template.version })
+    pin.flow = true
+    document.set("template", pin)
+  }
+  if (choices.gates !== undefined) {
+    const gates = document.createNode(choices.gates)
+    gates.flow = true
+    document.setIn(["autonomy", "gates"], gates)
+  }
+  if (choices.github !== undefined) document.setIn(["publish", "github", "enabled"], choices.github)
+  if (choices.deploy !== undefined) document.setIn(["deploy", "enabled"], choices.deploy)
+  if (choices.branding !== undefined) document.setIn(["branding", "enabled"], choices.branding)
   const workerModels: RoleModels = choices.workerRunner === "codex" ? { worker: { runner: "codex", model: "gpt-5.5" } } : {}
   applyRoleModels(document, { ...workerModels, ...choices.roles })
   return document.toString()

@@ -14,7 +14,8 @@
     "start": "node --disable-warning=ExperimentalWarning src/cli.ts",
     "build:ui": "npm --prefix web ci && npm --prefix web run build",
     "typecheck": "tsc --noEmit",
-    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.ts"
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.ts",
+    "test:templates": "node --disable-warning=ExperimentalWarning scripts/check-templates.ts"
   },
   "dependencies": {
     "yaml": "^2.8.0"

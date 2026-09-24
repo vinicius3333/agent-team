@@ -66,6 +66,11 @@ function EditModelsDialog({ config }: { config: ProjectConfig }) {
   )
 }
 
+function templateLabel(template: NonNullable<ProjectConfig["template"]>): string {
+  const newer = template.latest !== null && template.latest > template.version ? ` (v${template.latest} available)` : ""
+  return `${template.name} template v${template.version}${newer}`
+}
+
 export function ConfigTab() {
   const { detail } = useProjectView()
   const config = detail.config
@@ -122,6 +127,8 @@ export function ConfigTab() {
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-3 text-sm">
             <dt className="text-muted-foreground">Target</dt>
             <dd className="font-mono">{config.target}</dd>
+            <dt className="text-muted-foreground">Stack</dt>
+            <dd>{config.template ? templateLabel(config.template) : "Custom (architect chooses)"}</dd>
             <dt className="text-muted-foreground">Gates</dt>
             <dd className="flex flex-wrap gap-1">
               {config.gates.length ? planningPhases.filter((phase) => config.gates.includes(phase)).map((phase) => <Badge key={phase} variant="secondary">{stepLabels[phase]}</Badge>) : "none, fully autonomous"}

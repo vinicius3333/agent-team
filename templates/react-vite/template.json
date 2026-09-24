@@ -1,0 +1,25 @@
+{
+  "name": "react-vite",
+  "version": 1,
+  "title": "React + Vite web app",
+  "description": "React, Tailwind CSS v4, shadcn/ui, Lucide, Vitest. A static build served with serve.",
+  "targets": ["web"],
+  "commands": {
+    "install": "npm ci --include=dev --no-audit --no-fund",
+    "build": "npm run build",
+    "typecheck": "npm run typecheck",
+    "test": "npm test",
+    "dev": "npm run dev",
+    "start": "npm start"
+  },
+  "port": 3000,
+  "stack": ["React", "Vite", "TypeScript", "Tailwind CSS", "shadcn/ui", "Lucide", "Vitest"],
+  "sharedPaths": ["package.json", "package-lock.json", "tsconfig.json", "vite.config.ts", "components.json", "index.html", "src/main.tsx", "src/app.tsx", "src/index.css"],
+  "featureLayout": "src/features/<feature>/**, tests/features/<feature>/**",
+  "conventions": [
+    "One folder per feature under src/features. src/app.tsx composes the features and owns the routes.",
+    "shadcn/ui components live in src/components/ui. Add new ones with the same style as button.tsx.",
+    "Import from src with the @/ alias.",
+    "Tests use Vitest and Testing Library under tests/features/<feature>."
+  ]
+}

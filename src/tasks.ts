@@ -18,18 +18,19 @@ export interface Task {
 
 const staticRoutePattern = /^\/[A-Za-z0-9\-._~/?=&%]*$/
 
-export function loadTasks(path: string): Task[] {
+// sharedPaths are the stack template's foundation-only files; a feature task may not touch them.
+export function loadTasks(path: string, sharedPaths: string[] = []): Task[] {
   let parsed: unknown
   try {
     parsed = JSON.parse(readFileSync(path, "utf8"))
   } catch (error) {
     throw new Error(`tasks.json is not valid JSON: ${(error as Error).message}`)
   }
-  const tasks = validateTasks(parsed)
+  const tasks = validateTasks(parsed, sharedPaths)
   return orderTasks(tasks)
 }
 
-export function validateTasks(value: unknown): Task[] {
+export function validateTasks(value: unknown, sharedPaths: string[] = []): Task[] {
   if (!Array.isArray(value) || value.length === 0) throw new Error("tasks.json must be a non-empty array")
   const errors: string[] = []
   const ids = new Set<string>()
@@ -46,6 +47,12 @@ export function validateTasks(value: unknown): Task[] {
     }
     if (Array.isArray(task?.allowedPaths) && task.allowedPaths.length === 0) errors.push(`${label}: allowedPaths is empty`)
     if (Array.isArray(task?.acceptance) && task.acceptance.length === 0) errors.push(`${label}: acceptance is empty`)
+    if (task?.phase === "feature" && Array.isArray(task?.allowedPaths)) {
+      const patterns = task.allowedPaths.filter((pattern: unknown) => typeof pattern === "string")
+      for (const shared of sharedPaths.filter((path) => patterns.some((pattern: string) => pattern === path || matchesGlob(path, pattern)))) {
+        errors.push(`${label}: feature tasks may not touch the shared file ${shared}; give it to a foundation task`)
+      }
+    }
     if (task?.ui !== undefined && typeof task.ui !== "boolean") errors.push(`${label}: ui must be true or false`)
     if (task?.routes !== undefined && (!Array.isArray(task.routes) || !task.routes.every((route: unknown) => typeof route === "string" && staticRoutePattern.test(route)))) {
       errors.push(`${label}: routes must be an array of paths that start with /, without parameters`)

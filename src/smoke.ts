@@ -6,6 +6,7 @@ import type { DemoAccess } from "./access.ts"
 import { parseDesignScreens, parseLoginRoute, routeSlug, type QaScreen } from "./qa.ts"
 import { captureApp, loginFailures, mobileFailures, type ScreenshotContainers, type VisualReport } from "./screenshots.ts"
 import type { Task } from "./tasks.ts"
+import { stackFile } from "./templates.ts"
 
 // outDir holds the screenshots and report.json of a passed check, for the visual review.
 export type SmokeResult = { kind: "passed"; routes: number; outDir?: string } | { kind: "failed"; reason: string } | { kind: "skipped"; reason: string }
@@ -61,7 +62,7 @@ function snapshotWorktree(worktree: string, target: string): void {
 // Starts the task's worktree as deploy would and loads the task's routes in a browser, on desktop and mobile.
 // Output goes to .agent-team/smoke/<task>-<attempt>/.
 export const runUiSmoke: SmokeCheck = async ({ projectDir, worktree, task, attempt, signal, access }) => {
-  if (!existsSync(join(worktree, "deploy.json"))) return { kind: "skipped", reason: "the worktree has no deploy.json" }
+  if (!existsSync(join(worktree, "deploy.json")) && !existsSync(join(worktree, stackFile))) return { kind: "skipped", reason: "the worktree has no deploy.json" }
   const names = smokeContainerNames(projectDir)
   const appDir = join(projectDir, ".agent-team", "smoke", "app")
   const outDir = join(projectDir, ".agent-team", "smoke", `${task.id}-${attempt}`)

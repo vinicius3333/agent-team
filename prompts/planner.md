@@ -37,15 +37,15 @@ Each task has these fields:
 
 ## Rules
 
-1. `T001` is always the project scaffold: install dependencies, create the directory layout, and get the test runner working with one passing smoke test. Its `verify` runs the test command from `docs/architecture.md`.
+1. `T001` is the project scaffold: install dependencies, create the directory layout, and get the test runner working with one passing smoke test. Its `verify` runs the test command from `docs/architecture.md`. If the task prompt says the scaffold is already committed, do not add a scaffold task. Then `T001` is the first foundation task (config, data model, or app shell).
 2. Foundation tasks come first: scaffold, config, data model, auth, app shell, routing. They depend on `T001`, and on each other only where rule 2a requires it.
 2a. The orchestrator builds tasks in parallel. A task starts as soon as every task in its `dependsOn` is merged. Add a dependency only when the task imports, calls, or renders code the other task creates. Do not chain tasks to order them. For example, the app shell does not depend on auth, and the landing page depends only on the app shell. To keep two tasks apart, split their `allowedPaths` instead of adding a dependency.
-3. Shared files belong to foundation tasks only: the package manifest, lockfile, app entry point, router, and migration index. Feature tasks must not list them in `allowedPaths`.
+3. Shared files belong to foundation tasks only: the package manifest, lockfile, app entry point, router, and migration index. Feature tasks must not list them in `allowedPaths`. When the task prompt lists the foundation-only files of a template, use that list. The orchestrator rejects a feature task that touches one.
 4. Two feature tasks must not share any `allowedPaths` glob, unless one depends on the other.
 5. Keep feature tasks small: roughly under 300 lines of diff each.
 6. Each task's `allowedPaths` must include the tests for that task.
 7. Every user story must be covered by at least one task.
-8. Contract files (`contracts/**`), docs (`docs/**`), `AGENTS.md`, and `CLAUDE.md` are never in `allowedPaths`.
+8. Contract files (`contracts/**`), docs (`docs/**`), `AGENTS.md`, `CLAUDE.md`, and `stack.json` are never in `allowedPaths`. With a stack template, `deploy.json` is never in `allowedPaths` either.
 9. `verify` must not need network access, secrets, or a running server started by hand.
 9a. `verify` must also type-check or build the code the task touches, not only run its tests. Tests alone let build errors through: a project once passed every task and still failed to build for production. Use the project's type-check or build script, for example `npm run typecheck && npm test -- tests/auth`. Every task that changes the build setup or the server entry point runs the full production build (the `install` command in `deploy.json`).
 10. If `docs/design-system.md` exists, add a task that builds a `/design-system` route in the app. It renders every token and every component in the guide, with their variants and states.

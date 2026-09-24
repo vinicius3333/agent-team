@@ -14,10 +14,12 @@ import { sendTest } from "./notify/index.ts"
 import { runPipeline } from "./pipeline.ts"
 import { approvePhase, createProject, openProjectStore, retryTask, withProjectStore } from "./project.ts"
 import { generateSessionSecret, hashPassword, passwordMinLength } from "./ui/auth.ts"
+import { listTemplates, templateTargets, type TemplateTarget } from "./templates.ts"
 import { startUi } from "./ui/server.ts"
 
 const usage = `Usage:
-  agent-team init <projectDir> --brief <file>
+  agent-team init <projectDir> --brief <file> [--template <name>] [--target web|api|web+api]
+  agent-team templates
   agent-team run <projectDir>
   agent-team status <projectDir>
   agent-team approve <projectDir> <phase>
@@ -31,10 +33,20 @@ const usage = `Usage:
   agent-team hash-password
   agent-team session-secret`
 
-function init(projectDir: string, briefPath: string | undefined): void {
+function init(projectDir: string, briefPath: string | undefined, template: string | undefined, target: string | undefined): void {
   if (!briefPath) throw new Error("init needs --brief <file>")
-  createProject(projectDir, readFileSync(briefPath, "utf8"))
+  if (target !== undefined && !(templateTargets as readonly string[]).includes(target)) throw new Error("--target must be web, api, or web+api")
+  const choices = { ...(template === undefined ? {} : { template }), ...(target === undefined ? {} : { target: target as TemplateTarget }) }
+  createProject(projectDir, readFileSync(briefPath, "utf8"), Object.keys(choices).length ? choices : undefined)
   console.log(`Created ${projectDir}. Edit pipeline.yaml if needed, then: agent-team run ${projectDir}`)
+}
+
+function templates(): void {
+  console.log(`${"name".padEnd(14)}${"version".padEnd(9)}${"targets".padEnd(10)}title`)
+  for (const template of listTemplates()) {
+    console.log(`${template.name.padEnd(14)}${`v${template.version}`.padEnd(9)}${template.targets.join(",").padEnd(10)}${template.title}`)
+  }
+  console.log(`${"custom".padEnd(14)}${"-".padEnd(9)}${"any".padEnd(10)}The architect chooses the stack (default)`)
 }
 
 async function run(projectDir: string): Promise<void> {
@@ -170,10 +182,11 @@ async function notifyTest(runsDir: string, channel: string | undefined): Promise
 }
 
 async function main(): Promise<void> {
-  const { positionals, values } = parseArgs({ allowPositionals: true, options: { brief: { type: "string" }, port: { type: "string" }, host: { type: "string" }, once: { type: "boolean" }, "insecure-no-auth": { type: "boolean" }, channel: { type: "string" } } })
+  const { positionals, values } = parseArgs({ allowPositionals: true, options: { brief: { type: "string" }, template: { type: "string" }, target: { type: "string" }, port: { type: "string" }, host: { type: "string" }, once: { type: "boolean" }, "insecure-no-auth": { type: "boolean" }, channel: { type: "string" } } })
   const [command, target, extra] = positionals
   if (command === "hash-password") return printPasswordHash()
   if (command === "session-secret") return console.log(generateSessionSecret())
+  if (command === "templates") return templates()
   if (!command || !target) {
     console.log(usage)
     process.exitCode = 1
@@ -182,7 +195,7 @@ async function main(): Promise<void> {
   const projectDir = resolve(target)
   switch (command) {
     case "init":
-      return init(projectDir, values.brief)
+      return init(projectDir, values.brief, values.template, values.target)
     case "run":
       return run(projectDir)
     case "status":

@@ -1,0 +1,25 @@
+{
+  "name": "node-api",
+  "version": 1,
+  "title": "Node.js + TypeScript API",
+  "description": "Fastify, SQLite (node:sqlite), node:test.",
+  "targets": ["api"],
+  "commands": {
+    "install": "npm ci --include=dev --no-audit --no-fund",
+    "build": "npm run build",
+    "typecheck": "npm run typecheck",
+    "test": "npm test",
+    "dev": "npm run dev",
+    "start": "npm start"
+  },
+  "port": 3000,
+  "stack": ["Node.js", "TypeScript", "Fastify", "SQLite", "node:test"],
+  "sharedPaths": ["package.json", "package-lock.json", "tsconfig.json", "tsconfig.build.json", "src/app.ts", "src/server.ts", "src/database.ts", "src/routes/index.ts"],
+  "featureLayout": "src/features/<feature>/**, tests/features/<feature>/**",
+  "conventions": [
+    "One folder per feature under src/features. Each feature exports a register function that src/routes/index.ts calls.",
+    "Tests for a feature live under tests/features/<feature> and use app.inject, not a running server.",
+    "Import local files with the .ts extension. Use only erasable TypeScript: no enums, namespaces, or parameter properties.",
+    "Tests open the database with openDatabase(\":memory:\")."
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "name": "fullstack",
+  "version": 1,
+  "title": "Full stack Node + React",
+  "description": "One Fastify server serves the API under /api and the built React client (Tailwind CSS v4, shadcn/ui, Vitest).",
+  "targets": ["web+api"],
+  "commands": {
+    "install": "npm ci --include=dev --no-audit --no-fund",
+    "build": "npm run build",
+    "typecheck": "npm run typecheck",
+    "test": "npm test",
+    "dev": "npm run dev",
+    "start": "npm start"
+  },
+  "port": 3000,
+  "stack": ["Node.js", "TypeScript", "Fastify", "SQLite", "React", "Vite", "Tailwind CSS", "shadcn/ui", "Lucide", "Vitest"],
+  "sharedPaths": ["package.json", "package-lock.json", "tsconfig.json", "tsconfig.server.json", "vite.config.ts", "components.json", "client/index.html", "client/src/main.tsx", "client/src/app.tsx", "client/src/index.css", "server/app.ts", "server/server.ts", "server/database.ts", "server/routes/index.ts"],
+  "featureLayout": "client/src/features/<feature>/**, server/features/<feature>/**, tests/client/features/<feature>/**, tests/server/features/<feature>/**",
+  "conventions": [
+    "API routes live under /api in server/features/<feature> and are registered in server/routes/index.ts.",
+    "Client code lives in client/src/features/<feature>. Import from client/src with the @/ alias.",
+    "Server tests call app.inject. Client tests start with the comment // @vitest-environment jsdom.",
+    "Server code imports local files with the .ts extension and uses only erasable TypeScript."
+  ]
+}

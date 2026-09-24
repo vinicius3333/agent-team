@@ -46,6 +46,7 @@ Most work happens in the dashboard. You type the brief in a form, and the agents
    | Project name | Folder and repository name. Lowercase letters, digits, and dashes. |
    | Product brief | Your idea in plain words: who uses it and what they can do. The PM agent turns it into a spec. |
    | Target | Web app, API, or both. |
+   | Stack | **Custom** (default): the architect chooses the stack. Or a [stack template](#stack-templates) for the chosen target. |
    | Worker provider | Claude (default) or Codex for the workers that write the code. |
    | Approval gates | Phases where the run stops for your review: spec, architecture, branding, design, plan. |
    | Create GitHub repo | Repository, one issue per task, a pull request per phase and task, and a project board. |
@@ -128,6 +129,8 @@ Everything the dashboard does also works from the command line, which is useful 
 
 ```sh
 node src/cli.ts init ~/projects/my-app --brief brief.md   # create a project from a brief file
+node src/cli.ts init ~/projects/my-api --brief brief.md --target api --template node-api
+node src/cli.ts templates                                 # list the stack templates
 node src/cli.ts run ~/projects/my-app                     # start or resume the run
 node src/cli.ts approve ~/projects/my-app spec            # approve a gate, then run again
 node src/cli.ts status ~/projects/my-app                  # phases, tasks, and cost
@@ -139,6 +142,29 @@ node src/cli.ts notify-test ~/projects --channel phone    # send a test notifica
 ```
 
 `init` creates the folder, runs `git init`, writes `input.md`, and copies `pipeline.example.yaml` to `pipeline.yaml`. Edit `pipeline.yaml` to choose models, gates, and budget.
+
+## Stack templates
+
+A stack template is a tested scaffold with fixed commands. Pick one to skip the scaffold work: the architect designs inside the template, the planner adds no scaffold task, and QA, smoke checks, and deploy read the commands from it.
+
+| Template | Target | Stack |
+| --- | --- | --- |
+| `node-api` | api | Node.js, TypeScript, Fastify, SQLite (`node:sqlite`), `node:test` |
+| `react-vite` | web | React, Vite, Tailwind CSS v4, shadcn/ui, Lucide, Vitest; static build served with `serve` |
+| `fullstack` | web+api | One Fastify server for `/api` and the built React client (same client stack as `react-vite`) |
+| `custom` | any | No template. The architect chooses the stack, as before. This is the default. |
+
+How it works:
+
+- The first commit of the project is `chore: start from <name> template v<version>`. It holds the scaffold and `stack.json`, a copy of the manifest. Workers may not edit `stack.json`.
+- `pipeline.yaml` pins the template: `template: { name: node-api, version: 1 }`.
+- The architecture phase fails if `## Commands` in `docs/architecture.md` or `AGENTS.md` differs from the template, or if `deploy.json` changed.
+- The plan phase fails if a feature task lists a file from the template's `sharedPaths`.
+- A stack hint under `avoid` that names a tool of the template loses, and the run logs a `template` event.
+- Each run logs one `commands` event with the install, test, and deploy commands and where they came from.
+- A project keeps the version it started from. The Config tab shows "v2 available" when the template is newer. There is no upgrade. A project whose template folder is deleted keeps working from its `stack.json`.
+
+Templates live in `templates/<name>/`: `template.json` (the manifest), `architecture.md` (notes for the architect and a CHANGELOG), and `scaffold/` (the files copied into the project). Bump `version` on any scaffold or command change. `npm run test:templates` copies each scaffold to a temp folder and runs install, typecheck, test, build, and start. It needs network access, so `npm test` does not run it.
 
 ## Pipeline
 
