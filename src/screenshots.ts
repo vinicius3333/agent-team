@@ -95,7 +95,7 @@ export async function captureApp(options: {
     await execFileAsync("docker", ["network", "connect", ...(options.alias ? ["--alias", options.alias] : []), names.network, names.app])
     await waitForApp(names.app, plan.port)
   } catch (error) {
-    return writeReport(outDir, { ...empty, baseUrl, startError: commandFailure(error).slice(0, 4000) })
+    return writeReport(outDir, { ...empty, baseUrl, startError: commandFailure(error).slice(-4000) })
   }
 
   const image = await ensureScreenshotImage()

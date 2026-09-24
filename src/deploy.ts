@@ -26,6 +26,12 @@ function run(command: string, args: string[], cwd?: string): string {
   return execFileSync(command, args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 64 * 1024 * 1024 }).trim()
 }
 
+// The app's own errors go to stderr, which docker logs replays on its stderr.
+export function containerLogs(container: string, lines = 60): string {
+  const result = spawnSync("docker", ["logs", "--tail", String(lines), container], { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 })
+  return `${result.stdout ?? ""}${result.stderr ?? ""}`.trim()
+}
+
 export function projectSlug(projectDir: string): string {
   return basename(projectDir).toLowerCase().replace(/[^a-z0-9-]/g, "-")
 }
@@ -93,7 +99,7 @@ export async function waitForApp(container: string, port: number): Promise<void>
   const deadline = Date.now() + startTimeoutMs
   while (Date.now() < deadline) {
     const state = run("docker", ["inspect", "-f", "{{.State.Status}}", container])
-    if (state === "exited" || state === "dead") throw new Error(`app exited:\n${run("docker", ["logs", "--tail", "40", container])}`)
+    if (state === "exited" || state === "dead") throw new Error(`app exited:\n${containerLogs(container)}`)
     try {
       run("docker", ["exec", container, "node", "-e", probe])
       return
