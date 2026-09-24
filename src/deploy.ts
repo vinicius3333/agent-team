@@ -1,11 +1,14 @@
 import { execFileSync, spawnSync } from "node:child_process"
-import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs"
+import { mkdirSync, rmSync } from "node:fs"
 import { Resolver } from "node:dns/promises"
 import { request } from "node:https"
 import { setTimeout as sleep } from "node:timers/promises"
 import { basename, join } from "node:path"
 import { demoAccessEnv, ensureDemoAccess } from "./access.ts"
 import type { Store } from "./store.ts"
+import { resolveCommands, type DeployPlan } from "./templates.ts"
+
+export type { DeployPlan }
 
 // Runs the finished app from main in a container and exposes it through a Cloudflare quick tunnel,
 // which gives a random https://<words>.trycloudflare.com URL with no account, domain, or open port.
@@ -14,16 +17,9 @@ import type { Store } from "./store.ts"
 const appImage = "node:22-bookworm-slim"
 const tunnelImage = "cloudflare/cloudflared:latest"
 export const appNetwork = "agent-team-apps"
-const defaultPort = 3000
 const startTimeoutMs = 4 * 60_000
 const tunnelTimeoutMs = 90_000
 const tunnelUrlPattern = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/
-
-export interface DeployPlan {
-  install: string | null
-  start: string
-  port: number
-}
 
 function run(command: string, args: string[], cwd?: string): string {
   return execFileSync(command, args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 64 * 1024 * 1024 }).trim()
@@ -44,26 +40,9 @@ function names(projectDir: string) {
   return { app: `agent-team-app-${slug}`, tunnel: `agent-team-tunnel-${slug}` }
 }
 
-// deploy.json (written by the architect) wins; otherwise infer from package.json or a static index.html.
+// stack.json wins, then deploy.json (written by the architect), then package.json or a static index.html.
 export function detectDeployPlan(dir: string): DeployPlan | null {
-  const manifestPath = join(dir, "deploy.json")
-  if (existsSync(manifestPath)) {
-    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"))
-    if (typeof manifest.start !== "string") throw new Error("deploy.json needs a start command")
-    return { install: manifest.install ?? null, start: manifest.start, port: manifest.port ?? defaultPort }
-  }
-  const packagePath = join(dir, "package.json")
-  const install = existsSync(join(dir, "package-lock.json")) ? "npm ci --no-audit --no-fund" : existsSync(packagePath) ? "npm install --no-audit --no-fund" : null
-  if (existsSync(packagePath)) {
-    const scripts = JSON.parse(readFileSync(packagePath, "utf8")).scripts ?? {}
-    if (scripts.start) return { install, start: "npm start", port: defaultPort }
-  }
-  for (const staticDir of ["dist", "public", "."]) {
-    if (existsSync(join(dir, staticDir, "index.html"))) {
-      return { install: null, start: `npx --yes serve -s ${staticDir} -l tcp://0.0.0.0:${defaultPort}`, port: defaultPort }
-    }
-  }
-  return null
+  return resolveCommands(dir).deploy
 }
 
 export function removeContainers(...containers: string[]): void {

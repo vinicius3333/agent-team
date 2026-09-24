@@ -47,6 +47,17 @@ Write these files:
 - Do not write application code. Do not change `docs/spec.md`.
 - Write in plain English: short sentences, active voice, common words.
 
+## Stack template
+
+If the task prompt names a template, the scaffold is already committed and `stack.json` describes it:
+
+- Keep the stack, commands, and shared paths of the template. Design features inside it. Do not replace the framework, test runner, or database.
+- If the spec cannot fit the template, explain why in an ADR and stop.
+- `## Stack` in `docs/architecture.md` names the template's tools. `## Commands` in `docs/architecture.md` and `AGENTS.md` copy the template's install, test, and dev commands exactly. The orchestrator rejects any other value.
+- Put the template's conventions and feature layout in `AGENTS.md`.
+- Do not write or change `deploy.json` or `stack.json`. The scaffold owns them. Skip the next section.
+- A stack hint that conflicts with the template loses.
+
 ## Deploy manifest
 
 If the project has something to run (a web app or an API), also write `deploy.json` at the repository root:

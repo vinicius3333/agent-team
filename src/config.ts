@@ -1,5 +1,7 @@
 import { readFileSync } from "node:fs"
+import { dirname } from "node:path"
 import { parse } from "yaml"
+import { customTemplate, findTemplate, readStack, type StackManifest } from "./templates.ts"
 
 export const planningPhases = ["spec", "architecture", "branding", "design", "marketing", "plan"] as const
 export type PlanningPhase = (typeof planningPhases)[number]
@@ -56,8 +58,15 @@ export interface PipelineConfig {
   parallelTasks: number
   roles: Record<Role, RoleConfig>
   stackHints: { prefer: string[]; avoid: string[] }
+  // null is the custom stack: the architect chooses it.
+  template: TemplatePin | null
   allowSameVendorReview: boolean
   harness: HarnessConfig
+}
+
+export interface TemplatePin {
+  name: string
+  version: number
 }
 
 export const marketingFormats = {
@@ -96,6 +105,7 @@ export function loadConfig(path: string): PipelineConfig {
     parallelTasks: raw.parallelTasks ?? defaultParallelTasks,
     roles: normalizeRoles(raw.roles),
     stackHints: { prefer: raw.stackHints?.prefer ?? [], avoid: raw.stackHints?.avoid ?? [] },
+    template: normalizeTemplate(raw.template, dirname(path)),
     allowSameVendorReview: raw.allowSameVendorReview ?? false,
     harness: {
       isolation: raw.harness?.isolation ?? "none",
@@ -114,8 +124,37 @@ export function loadConfig(path: string): PipelineConfig {
       agentTimeoutMs: raw.harness?.agentTimeoutMs ?? 30 * 60_000,
     },
   }
-  validateConfig(config)
+  validateConfig(config, dirname(path))
   return config
+}
+
+// `template: <name>` pins the version in the project's stack.json, else the current version of the template.
+function normalizeTemplate(raw: unknown, projectDir: string): TemplatePin | null {
+  if (raw === undefined || raw === null || raw === customTemplate) return null
+  if (typeof raw === "string") {
+    const pinned = readStack(projectDir)
+    const version = pinned?.name === raw ? pinned.version : (findTemplate(raw)?.version ?? 0)
+    return { name: raw, version }
+  }
+  const { name, version } = raw as Record<string, unknown>
+  return { name: name as string, version: version as number }
+}
+
+function templateProblems(config: PipelineConfig, projectDir: string): string[] {
+  if (!config.template) return []
+  const { name, version } = config.template
+  if (typeof name !== "string" || !name) return ["template.name must be a template name, or set template: custom"]
+  const problems = Number.isInteger(version) && version >= 1 ? [] : ["template.version must be a whole number of 1 or more"]
+  let manifest: StackManifest | null
+  try {
+    // A pinned project reads its own stack.json, so it keeps working after the template folder is deleted.
+    manifest = readStack(projectDir) ?? findTemplate(name)
+  } catch (error) {
+    return [...problems, (error as Error).message]
+  }
+  if (!manifest) return [...problems, `unknown template "${name}"; run agent-team templates to list them`]
+  if (!manifest.targets.includes(config.target)) problems.push(`template "${name}" serves ${manifest.targets.join(", ")}, not target ${config.target}`)
+  return problems
 }
 
 function normalizeGates(rawGates: unknown): PlanningPhase[] {
@@ -149,8 +188,8 @@ function normalizeRoles(rawRoles: Record<string, any> | undefined): Record<Role,
   return normalized as Record<Role, RoleConfig>
 }
 
-function validateConfig(config: PipelineConfig): void {
-  const errors: string[] = []
+function validateConfig(config: PipelineConfig, projectDir: string): void {
+  const errors: string[] = templateProblems(config, projectDir)
   if (!["none", "docker"].includes(config.harness.isolation)) errors.push("harness.isolation must be none or docker")
   if (!["private", "public"].includes(config.publish.github.visibility)) errors.push("publish.github.visibility must be private or public")
   if (config.branding.count < 2 || config.branding.count > 6) errors.push("branding.count must be between 2 and 6")

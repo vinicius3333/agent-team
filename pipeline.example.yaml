@@ -1,4 +1,5 @@
 target: web            # web | api | web+api
+template: custom       # custom (the architect chooses the stack) or a stack template from `agent-team templates`
 
 autonomy:
   gates: [spec, architecture]   # any of: spec, architecture, branding, design, plan. [] = fully autonomous

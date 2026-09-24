@@ -10,11 +10,11 @@ import { createDockerExecutor, ensureImage } from "./harness/docker.ts"
 import { hostExecutor, type Executor } from "./harness/executor.ts"
 import { defaultAllowlist, ensureEgressProxy } from "./harness/network.ts"
 import type { Harness, HarnessOutcome } from "./harness/harness.ts"
-import { amendCommit, commitAndRebase, createWorkspace, detectSetupCommand, fastForwardMain, removeWorkspace, type Workspace } from "./harness/workspace.ts"
+import { amendCommit, commitAndRebase, createWorkspace, fastForwardMain, removeWorkspace, type Workspace } from "./harness/workspace.ts"
 import { deployProject } from "./deploy.ts"
 import { archiveFeedback, readFeedback } from "./feedback.ts"
 import type { GitHub } from "./github.ts"
-import { designSystemRoute, parseArchitectureCommands, parseDesignScreens, parseLoginRoute, parseQaVerdict, runQaLoop, type QaRoundResult, type QaScreen } from "./qa.ts"
+import { designSystemRoute, parseDesignScreens, parseLoginRoute, parseQaVerdict, runQaLoop, type QaRoundResult, type QaScreen } from "./qa.ts"
 import { extractJsonObject } from "./json.ts"
 import { decideReplan, formatBlock, normalizeFailure, parseBlock, parseReplanAction, type Block, type ReplanDecision } from "./replan.ts"
 import { diffFileHashes, flaggedFiles } from "./reviews.ts"
@@ -22,6 +22,7 @@ import { captureScreenshots, loginFailures, mobileFailures, type VisualReport } 
 import { runUiSmoke, type SmokeCheck } from "./smoke.ts"
 import type { Store } from "./store.ts"
 import { filesOutsideScope, loadTasks, pathsOverlap, type Task } from "./tasks.ts"
+import { commandMismatches, conflictingHints, formatCommands, readStack, resolveCommands, stackFile, templateDeployPlan, templatePromptLines, workspaceSetupCommand } from "./templates.ts"
 
 const phaseAttempts = 2
 const deployAttempts = 3
@@ -40,7 +41,7 @@ const maxCodeMapLines = 200
 const maxSummaryLines = 3
 const progressPath = "docs/progress.md"
 // Written by the architect and the orchestrator; no worker may edit them, whatever its allowedPaths say.
-const orchestratorFiles = ["AGENTS.md", "CLAUDE.md", progressPath]
+const orchestratorFiles = ["AGENTS.md", "CLAUDE.md", progressPath, stackFile]
 const lockfileNames = new Set(["package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb", "bun.lock", "Cargo.lock", "poetry.lock", "Gemfile.lock", "composer.lock", "go.sum"])
 const assetPattern = /\.(png|jpe?g|gif|webp|avif|ico|svg|bmp|tiff?|woff2?|ttf|otf|eot|mp3|mp4|webm|wav|ogg|pdf|zip|gz)$/i
 
@@ -76,9 +77,10 @@ const phaseDefinitions: Record<PlanningPhase, PhaseDefinition> = {
     role: "architect",
     inputs: ["input.md", "docs/spec.md"],
     outputs: ["docs/architecture.md", "docs/adr/", "contracts/openapi.yaml (if the app has an API)", "AGENTS.md"],
-    validate: (dir) => {
+    validate: (dir, config) => {
       requireHeadings(join(dir, "docs/architecture.md"), ["## Commands"])
       requireHeadings(join(dir, "AGENTS.md"), ["## Commands"])
+      validateTemplateArchitecture(dir, config)
     },
   },
   branding: {
@@ -143,7 +145,7 @@ const phaseDefinitions: Record<PlanningPhase, PhaseDefinition> = {
     role: "planner",
     inputs: ["docs/spec.md", "docs/architecture.md", "docs/design.md", "contracts/"],
     outputs: ["tasks.json"],
-    validate: (dir) => void loadTasks(join(dir, "tasks.json")),
+    validate: (dir) => void loadTasks(join(dir, "tasks.json"), readStack(dir)?.sharedPaths),
   },
 }
 
@@ -358,6 +360,7 @@ async function runPlanningPhase(context: PipelineContext, phase: PlanningPhase):
 
   const definition = phaseDefinitions[phase]
   store.setPhase(phase, "running")
+  if (definition.role === "architect") logTemplateHintConflicts(context)
   let previousError: string | null = null
   for (let attempt = 1; attempt <= phaseAttempts; attempt++) {
     store.log("phase", `${phase}: attempt ${attempt} with ${definition.role}`)
@@ -527,6 +530,32 @@ export function designReviewPrompt(input: { phase: PlanningPhase; config: Pipeli
   return lines.join("\n")
 }
 
+function logTemplateHintConflicts(context: PipelineContext): void {
+  const { config, projectDir, store } = context
+  const stack = config.template ? readStack(projectDir) : null
+  if (!stack) return
+  for (const hint of conflictingHints(stack, config.stackHints.avoid)) {
+    store.log("template", `stack hint "avoid: ${hint}" conflicts with the ${stack.name} template; the template wins and the hint is dropped`)
+  }
+}
+
+// With a template, the architecture must keep its commands and must not touch the scaffold's deploy.json.
+function validateTemplateArchitecture(dir: string, config: PipelineConfig): void {
+  const stack = config.template ? readStack(dir) : null
+  if (!stack) return
+  const problems: string[] = []
+  for (const file of ["docs/architecture.md", "AGENTS.md"]) {
+    for (const mismatch of commandMismatches(readFileSync(join(dir, file), "utf8"), stack)) problems.push(`${file} ## Commands: ${mismatch}`)
+  }
+  const expected = templateDeployPlan(stack)
+  const deployPath = join(dir, "deploy.json")
+  const deploy = existsSync(deployPath) ? JSON.parse(readFileSync(deployPath, "utf8")) : null
+  if (deploy?.install !== expected.install || deploy?.start !== expected.start || deploy?.port !== expected.port) {
+    problems.push(`deploy.json belongs to the ${stack.name} template; restore it to ${JSON.stringify(expected)}`)
+  }
+  if (problems.length) throw new Error(`the architecture does not match the ${stack.name} template:\n- ${problems.join("\n- ")}`)
+}
+
 // Claude Code reads CLAUDE.md, Codex reads AGENTS.md; the import keeps one source of truth.
 function ensureClaudeMemoryFile(context: PipelineContext, dir: string): void {
   const path = join(dir, "CLAUDE.md")
@@ -550,8 +579,12 @@ export function phasePrompt(context: Pick<PipelineContext, "projectDir" | "confi
   if (definition.role === "marketer") {
     lines.push(`Write ${config.marketing.pieces} pieces. The orchestrator renders each one in these formats: ${config.marketing.formats.join(", ")}.`)
   }
+  const stack = config.template ? readStack(projectDir) : null
+  if (stack && (definition.role === "architect" || definition.role === "planner")) lines.push(...templatePromptLines(stack, definition.role))
+  const conflicts = stack ? conflictingHints(stack, config.stackHints.avoid) : []
+  const avoid = config.stackHints.avoid.filter((hint) => !conflicts.includes(hint))
   if (config.stackHints.prefer.length) lines.push(`Preferred technologies: ${config.stackHints.prefer.join(", ")}.`)
-  if (config.stackHints.avoid.length) lines.push(`Avoid: ${config.stackHints.avoid.join(", ")}.`)
+  if (avoid.length) lines.push(`Avoid: ${avoid.join(", ")}.`)
   const feedback = readFeedback(projectDir, phase)
   if (feedback) {
     lines.push("A human reviewed your last output and asked for these changes:", feedback.trim())
@@ -562,7 +595,17 @@ export function phasePrompt(context: Pick<PipelineContext, "projectDir" | "confi
   return lines.join("\n")
 }
 
+// Informational only: a broken package.json fails later, in the step that needs it.
+function logResolvedCommands(context: PipelineContext): void {
+  try {
+    context.store.log("commands", formatCommands(resolveCommands(context.projectDir)))
+  } catch (error) {
+    context.store.log("commands", `could not resolve the commands: ${(error as Error).message.slice(0, 300)}`)
+  }
+}
+
 async function runTasks(context: PipelineContext): Promise<RunOutcome> {
+  logResolvedCommands(context)
   const built = await buildTasks(context)
   if (built !== "completed") return built
   let deployUrl: string | null = null
@@ -819,7 +862,7 @@ async function attemptTask(context: PipelineContext, task: Task, attempt: number
   const executor = await createExecutor(context, workspace.path, `${task.id}-${attempt}`)
   const rejected = (reason: string): AttemptResult => ({ kind: "failed", reason, diff: stagedDiff(workspace.path) })
   try {
-    const setupCommand = detectSetupCommand(workspace.path)
+    const setupCommand = workspaceSetupCommand(workspace.path)
     if (setupCommand) {
       const setup = await runCommand(context, executor, setupCommand, `${task.id}-${attempt}-setup`)
       if (!setup.passed) return { kind: "infrastructure", reason: `workspace setup failed (${setupCommand}):\n${setup.output}` }
@@ -1131,12 +1174,7 @@ async function runQaRound(context: PipelineContext, round: number): Promise<QaRo
 }
 
 async function runTestGate(context: PipelineContext, executor: Executor, dir: string, subject: string): Promise<TestGateResult> {
-  const architecturePath = join(dir, "docs/architecture.md")
-  const commands = parseArchitectureCommands(existsSync(architecturePath) ? readFileSync(architecturePath, "utf8") : "")
-  const packagePath = join(dir, "package.json")
-  const hasTestScript = existsSync(packagePath) && Boolean(JSON.parse(readFileSync(packagePath, "utf8")).scripts?.test)
-  const install = commands.install ?? detectSetupCommand(dir)
-  const command = commands.test ?? (hasTestScript ? "npm test" : null)
+  const { install, test: command } = resolveCommands(dir)
   if (!command) return { install, command, passed: true, output: "No test command in docs/architecture.md or package.json." }
   if (install) {
     const setup = await runCommand(context, executor, install, `${subject}-install`)
@@ -1289,13 +1327,23 @@ async function runDeployPhase(context: PipelineContext): Promise<{ outcome: RunO
   return { outcome: "failed", url: null }
 }
 
+export function deployFixTemplateLines(dir: string): string[] {
+  const stack = readStack(dir)
+  if (!stack) return []
+  const plan = templateDeployPlan(stack)
+  return [
+    "",
+    `The start setup comes from the ${stack.name} template (${stackFile}). Keep deploy.json equal to ${JSON.stringify(plan)}, so it stays in line with ${stackFile}. Do not edit ${stackFile}. Fix the app code or the npm scripts instead.`,
+  ]
+}
+
 async function attemptDeployFix(context: PipelineContext, attempt: number, failure: string): Promise<AttemptResult> {
   const { projectDir } = context
   const name = `deploy-fix-${attempt}`
   const workspace = createWorkspace(projectDir, name)
   const executor = await createExecutor(context, workspace.path, name)
   try {
-    const setupCommand = detectSetupCommand(workspace.path)
+    const setupCommand = workspaceSetupCommand(workspace.path)
     if (setupCommand) {
       const setup = await runCommand(context, executor, setupCommand, `${name}-setup`)
       if (!setup.passed) return { kind: "infrastructure", reason: `workspace setup failed (${setupCommand}):\n${setup.output}` }
@@ -1307,6 +1355,7 @@ async function attemptDeployFix(context: PipelineContext, attempt: number, failu
       "Without deploy.json it falls back to `npm start`, then to serving a static index.html.",
       "",
       "Write or fix deploy.json at the repository root ({ \"install\": ..., \"start\": ..., \"port\": 3000 }) and the start script so the app serves on 0.0.0.0:$PORT. Keep the tests passing. Do not edit docs/ or contracts/.",
+      ...deployFixTemplateLines(workspace.path),
       "",
       "Deploy failure:",
       failure,
@@ -1315,7 +1364,7 @@ async function attemptDeployFix(context: PipelineContext, attempt: number, failu
     if (isInfrastructureFailure(worker)) return { kind: "infrastructure", reason: `worker ${worker.failureClass}: ${worker.result.summary}` }
     if (worker.result.status !== "done") return { kind: "failed", reason: `worker ${worker.result.status}: ${worker.result.summary}` }
 
-    const forbidden = changedFiles(workspace.path).filter((file) => file.startsWith("docs/") || file.startsWith("contracts/"))
+    const forbidden = changedFiles(workspace.path).filter((file) => file.startsWith("docs/") || file.startsWith("contracts/") || file === stackFile)
     if (forbidden.length) return { kind: "failed", reason: `edited files outside the deploy scope: ${forbidden.join(", ")}` }
     const packagePath = join(workspace.path, "package.json")
     const hasTests = existsSync(packagePath) && Boolean(JSON.parse(readFileSync(packagePath, "utf8")).scripts?.test)
