@@ -1,4 +1,4 @@
-import type { Defaults, LeadActionState, NotificationStatus, NotificationTestResult, RoleCandidate, Incident, IncidentDetail, NewProjectRequest, ProjectDetail, ProjectSummary, QaRound, StackTemplate } from "@/api/types"
+import type { Defaults, Finding, FindingStatus, InsightAgent, OperateSnapshot, LeadActionState, NotificationStatus, NotificationTestResult, RoleCandidate, Incident, IncidentDetail, NewProjectRequest, ProjectDetail, ProjectSummary, QaRound, StackTemplate } from "@/api/types"
 
 export class ApiError extends Error {
   status: number
@@ -77,6 +77,8 @@ export const api = {
   incident: (project: string, id: string) => getJson<IncidentDetail>(`/api/incidents/${encodeURIComponent(project)}/${encodeURIComponent(id)}`),
   notifications: () => getJson<NotificationStatus>("/api/notifications"),
   transcript: (name: string, file: string) => getText(`${projectPath(name)}/transcript/${encodeURIComponent(file)}`),
+  operate: (name: string) => getJson<OperateSnapshot>(`${projectPath(name)}/operate`),
+  findings: (name: string, status: FindingStatus | "all" = "open") => getJson<Finding[]>(`${projectPath(name)}/findings?status=${status}`),
 
   createProject: (body: NewProjectRequest) => post<{ name: string }>("/api/projects", body),
   run: (name: string) => post<{ started: boolean }>(`${projectPath(name)}/run`, {}),
@@ -91,6 +93,9 @@ export const api = {
   requestChange: (name: string, request: string) => post<{ id: string; branch: string; started: boolean }>(`${projectPath(name)}/changes`, { request }),
   abandonChange: (name: string, id: string) => post<{ abandoned: boolean }>(`${projectPath(name)}/changes/${encodeURIComponent(id)}/abandon`, {}),
   approveChangeMerge: (name: string, id: string) => post<{ started: boolean }>(`${projectPath(name)}/changes/${encodeURIComponent(id)}/merge`, {}),
+  approveFinding: (name: string, id: number) => post<{ changeId: string; branch: string; started: boolean }>(`${projectPath(name)}/findings/${id}/approve`, {}),
+  dismissFinding: (name: string, id: number) => post<{ dismissed: boolean }>(`${projectPath(name)}/findings/${id}/dismiss`, {}),
+  runInsight: (name: string, agent: InsightAgent) => post<{ accepted: boolean }>(`${projectPath(name)}/operate/run`, { agent }),
   raiseBudget: (name: string) => post<{ runUsd: number; started: boolean }>(`${projectPath(name)}/raise-budget`, {}),
 }
 

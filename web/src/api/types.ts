@@ -397,3 +397,59 @@ export interface NotificationTestResult {
   ok: boolean
   error: string | null
 }
+
+export const insightAgents = ["monitoring", "analytics", "research"] as const
+export type InsightAgent = (typeof insightAgents)[number]
+export type FindingSeverity = "high" | "medium" | "low"
+export type FindingStatus = "open" | "approved" | "dismissed"
+
+export interface Finding {
+  id: number
+  source: InsightAgent
+  severity: FindingSeverity
+  title: string
+  evidence: string
+  proposal: string
+  status: FindingStatus
+  changeId: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface InsightRun {
+  id: number
+  agent: InsightAgent
+  startedAt: string
+  finishedAt: string | null
+  status: "running" | "done" | "failed"
+  summary: string
+  findings: number
+}
+
+export type HealthState = "up" | "down" | "unknown"
+
+export interface HealthCheckPoint {
+  at: string
+  ok: boolean
+  statusCode: number | null
+  latencyMs: number | null
+}
+
+export interface MetricPoint {
+  at: string
+  value: number
+}
+
+export interface OperateSnapshot {
+  enabled: boolean
+  live: boolean
+  health: { uptime7d: number | null; p95LatencyMs24h: number | null; lastCheckAt: string | null; state: HealthState }
+  checks: HealthCheckPoint[]
+  // Headline keys: wau, signups, signup_conversion (a percent), pageviews.
+  metrics: Record<string, { value: number; previous: number | null; at: string }>
+  series: { wau: MetricPoint[]; pageviews: MetricPoint[] }
+  funnel: { step: string; count: number }[]
+  topEvents: { event: string; count: number }[]
+  runs: Record<InsightAgent, InsightRun | null>
+  config: { posthog: boolean; competitors: string[]; schedule: Record<InsightAgent, number> }
+}
