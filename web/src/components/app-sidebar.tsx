@@ -1,9 +1,12 @@
 import { Link, NavLink, useLocation } from "react-router"
-import { FolderKanban, Globe, Plus, Settings, Stethoscope } from "lucide-react"
+import { FolderKanban, Globe, LogOut, Plus, Settings, Stethoscope } from "lucide-react"
+import { useAuth } from "@/api/auth-context"
+import { api } from "@/api/client"
 import { useProjectList } from "@/api/projects-context"
 import { Logo } from "@/components/logo"
 import { StatusDot } from "@/components/status-badge"
 import { ThemeToggle } from "@/components/theme-toggle"
+import { Button } from "@/components/ui/button"
 import {
   Sidebar,
   SidebarContent,
@@ -30,6 +33,15 @@ const mainLinks = [
 
 export function AppSidebar() {
   const { projects, online } = useProjectList()
+  const { mode, source, refresh } = useAuth()
+  const canLogOut = mode.includes("password") && source === "session"
+  const logOut = async () => {
+    try {
+      await api.logout()
+    } finally {
+      await refresh()
+    }
+  }
   const { pathname } = useLocation()
   const { setOpenMobile } = useSidebar()
   const close = () => setOpenMobile(false)
@@ -105,7 +117,14 @@ export function AppSidebar() {
               <div className="text-xs text-muted-foreground">{online ? "Connected" : "Server unreachable"}</div>
             </div>
           </div>
-          <ThemeToggle />
+          <div className="flex items-center gap-1">
+            {canLogOut && (
+              <Button variant="ghost" size="icon" className="size-8" onClick={() => void logOut()} aria-label="Log out" title="Log out">
+                <LogOut />
+              </Button>
+            )}
+            <ThemeToggle />
+          </div>
         </div>
       </SidebarFooter>
     </Sidebar>

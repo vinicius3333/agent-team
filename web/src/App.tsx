@@ -1,5 +1,6 @@
 import { lazy, Suspense } from "react"
 import { BrowserRouter, Link, Route, Routes } from "react-router"
+import { AuthProvider, useAuth } from "@/api/auth-context"
 import { ProjectsProvider } from "@/api/projects-context"
 import { EmptyState } from "@/components/empty-state"
 import { Layout } from "@/components/layout"
@@ -9,6 +10,7 @@ import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { ThemeProvider } from "@/hooks/use-theme"
 import { IncidentPage, IncidentsPage } from "@/pages/incidents"
+import { LoginPage } from "@/pages/login"
 import { NewProjectPage } from "@/pages/new-project"
 import { ProjectsPage } from "@/pages/projects"
 import { SettingsPage } from "@/pages/settings"
@@ -27,30 +29,42 @@ function NotFound() {
   )
 }
 
+// Nothing below mounts before login, so no polling or EventSource runs into 401s.
+function Dashboard() {
+  const { status } = useAuth()
+  if (status === "loading") return null
+  if (status === "anonymous") return <LoginPage />
+  return (
+    <ProjectsProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route element={<Layout />}>
+            <Route index element={<ProjectsPage />} />
+            <Route path="new" element={<NewProjectPage />} />
+            <Route path="projects/:name" element={
+                <Suspense fallback={null}>
+                  <ProjectPage />
+                </Suspense>
+              } />
+            <Route path="incidents" element={<IncidentsPage />} />
+            <Route path="incidents/:project/:id" element={<IncidentPage />} />
+            <Route path="settings" element={<SettingsPage />} />
+            <Route path="*" element={<NotFound />} />
+          </Route>
+        </Routes>
+      </BrowserRouter>
+    </ProjectsProvider>
+  )
+}
+
 export function App() {
   return (
     <ThemeProvider>
       <TooltipProvider>
-        <ProjectsProvider>
-          <BrowserRouter>
-            <Routes>
-              <Route element={<Layout />}>
-                <Route index element={<ProjectsPage />} />
-                <Route path="new" element={<NewProjectPage />} />
-                <Route path="projects/:name" element={
-                    <Suspense fallback={null}>
-                      <ProjectPage />
-                    </Suspense>
-                  } />
-                <Route path="incidents" element={<IncidentsPage />} />
-                <Route path="incidents/:project/:id" element={<IncidentPage />} />
-                <Route path="settings" element={<SettingsPage />} />
-                <Route path="*" element={<NotFound />} />
-              </Route>
-            </Routes>
-          </BrowserRouter>
+        <AuthProvider>
+          <Dashboard />
           <Toaster position="bottom-right" />
-        </ProjectsProvider>
+        </AuthProvider>
       </TooltipProvider>
     </ThemeProvider>
   )
