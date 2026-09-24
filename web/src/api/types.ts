@@ -73,6 +73,31 @@ export interface Task {
   readPaths: string[]
   acceptance: string[]
   verify: string | null
+  // The change request that added the task; null for the first build.
+  change?: string | null
+}
+
+export type ChangeStatus = "open" | "merged" | "failed" | "abandoned"
+
+export interface ChangeSummary {
+  id: string
+  title: string
+  request: string
+  status: ChangeStatus
+  branch: string
+  prUrl: string | null
+  createdAt: string
+  finishedAt: string | null
+  costUsd: number
+}
+
+export interface OpenChange {
+  id: string
+  branch: string
+  specDelta: string | null
+  architectureDelta: string | null
+  // autonomy.changeMerge is manual and QA passed: the change waits for Approve before it merges into main.
+  mergeWaiting: boolean
 }
 
 export interface Attempt {
@@ -245,6 +270,10 @@ export interface ProjectDetail extends Omit<ProjectSummary, "live" | "liveUrl"> 
   budget?: RunBudget
   reviewer?: ReviewerMetrics
   chat?: { messages: ChatMessage[]; thinking: boolean }
+  // Absent on servers from before change requests. Newest first.
+  changes?: ChangeSummary[]
+  change?: OpenChange | null
+  canRequestChange?: boolean
 }
 
 export interface QaFinding {

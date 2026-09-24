@@ -2,11 +2,6 @@ import { execFileSync } from "node:child_process"
 import { existsSync, rmSync } from "node:fs"
 import { join } from "node:path"
 
-export interface Workspace {
-  path: string
-  branch: string
-}
-
 function git(dir: string, args: string[]): string {
   return execFileSync("git", args, { cwd: dir, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] })
 }
@@ -15,13 +10,20 @@ function worktreeRoot(repoDir: string): string {
   return join(repoDir, ".agent-team", "worktrees")
 }
 
-// One fresh worktree per attempt, branched from the current main, so a failed attempt never touches main.
-export function createWorkspace(repoDir: string, name: string): Workspace {
+export interface Workspace {
+  path: string
+  branch: string
+  // The branch the workspace starts from and lands on: main, or the open change's branch.
+  base: string
+}
+
+// One fresh worktree per attempt, branched from the current base, so a failed attempt never touches it.
+export function createWorkspace(repoDir: string, name: string, base = "main"): Workspace {
   const path = join(worktreeRoot(repoDir), name)
   const branch = `agent/${name}`
-  removeWorkspace(repoDir, { path, branch })
-  git(repoDir, ["worktree", "add", "-q", "-b", branch, path, "main"])
-  return { path, branch }
+  removeWorkspace(repoDir, { path, branch, base })
+  git(repoDir, ["worktree", "add", "-q", "-b", branch, path, base])
+  return { path, branch, base }
 }
 
 export function removeWorkspace(repoDir: string, workspace: Workspace): void {
@@ -44,7 +46,7 @@ export interface CommitGroup {
 }
 
 // Commits the attempt as one commit per group, then the files no group claimed under `message`,
-// and rebases it on main, so it can be merged fast-forward (locally or through a pull request).
+// and rebases it on the base branch, so it can be merged fast-forward (locally or through a pull request).
 export function commitAndRebase(workspace: Workspace, message: string, groups: CommitGroup[] = []): void {
   git(workspace.path, ["add", "-A"])
   for (const group of groups) {
@@ -55,22 +57,45 @@ export function commitAndRebase(workspace: Workspace, message: string, groups: C
   const hasChanges = git(workspace.path, ["diff", "--cached", "--name-only"]).trim().length > 0
   if (hasChanges) git(workspace.path, ["commit", "-q", "-m", message])
   try {
-    git(workspace.path, ["rebase", "-q", "main"])
+    git(workspace.path, ["rebase", "-q", workspace.base])
   } catch (error) {
     git(workspace.path, ["rebase", "--abort"])
-    throw new Error(`rebase onto main failed: ${(error as Error).message}`)
+    throw new Error(`rebase onto ${workspace.base} failed: ${(error as Error).message}`)
   }
 }
 
 // Folds the files written after the rebase into the task commit, or makes one if the task changed nothing.
 export function amendCommit(workspace: Workspace, message: string): void {
   git(workspace.path, ["add", "-A"])
-  const committed = git(workspace.path, ["rev-parse", "HEAD"]).trim() !== git(workspace.path, ["rev-parse", "main"]).trim()
+  const committed = git(workspace.path, ["rev-parse", "HEAD"]).trim() !== git(workspace.path, ["rev-parse", workspace.base]).trim()
   git(workspace.path, committed ? ["commit", "-q", "--amend", "--no-edit"] : ["commit", "-q", "-m", message])
 }
 
-export function fastForwardMain(repoDir: string, ref: string): void {
-  git(repoDir, ["merge", "-q", "--ff-only", ref])
+// main is checked out in the project folder, so it moves by a merge; any other branch moves by a fetch, which refuses non fast-forward updates.
+export function fastForward(repoDir: string, ref: string, base = "main"): void {
+  if (base === "main") git(repoDir, ["merge", "-q", "--ff-only", ref])
+  else git(repoDir, ["fetch", "-q", ".", `${ref}:${base}`])
+}
+
+// Merges ref into the workspace branch with a merge commit (history of a shared branch is never rewritten).
+// Returns the conflicting files; on a conflict the merge is aborted and the workspace is left as it was.
+export function mergeInto(workspace: Workspace, ref: string, message: string): string[] {
+  try {
+    git(workspace.path, ["merge", "-q", "--no-ff", "-m", message, ref])
+    return []
+  } catch (error) {
+    const conflicts = git(workspace.path, ["diff", "--name-only", "--diff-filter=U"]).split("\n").filter(Boolean)
+    try {
+      git(workspace.path, ["merge", "--abort"])
+    } catch {}
+    if (!conflicts.length) throw error
+    return conflicts
+  }
+}
+
+// Merges a branch into the checked-out main of the project folder with a merge commit.
+export function mergeIntoMain(repoDir: string, branch: string, message: string): void {
+  git(repoDir, ["merge", "-q", "--no-ff", "-m", message, branch])
 }
 
 export function removeAllWorkspaces(repoDir: string): void {

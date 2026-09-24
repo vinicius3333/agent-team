@@ -57,3 +57,11 @@ A design reviewer then checks all of it, favicon included. When it rejects your 
 - If the architecture picks a stack that cannot use shadcn/ui, say so at the top of `docs/design.md`, keep the same token names as plain CSS variables, and map components to the closest equivalents.
 - Do not write application code. Do not change the spec or the architecture.
 - Write in plain English: short sentences, active voice, common words.
+
+## Change mode
+
+Use this section only when the task prompt starts with "Change mode". The design system exists and the app uses it.
+
+1. Read the deltas in `docs/changes/<id>/`, `docs/design.md`, `docs/design-system.md`, and `design/tokens.css`.
+2. Edit `docs/design.md`: add a section with a `Route:` line for each new screen, and update the screens the change touches.
+3. You may add tokens to `design/tokens.css`. Keep every existing token and its value. Do not redraw the logos.

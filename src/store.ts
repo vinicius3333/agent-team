@@ -23,6 +23,21 @@ export interface ChatMessage {
   actions: LeadAction[]
 }
 
+export type ChangeStatus = "open" | "merged" | "failed" | "abandoned"
+
+export interface Change {
+  id: string
+  request: string
+  status: ChangeStatus
+  branch: string
+  baseCommit: string
+  prUrl: string | null
+  createdAt: string
+  finishedAt: string | null
+}
+
+export const currentChangeKey = "change.current"
+
 export interface TaskRow {
   id: string
   status: TaskStatus
@@ -87,6 +102,22 @@ export function openStore(path: string) {
       body TEXT NOT NULL,
       actions TEXT NOT NULL DEFAULT '[]'
     );
+    CREATE TABLE IF NOT EXISTS changes (
+      id TEXT PRIMARY KEY,
+      request TEXT NOT NULL,
+      status TEXT NOT NULL,
+      branch TEXT NOT NULL,
+      base_commit TEXT NOT NULL,
+      pr_url TEXT,
+      created_at TEXT NOT NULL,
+      finished_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS phase_history (
+      change_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      status TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       at TEXT NOT NULL,
@@ -98,6 +129,7 @@ export function openStore(path: string) {
   const attemptColumns = db.prepare("PRAGMA table_info(attempts)").all() as { name: string }[]
   if (!attemptColumns.some((column) => column.name === "failure_class")) db.exec("ALTER TABLE attempts ADD COLUMN failure_class TEXT")
   if (!attemptColumns.some((column) => column.name === "tokens")) db.exec("ALTER TABLE attempts ADD COLUMN tokens INTEGER")
+  if (!attemptColumns.some((column) => column.name === "change_id")) db.exec("ALTER TABLE attempts ADD COLUMN change_id TEXT")
   const taskColumns = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[]
   if (!taskColumns.some((column) => column.name === "issue_number")) db.exec("ALTER TABLE tasks ADD COLUMN issue_number INTEGER")
   if (!taskColumns.some((column) => column.name === "replans")) db.exec("ALTER TABLE tasks ADD COLUMN replans INTEGER NOT NULL DEFAULT 0")
@@ -108,6 +140,10 @@ export function openStore(path: string) {
 
   const taskColumnsSql = "id, status, attempts, last_failure AS lastFailure, replans, human_reason AS humanReason"
   const now = () => new Date().toISOString()
+  const changeColumnsSql = "id, request, status, branch, base_commit AS baseCommit, pr_url AS prUrl, created_at AS createdAt, finished_at AS finishedAt"
+  // phase_history rows are keyed by the change whose build they describe; "" is the first build.
+  const lastMergedChangeId = () => (db.prepare("SELECT id FROM changes WHERE status = 'merged' ORDER BY id DESC LIMIT 1").get() as { id: string } | undefined)?.id ?? ""
+  const metaValue = (key: string) => (db.prepare("SELECT value FROM meta WHERE key = ?").get(key) as { value: string } | undefined)?.value ?? null
 
   return {
     phaseStatus(name: string): PhaseStatus {
@@ -175,7 +211,7 @@ export function openStore(path: string) {
       transcriptPath: string
     }) {
       db.prepare(
-        "INSERT INTO attempts (subject, role, runner, model, status, failure_class, cost_usd, tokens, duration_ms, transcript_path, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO attempts (subject, role, runner, model, status, failure_class, cost_usd, tokens, duration_ms, transcript_path, created_at, change_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       ).run(
         attempt.subject,
         attempt.role,
@@ -188,6 +224,7 @@ export function openStore(path: string) {
         attempt.durationMs,
         attempt.transcriptPath,
         now(),
+        metaValue(currentChangeKey) || null,
       )
     },
     // Cost of every agent call the run made; codex reports none, so its calls are counted instead.
@@ -241,8 +278,49 @@ export function openStore(path: string) {
         .all() as { role: string; runs: number; costUsd: number }[]
     },
     meta(key: string): string | null {
-      const row = db.prepare("SELECT value FROM meta WHERE key = ?").get(key) as { value: string } | undefined
-      return row?.value ?? null
+      return metaValue(key)
+    },
+    // Oldest first.
+    changes(): Change[] {
+      return db.prepare(`SELECT ${changeColumnsSql} FROM changes ORDER BY id`).all() as unknown as Change[]
+    },
+    change(id: string): Change | null {
+      return (db.prepare(`SELECT ${changeColumnsSql} FROM changes WHERE id = ?`).get(id) as unknown as Change | undefined) ?? null
+    },
+    currentChange(): Change | null {
+      const id = metaValue(currentChangeKey)
+      return id ? this.change(id) : null
+    },
+    // Archives the finished phase rows under the change that produced them ("" for the first build),
+    // records the new change, and resets the phases it reruns. One transaction, so a crash leaves no half-open change.
+    openChange(change: { id: string; request: string; branch: string; baseCommit: string }, resetPhases: string[]) {
+      const previous = lastMergedChangeId()
+      db.exec("BEGIN")
+      try {
+        db.prepare("DELETE FROM phase_history WHERE change_id = ?").run(previous)
+        db.prepare("INSERT INTO phase_history (change_id, name, status, updated_at) SELECT ?, name, status, updated_at FROM phases").run(previous)
+        db.prepare("INSERT INTO changes (id, request, status, branch, base_commit, created_at) VALUES (?, ?, 'open', ?, ?, ?)").run(change.id, change.request, change.branch, change.baseCommit, now())
+        for (const phase of resetPhases) this.setPhase(phase, "pending")
+        this.setMeta(currentChangeKey, change.id)
+        db.exec("COMMIT")
+      } catch (error) {
+        db.exec("ROLLBACK")
+        throw error
+      }
+    },
+    finishChange(id: string, status: Exclude<ChangeStatus, "open">, prUrl: string | null = null) {
+      db.prepare("UPDATE changes SET status = ?, pr_url = COALESCE(?, pr_url), finished_at = ? WHERE id = ?").run(status, prUrl, now(), id)
+      if (metaValue(currentChangeKey) === id) this.setMeta(currentChangeKey, "")
+    },
+    setChangePullRequest(id: string, prUrl: string) {
+      db.prepare("UPDATE changes SET pr_url = ? WHERE id = ?").run(prUrl, id)
+    },
+    // Puts back the phase rows archived when the open change started.
+    restorePhases() {
+      const archived = db.prepare("SELECT name, status, updated_at AS updatedAt FROM phase_history WHERE change_id = ?").all(lastMergedChangeId()) as { name: string; status: string; updatedAt: string }[]
+      for (const row of archived) {
+        db.prepare("INSERT INTO phases (name, status, updated_at) VALUES (?, ?, ?) ON CONFLICT(name) DO UPDATE SET status = excluded.status, updated_at = excluded.updated_at").run(row.name, row.status, row.updatedAt)
+      }
     },
     deleteMeta(key: string) {
       db.prepare("DELETE FROM meta WHERE key = ?").run(key)

@@ -5,24 +5,25 @@ import type { Candidate, PipelineConfig, PlanningPhase, Role } from "./config.ts
 import { groupPhaseFiles, parseCommitPlan, type PhaseCommit } from "./commits.ts"
 import { faviconDir, faviconFiles, generateFavicons, markPath, validateMark } from "./favicon.ts"
 import { copyPath, manifestPath, marketingDir, renderMarketing, validateMarketing } from "./marketing.ts"
-import { changedFiles, stagedDiff, trackedFiles } from "./git.ts"
+import { changedFiles, fileAtRef, isAncestor, stagedDiff, trackedFiles } from "./git.ts"
 import { createDockerExecutor, ensureImage } from "./harness/docker.ts"
 import { hostExecutor, type Executor } from "./harness/executor.ts"
 import { defaultAllowlist, ensureEgressProxy } from "./harness/network.ts"
 import type { Harness, HarnessOutcome } from "./harness/harness.ts"
-import { amendCommit, commitAndRebase, createWorkspace, fastForwardMain, removeWorkspace, type Workspace } from "./harness/workspace.ts"
+import { amendCommit, commitAndRebase, createWorkspace, fastForward, mergeInto, mergeIntoMain, removeWorkspace, type Workspace } from "./harness/workspace.ts"
 import { deployProject } from "./deploy.ts"
 import { archiveFeedback, readFeedback } from "./feedback.ts"
-import type { GitHub } from "./github.ts"
+import { changeTitle, type GitHub } from "./github.ts"
+import { changePath } from "./project.ts"
 import { designSystemRoute, parseDesignScreens, parseLoginRoute, parseQaVerdict, runQaLoop, type QaRoundResult, type QaScreen } from "./qa.ts"
 import { extractJsonObject } from "./json.ts"
-import { decideReplan, formatBlock, normalizeFailure, parseBlock, parseReplanAction, type Block, type ReplanDecision } from "./replan.ts"
-import { budgetReachedPrefix, gateReadyText } from "./notify/events.ts"
+import { changeTaskConflict, decideReplan, formatBlock, normalizeFailure, parseBlock, parseReplanAction, type Block, type ReplanDecision } from "./replan.ts"
+import { budgetReachedPrefix, changeMergedPrefix, changeOpenedPrefix, changeWaitingText, gateReadyText } from "./notify/events.ts"
 import { diffFileHashes, flaggedFiles } from "./reviews.ts"
 import { captureScreenshots, loginFailures, mobileFailures, type VisualReport } from "./screenshots.ts"
 import { runUiSmoke, type SmokeCheck } from "./smoke.ts"
-import type { Store } from "./store.ts"
-import { filesOutsideScope, loadTasks, pathsOverlap, type Task } from "./tasks.ts"
+import type { Change, Store } from "./store.ts"
+import { filesOutsideScope, loadTasks, nextTaskId, orderTasks, parseTasks, pathsOverlap, validateTasks, type Task } from "./tasks.ts"
 import { commandMismatches, conflictingHints, formatCommands, readStack, resolveCommands, stackFile, templateDeployPlan, templatePromptLines, workspaceSetupCommand } from "./templates.ts"
 
 const phaseAttempts = 2
@@ -188,6 +189,130 @@ const marketingSteps: PhaseStep[] = [
   },
 ]
 
+const specDeltaHeadings = ["## Change", "## New or changed user stories", "## Out of scope", "## Open questions"]
+const architectureDeltaHeadings = ["## Changes", "## New dependencies", "## Data migrations", "## Risks"]
+const designNeededPattern = /^\s*Design:\s*needed\b/i
+
+// A change reruns spec, architecture, and plan (and design when the architecture delta asks for it) against the app as it is.
+// The agents write a delta under docs/changes/<id>/ and edit the full documents in place.
+function changePhaseDefinition(context: PipelineContext, phase: PlanningPhase, change: Change): PhaseDefinition {
+  const base = phaseDefinitions[phase]
+  const { id } = change
+  switch (phase) {
+    case "spec":
+      return {
+        ...base,
+        inputs: ["input.md", "docs/spec.md", changePath(id, "request.md")],
+        outputs: [changePath(id, "spec.md"), "docs/spec.md (edited in place)"],
+        validate: (dir, config) => {
+          base.validate(dir, config)
+          validateSpecDelta(dir, id)
+        },
+      }
+    case "architecture":
+      return {
+        ...base,
+        inputs: [changePath(id, "spec.md"), "docs/spec.md", "docs/architecture.md", "AGENTS.md", "contracts/"],
+        outputs: [changePath(id, "architecture.md"), "docs/architecture.md and AGENTS.md (edited only where they change)", "docs/adr/ (a new ADR when a decision changes)"],
+        validate: (dir, config) => {
+          base.validate(dir, config)
+          requireHeadings(join(dir, changePath(id, "architecture.md")), architectureDeltaHeadings)
+        },
+      }
+    case "design": {
+      const tokensBefore = cssVariables(fileAtRef(context.projectDir, change.branch, "design/tokens.css") ?? "")
+      return {
+        ...base,
+        inputs: [changePath(id, "spec.md"), changePath(id, "architecture.md"), "docs/design.md", "docs/design-system.md", "design/tokens.css"],
+        outputs: ["docs/design.md (new Route: lines)", "design/tokens.css (new tokens only)"],
+        validate: (dir, config) => {
+          base.validate(dir, config)
+          const missing = tokensBefore.filter((name) => !cssVariables(readFileSync(join(dir, "design/tokens.css"), "utf8")).includes(name))
+          if (missing.length) throw new Error(`design/tokens.css lost existing tokens: ${missing.join(", ")}. Keep every existing token.`)
+        },
+      }
+    }
+    case "plan": {
+      const mergedIds = new Set(context.store.tasks().filter((task) => task.status === "merged").map((task) => task.id))
+      return {
+        ...base,
+        inputs: [changePath(id, "spec.md"), changePath(id, "architecture.md"), "docs/spec.md", "docs/architecture.md", "docs/design.md", "contracts/", "tasks.json", progressPath],
+        outputs: [`${changePath(id, "tasks.json")} (a JSON array of the new tasks only; [] when the change needs no code)`],
+        validate: (dir) => void validateChangePlan(dir, id, mergedIds),
+      }
+    }
+    default:
+      return base
+  }
+}
+
+function changeSteps(phase: PlanningPhase, definition: PhaseDefinition, change: Change): PhaseStep[] {
+  const instructions = `Change mode for ${change.id}: the app already exists. Change only what ${changePath(change.id, "request.md")} needs.`
+  if (phase !== "plan") return [{ name: phase, instructions, validate: definition.validate }]
+  return [
+    {
+      name: phase,
+      instructions,
+      validate: definition.validate,
+      after: async (context, dir) => {
+        const tasks = validateChangePlan(dir, change.id, new Set(context.store.tasks().filter((task) => task.status === "merged").map((task) => task.id)))
+        writeJson(join(dir, "tasks.json"), tasks)
+        const added = tasks.filter((task) => task.change === change.id)
+        context.store.log("plan", `${change.id}: appended ${added.length} tasks to tasks.json${added.length ? ` (${added.map((task) => task.id).join(", ")})` : ""}`)
+      },
+    },
+  ]
+}
+
+function validateSpecDelta(dir: string, id: string): void {
+  const deltaPath = join(dir, changePath(id, "spec.md"))
+  requireHeadings(deltaPath, specDeltaHeadings)
+  const spec = readFileSync(join(dir, "docs/spec.md"), "utf8")
+  const missing = [...new Set(readFileSync(deltaPath, "utf8").match(/\bUS-\d+\b/g) ?? [])].filter((story) => !new RegExp(`\\b${story}\\b`).test(spec))
+  if (missing.length) throw new Error(`docs/spec.md does not have the stories from the delta: ${missing.join(", ")}. Add them to docs/spec.md too.`)
+}
+
+function cssVariables(css: string): string[] {
+  return [...new Set([...css.matchAll(/(--[A-Za-z0-9_-]+)\s*:/g)].map((match) => match[1]))]
+}
+
+// The planner writes only the new tasks; tasks.json must be untouched, or already hold exactly the appended list.
+// Returns the full list: the existing tasks, then the new ones marked with the change id.
+export function validateChangePlan(dir: string, id: string, mergedIds: ReadonlySet<string>): Task[] {
+  const committed = fileAtRef(dir, "HEAD", "tasks.json")
+  if (committed === null) throw new Error("tasks.json is missing on the change branch")
+  const existing = JSON.parse(committed) as Task[]
+  const deltaPath = join(dir, changePath(id, "tasks.json"))
+  let raw: unknown
+  try {
+    raw = JSON.parse(readFileSync(requireFile(deltaPath), "utf8"))
+  } catch (error) {
+    throw new Error(`${changePath(id, "tasks.json")} is not valid JSON: ${(error as Error).message}`)
+  }
+  if (!Array.isArray(raw)) throw new Error(`${changePath(id, "tasks.json")} must be a JSON array of new tasks`)
+  const existingIds = new Set(existing.map((task) => task.id))
+  const firstId = Number(nextTaskId(existing).slice(1))
+  const problems: string[] = []
+  for (const task of raw as Task[]) {
+    if (existingIds.has(task?.id)) problems.push(`${task.id} already exists; new tasks need new ids from ${nextTaskId(existing)}`)
+    else if (typeof task?.id !== "string" || !/^T\d+$/.test(task.id) || Number(task.id.slice(1)) < firstId) problems.push(`${task?.id}: new ids continue after the highest existing one, from ${nextTaskId(existing)}`)
+  }
+  if (problems.length) throw new Error(`the change plan is invalid:\n- ${problems.join("\n- ")}`)
+  const added = (raw as Task[]).map((task) => ({ ...task, change: id }))
+  const tasks = [...existing, ...added]
+  orderTasks(validateTasks(tasks, readStack(dir)?.sharedPaths))
+  for (const task of added) {
+    const conflict = changeTaskConflict(task, existing, mergedIds)
+    if (conflict) problems.push(`${task.id}: ${conflict}`)
+  }
+  if (problems.length) throw new Error(`the change plan is invalid:\n- ${problems.join("\n- ")}`)
+  const current = JSON.stringify(JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8")))
+  if (current !== JSON.stringify(existing) && current !== JSON.stringify(tasks)) {
+    throw new Error(`tasks.json was edited. Restore it and write only the new tasks to ${changePath(id, "tasks.json")}`)
+  }
+  return tasks
+}
+
 function validateDesignSystem(dir: string): void {
   const tokens = readFileSync(requireFile(join(dir, "design/tokens.css")), "utf8")
   if (!tokens.includes("--primary:")) throw new Error("design/tokens.css has no --primary variable")
@@ -327,12 +452,32 @@ export async function runPipeline(context: PipelineContext): Promise<RunOutcome>
   return outcome
 }
 
+// Every workspace starts from and lands on this branch: the open change's branch, else main.
+export function landingBranch(context: Pick<PipelineContext, "store">): string {
+  return context.store.currentChange()?.branch ?? "main"
+}
+
 async function runStages(context: PipelineContext): Promise<RunOutcome> {
   for (const phase of Object.keys(phaseDefinitions) as PlanningPhase[]) {
     const outcome = await runPlanningPhase(context, phase)
     if (outcome !== "completed") return outcome
+    if (phase === "architecture") requestChangeDesign(context)
   }
   return runTasks(context)
+}
+
+// Runs once per change, after its architecture is approved (by the run or at a gate).
+function requestChangeDesign(context: PipelineContext): void {
+  const { config, projectDir, store } = context
+  const change = store.currentChange()
+  const checkedKey = `change.${change?.id}.design`
+  if (!change || store.meta(checkedKey)) return
+  const delta = fileAtRef(projectDir, change.branch, changePath(change.id, "architecture.md")) ?? ""
+  const needed = designNeededPattern.test(delta.split("\n").find((line) => line.trim()) ?? "") && config.target !== "api"
+  store.setMeta(checkedKey, needed ? "rerun" : "skipped")
+  if (!needed) return
+  store.setPhase("design", "pending")
+  store.log("phase", `${change.id}: the architecture delta says Design: needed, so the design phase runs again`)
 }
 
 async function runPlanningPhase(context: PipelineContext, phase: PlanningPhase): Promise<RunOutcome> {
@@ -350,16 +495,19 @@ async function runPlanningPhase(context: PipelineContext, phase: PlanningPhase):
         ? "branding disabled in pipeline.yaml"
         : phase === "marketing" && !config.marketing.enabled
           ? "marketing disabled in pipeline.yaml"
-          : phase === "marketing" && store.phaseStatus("plan") === "approved"
-            ? "the project was planned before the marketing phase existed"
-            : null
+          : phase === "marketing" && store.currentChange()
+            ? "a change request does not rerun marketing"
+            : phase === "marketing" && store.phaseStatus("plan") === "approved" && !store.phases().some((row) => row.name === "marketing")
+              ? "the project was planned before the marketing phase existed"
+              : null
   if (skipReason) {
     store.setPhase(phase, "approved")
     store.log("phase", `${phase} skipped: ${skipReason}`)
     return "completed"
   }
 
-  const definition = phaseDefinitions[phase]
+  const change = store.currentChange()
+  const definition = change ? changePhaseDefinition(context, phase, change) : phaseDefinitions[phase]
   store.setPhase(phase, "running")
   if (definition.role === "architect") logTemplateHintConflicts(context)
   let previousError: string | null = null
@@ -396,10 +544,12 @@ async function runPlanningPhase(context: PipelineContext, phase: PlanningPhase):
 async function attemptPhase(context: PipelineContext, phase: PlanningPhase, definition: PhaseDefinition, attempt: number, previousError: string | null): Promise<AttemptResult> {
   const { projectDir, config, store } = context
   const name = `phase-${phase}-${attempt}`
-  const workspace = createWorkspace(projectDir, name)
+  const workspace = createWorkspace(projectDir, name, landingBranch(context))
   const executor = await createExecutor(context, workspace.path, name)
+  const change = store.currentChange()
+  const changeNotes = change && (definition.role === "architect" || definition.role === "planner") ? [["## Code map (git ls-files, without lockfiles and assets)", "", "```", ...codeMap(trackedFiles(workspace.path)), "```"].join("\n")] : []
   const runPhaseAgent = async (subject: string, notes: string[]): Promise<AttemptResult | null> => {
-    const outcome = await runAgent(context, executor, definition.role, subject, planningTools, phasePrompt(context, phase, previousError, notes))
+    const outcome = await runAgent(context, executor, definition.role, subject, planningTools, phasePrompt(context, phase, previousError, [...notes, ...changeNotes], definition, change))
     if (isInfrastructureFailure(outcome)) return { kind: "infrastructure", reason: `${outcome.failureClass}: ${outcome.result.summary}` }
     if (outcome.result.status !== "done") return { kind: "failed", reason: `agent ${outcome.result.status}: ${outcome.result.summary}` }
     return null
@@ -422,7 +572,7 @@ async function attemptPhase(context: PipelineContext, phase: PlanningPhase, defi
       return { kind: "infrastructure", reason: `${phase} ${step.name}: ${(error as Error).message}` }
     }
   }
-  const steps: PhaseStep[] = phase === "design" ? designSteps : phase === "marketing" ? marketingSteps : [{ name: phase, instructions: "", validate: definition.validate }]
+  const steps: PhaseStep[] = change ? changeSteps(phase, definition, change) : phase === "design" ? designSteps : phase === "marketing" ? marketingSteps : [{ name: phase, instructions: "", validate: definition.validate }]
   // A fix may change the logo mark, so the favicon set is rendered again.
   const rerunOrchestratorSteps = async (): Promise<AttemptResult | null> => {
     for (const step of steps) {
@@ -459,13 +609,12 @@ async function attemptPhase(context: PipelineContext, phase: PlanningPhase, defi
     }
 
     if (phase === "architecture") ensureClaudeMemoryFile(context, workspace.path)
-    const title = `docs(${phase}): add ${phase} artifacts`
+    const title = change ? `docs(${phase}): update ${phase} for ${change.id}` : `docs(${phase}): add ${phase} artifacts`
     commitAndRebase(workspace, title, groupPhaseFiles(changedFiles(workspace.path), definition.commits ?? []))
     context.github.land({
-      branch: workspace.branch,
+      workspace,
       title,
       body: `Planning phase **${phase}**, written by the ${definition.role} agent (attempt ${attempt}).\n\nOutputs: ${definition.outputs.join(", ")}.`,
-      localMerge: () => fastForwardMain(projectDir, workspace.branch),
     })
     return { kind: "passed" }
   } catch (error) {
@@ -565,10 +714,17 @@ function ensureClaudeMemoryFile(context: PipelineContext, dir: string): void {
   context.store.log("phase", "architecture: created CLAUDE.md that imports AGENTS.md")
 }
 
-export function phasePrompt(context: Pick<PipelineContext, "projectDir" | "config">, phase: PlanningPhase, previousError: string | null, notes: string[] = []): string {
+export function phasePrompt(
+  context: Pick<PipelineContext, "projectDir" | "config">,
+  phase: PlanningPhase,
+  previousError: string | null,
+  notes: string[] = [],
+  definition = phaseDefinitions[phase],
+  change: Change | null = null,
+): string {
   const { config, projectDir } = context
-  const definition = phaseDefinitions[phase]
   const lines = [
+    ...(change ? [`Change mode: change request ${change.id}. The app is built and live. Read the request in ${changePath(change.id, "request.md")}.`] : []),
     `Project target: ${config.target}.`,
     `Read these inputs: ${definition.inputs.join(", ")}.`,
     `Write these outputs: ${definition.outputs.join(", ")}.`,
@@ -606,21 +762,110 @@ function logResolvedCommands(context: PipelineContext): void {
 }
 
 async function runTasks(context: PipelineContext): Promise<RunOutcome> {
+  const { store } = context
   logResolvedCommands(context)
+  const change = store.currentChange()
+  if (change && !loadLandedTasks(context).some((task) => task.change === change.id)) return finishDocsOnlyChange(context, change)
   const built = await buildTasks(context)
   if (built !== "completed") return built
   let deployUrl: string | null = null
   const deploy = async () => {
+    if (change) {
+      const merged = await mergeChange(context, change)
+      if (merged !== "completed") return merged
+    }
     const result = await runDeployPhase(context)
     deployUrl = result.url
     return result.outcome
   }
   const outcome = await runQaPhase(context, deploy)
   if (outcome !== "completed") return outcome
-  const access = ensureDemoAccess(context.store)
-  if (deployUrl) context.store.log("deploy", `live at ${deployUrl}; log in as ${access.email} (the password is on the dashboard)`)
+  const access = ensureDemoAccess(store)
+  if (deployUrl) store.log("deploy", `live at ${deployUrl}; log in as ${access.email} (the password is on the dashboard)`)
+  if (change) context.github.changeFinished(change, deployUrl ? `The change is merged and live at ${deployUrl}.` : "The change is merged into main.")
   context.github.runCompleted(deployUrl)
   return "completed"
+}
+
+// F5 in docs/change-requests.md: the planner found nothing to build, so the docs merge without build, QA, or a redeploy.
+async function finishDocsOnlyChange(context: PipelineContext, change: Change): Promise<RunOutcome> {
+  const { store } = context
+  store.log("change", `${change.id} has no new tasks; merging its docs without build, QA, or a redeploy`)
+  const merged = await mergeChange(context, change)
+  if (merged !== "completed") return merged
+  store.setPhase("qa", "approved")
+  store.setPhase("deploy", "approved")
+  context.github.changeFinished(change, "The change needed no code. Its docs are merged into main; the app was not redeployed.")
+  return "completed"
+}
+
+// D3: one merge of the change branch into main, after QA passed. main is merged into the branch first when it moved,
+// so the final merge never rewrites history; a conflict stops for a person.
+async function mergeChange(context: PipelineContext, change: Change): Promise<RunOutcome> {
+  const { config, projectDir, store } = context
+  const approvalKey = `change.${change.id}.mergeApproved`
+  if (config.autonomy.changeMerge === "manual" && store.meta(approvalKey) !== "1") {
+    noteStop(context, `change ${change.id} ${changeWaitingText}: approve it on the dashboard to merge ${change.branch} into main`)
+    store.log("change", `change ${change.id} ${changeWaitingText} into main (autonomy.changeMerge is manual)`)
+    return "awaiting_approval"
+  }
+  try {
+    if (!isAncestor(projectDir, "main", change.branch)) {
+      const workspace = createWorkspace(projectDir, `change-${change.id}-sync`, change.branch)
+      try {
+        const conflicts = mergeInto(workspace, "main", `chore(${change.id}): merge main into the change`)
+        if (conflicts.length) {
+          noteStop(context, `change ${change.id} ${changeWaitingText}: it conflicts with main in ${conflicts.join(", ")}. Merge main into ${change.branch} by hand, then resume`)
+          store.log("change", `change ${change.id} ${changeWaitingText}: conflicts with main in ${conflicts.join(", ")}`)
+          return "awaiting_approval"
+        }
+        fastForward(projectDir, workspace.branch, change.branch)
+        store.log("change", `${change.id}: main moved during the change, so it was merged into ${change.branch}`)
+      } finally {
+        removeWorkspace(projectDir, workspace)
+      }
+    }
+    const pullRequest = context.github.mergeChange(change, changePullRequestBody(context, change))
+    if (!pullRequest) mergeIntoMain(projectDir, change.branch, `feat: ${changeTitle(change)}`)
+    store.finishChange(change.id, "merged", pullRequest)
+    store.log("change", `${changeMergedPrefix} ${change.id} into main${pullRequest ? ` through ${pullRequest}` : ""}`)
+    return "completed"
+  } catch (error) {
+    noteStop(context, `change ${change.id} could not merge into main: ${(error as Error).message}`)
+    store.log("change", `${change.id}: the merge into main failed: ${(error as Error).message.slice(0, 300)}`)
+    return "paused"
+  }
+}
+
+function changePullRequestBody(context: PipelineContext, change: Change): string {
+  const { projectDir, store } = context
+  const delta = fileAtRef(projectDir, change.branch, changePath(change.id, "spec.md")) ?? "(no spec delta)"
+  const tasks = loadLandedTasks(context).filter((task) => task.change === change.id)
+  const round = store.meta("qa.round")
+  return [
+    `Change request ${change.id}.`,
+    "",
+    "## Spec delta",
+    "",
+    delta.trim().slice(0, 20_000),
+    "",
+    "## Tasks",
+    "",
+    ...(tasks.length ? tasks.map((task) => `- ${task.id}: ${task.title}`) : ["none"]),
+    "",
+    "## QA",
+    "",
+    context.config.qa.enabled && round ? `QA passed in round ${round}.` : "QA is off for this project.",
+  ].join("\n")
+}
+
+// During a change, tasks.json on main is the one from before the change; the branch holds the new tasks.
+function loadLandedTasks(context: PipelineContext): Task[] {
+  const change = context.store.currentChange()
+  if (!change) return loadTasks(join(context.projectDir, "tasks.json"))
+  const text = fileAtRef(context.projectDir, change.branch, "tasks.json")
+  if (text === null) throw new Error(`tasks.json is missing on ${change.branch}`)
+  return parseTasks(text)
 }
 
 // Runs every task in tasks.json that is not merged yet, up to config.parallelTasks at once.
@@ -629,7 +874,7 @@ async function runTasks(context: PipelineContext): Promise<RunOutcome> {
 async function buildTasks(context: PipelineContext): Promise<RunOutcome> {
   const { projectDir, config, store } = context
   const load = () => {
-    const tasks = loadTasks(join(projectDir, "tasks.json"))
+    const tasks = loadLandedTasks(context)
     store.syncTasks(tasks.map((task) => task.id))
     context.github.syncTaskIssues(tasks)
     return tasks
@@ -781,7 +1026,7 @@ type ReplanResult = ReplanDecision | { kind: "infrastructure"; reason: string }
 async function replanTask(context: PipelineContext, task: Task, block: Block): Promise<ReplanResult> {
   const { projectDir, store } = context
   const name = `replan-${task.id}`
-  const workspace = createWorkspace(projectDir, name)
+  const workspace = createWorkspace(projectDir, name, landingBranch(context))
   const executor = await createExecutor(context, workspace.path, name)
   try {
     const tasks = loadTasks(join(workspace.path, "tasks.json"))
@@ -859,7 +1104,7 @@ function serializeSmoke<T>(check: () => Promise<T>): Promise<T> {
 
 async function attemptTask(context: PipelineContext, task: Task, attempt: number, previous: PreviousAttempt | null): Promise<AttemptResult> {
   const { projectDir, store } = context
-  const workspace = createWorkspace(projectDir, `${task.id}-${attempt}`)
+  const workspace = createWorkspace(projectDir, `${task.id}-${attempt}`, landingBranch(context))
   const executor = await createExecutor(context, workspace.path, `${task.id}-${attempt}`)
   const rejected = (reason: string): AttemptResult => ({ kind: "failed", reason, diff: stagedDiff(workspace.path) })
   try {
@@ -952,12 +1197,7 @@ async function attemptTask(context: PipelineContext, task: Task, attempt: number
       commitAndRebase(workspace, title, plan.kind === "groups" ? plan.groups : [])
       appendProgress(workspace.path, task, changed, worker.result.summary)
       amendCommit(workspace, title)
-      context.github.land({
-        branch: workspace.branch,
-        title,
-        body: pullRequestBody(context, task, attempt, verdict),
-        localMerge: () => fastForwardMain(projectDir, workspace.branch),
-      })
+      context.github.land({ workspace, title, body: pullRequestBody(context, task, attempt, verdict) })
     } catch (error) {
       return { kind: "failed", reason: `merge failed: ${(error as Error).message}` }
     }
@@ -1113,15 +1353,21 @@ interface TestGateResult {
   output: string
 }
 
-// Round artifacts go to .agent-team/qa/round-<n>/: tests.json, report.json, <route-slug>.png, verdict.json.
+// Round artifacts go to .agent-team/qa/round-<n>/ (.agent-team/qa/<changeId>/round-<n>/ during a change):
+// tests.json, report.json, <route-slug>.png, verdict.json.
+export function qaRoundPath(changeId: string | null, round: number): string {
+  return changeId ? join(".agent-team", "qa", changeId, `round-${round}`) : join(".agent-team", "qa", `round-${round}`)
+}
+
 async function runQaRound(context: PipelineContext, round: number): Promise<QaRoundResult> {
   const { projectDir, config, store } = context
-  const roundPath = join(".agent-team", "qa", `round-${round}`)
+  const change = store.currentChange()
+  const roundPath = qaRoundPath(change?.id ?? null, round)
   const outDir = join(projectDir, roundPath)
   rmSync(outDir, { recursive: true, force: true })
   mkdirSync(outDir, { recursive: true })
   const name = `qa-${round}`
-  const workspace = createWorkspace(projectDir, name)
+  const workspace = createWorkspace(projectDir, name, landingBranch(context))
   const executor = await createExecutor(context, workspace.path, name)
   try {
     const tests = await runTestGate(context, executor, workspace.path, name)
@@ -1136,7 +1382,7 @@ async function runQaRound(context: PipelineContext, round: number): Promise<QaRo
       const designPath = join(workspace.path, "docs/design.md")
       const design = existsSync(designPath) ? readFileSync(designPath, "utf8") : ""
       screens = parseDesignScreens(design)
-      visual = await captureScreenshots({ projectDir, outDir, screens, signal: context.signal, login: { route: parseLoginRoute(design), access: ensureDemoAccess(store) } })
+      visual = await captureScreenshots({ projectDir, outDir, screens, signal: context.signal, login: { route: parseLoginRoute(design), access: ensureDemoAccess(store) }, ref: landingBranch(context) })
       const broken = visual.routes.filter((route) => route.error || (route.status ?? 0) >= 400).length
       store.log("qa", visual.startError ? `round ${round}: app did not start: ${visual.startError.slice(0, 300)}` : `round ${round}: ${visual.routes.length} screenshots, ${broken} broken routes`)
       // The reviewer sees only its worktree, so the round's files are copied in at the same relative path.
@@ -1145,9 +1391,10 @@ async function runQaRound(context: PipelineContext, round: number): Promise<QaRo
 
     const existing = loadTasks(join(workspace.path, "tasks.json"))
     const hardFailures = qaHardFailures(tests, visual)
+    const changeScope = change ? { id: change.id, routes: [...new Set(existing.filter((task) => task.change === change.id).flatMap((task) => task.routes ?? []))] } : null
     let previousError: string | null = null
     for (let attempt = 1; attempt <= phaseAttempts; attempt++) {
-      const prompt = qaPrompt({ round, roundPath, target: config.target, tests, visual, screens, brandingImages: listBrandingImages(workspace.path), existing, hardFailures, previousError })
+      const prompt = qaPrompt({ round, roundPath, target: config.target, tests, visual, screens, brandingImages: listBrandingImages(workspace.path), existing, hardFailures, previousError, change: changeScope })
       const outcome = await runAgent(context, executor, "qa", `qa-${round}-review-${attempt}`, qaTools, prompt)
       if (isInfrastructureFailure(outcome)) return { kind: "infrastructure", reason: `qa ${outcome.failureClass}: ${outcome.result.summary}` }
       if (outcome.result.status !== "done") {
@@ -1216,9 +1463,21 @@ function qaPrompt(input: {
   existing: Task[]
   hardFailures: string[]
   previousError: string | null
+  change?: { id: string; routes: string[] } | null
 }): string {
-  const { round, roundPath, tests, visual } = input
-  const lines = [`QA round ${round}. Project target: ${input.target}.`, "", "## Gate 1: tests", ""]
+  const { round, roundPath, tests, visual, change } = input
+  const lines = [`QA round ${round}. Project target: ${input.target}.`, ""]
+  if (change) {
+    lines.push(
+      `## Change ${change.id}`,
+      "",
+      `This round checks change request ${change.id}. Read ${changePath(change.id, "request.md")} and the spec delta ${changePath(change.id, "spec.md")}.`,
+      `The change's routes: ${change.routes.length ? change.routes.map((route) => `\`${route}\``).join(", ") : "none listed"}.`,
+      "Judge the change's routes against the delta. On other routes, fail only on regressions.",
+      "",
+    )
+  }
+  lines.push("## Gate 1: tests", "")
   if (tests.command) lines.push(`Install: \`${tests.install ?? "none"}\`. Test: \`${tests.command}\`. Result: ${tests.passed ? "passed" : "FAILED"}.`, "", "```", tests.output.trim(), "```")
   else lines.push(tests.output)
   lines.push("", "## Gate 2: screenshots", "")
@@ -1254,10 +1513,11 @@ function qaPrompt(input: {
 
 async function appendFixTasks(context: PipelineContext, round: number, tasks: Task[]): Promise<void> {
   const { projectDir } = context
-  const workspace = createWorkspace(projectDir, `qa-fixes-${round}`)
+  const workspace = createWorkspace(projectDir, `qa-fixes-${round}`, landingBranch(context))
   try {
     const current = JSON.parse(readFileSync(join(workspace.path, "tasks.json"), "utf8")) as Task[]
-    const added = tasks.filter((task) => !current.some((existing) => existing.id === task.id))
+    const changeId = context.store.currentChange()?.id
+    const added = tasks.filter((task) => !current.some((existing) => existing.id === task.id)).map((task) => (changeId ? { ...task, change: changeId } : task))
     const body = [`QA round ${round} failed. The QA agent added these fix tasks:`, "", ...added.map((task) => `- ${task.id}: ${task.title}`)].join("\n")
     landTasksFile(context, workspace, [...current, ...added], `chore(qa): add round ${round} fix tasks`, body)
   } finally {
@@ -1271,12 +1531,7 @@ export function landTasksFile(context: PipelineContext, workspace: Workspace, ta
   writeJson(path, tasks)
   loadTasks(path)
   commitAndRebase(workspace, title)
-  context.github.land({
-    branch: workspace.branch,
-    title,
-    body,
-    localMerge: () => fastForwardMain(context.projectDir, workspace.branch),
-  })
+  context.github.land({ workspace, title, body })
 }
 
 function writeJson(path: string, value: unknown): void {
@@ -1341,7 +1596,7 @@ export function deployFixTemplateLines(dir: string): string[] {
 async function attemptDeployFix(context: PipelineContext, attempt: number, failure: string): Promise<AttemptResult> {
   const { projectDir } = context
   const name = `deploy-fix-${attempt}`
-  const workspace = createWorkspace(projectDir, name)
+  const workspace = createWorkspace(projectDir, name, landingBranch(context))
   const executor = await createExecutor(context, workspace.path, name)
   try {
     const setupCommand = workspaceSetupCommand(workspace.path)
@@ -1377,10 +1632,9 @@ async function attemptDeployFix(context: PipelineContext, attempt: number, failu
     const title = "fix(deploy): make the app start in production"
     commitAndRebase(workspace, title)
     context.github.land({
-      branch: workspace.branch,
+      workspace,
       title,
       body: ["The deploy phase could not start the app. The worker agent changed the start setup.", "", "```", failure.slice(0, 3000), "```"].join("\n"),
-      localMerge: () => fastForwardMain(projectDir, workspace.branch),
     })
     return { kind: "passed" }
   } catch (error) {
@@ -1472,9 +1726,10 @@ export interface WorkerPromptInput {
   hasProgress?: boolean
 }
 
-// The worker and reviewer read the progress log whenever it exists.
+// The worker and reviewer read the progress log whenever it exists, and a change task's request.
 function withProgressReadPath(task: Task, hasProgress: boolean | undefined): Task {
-  return hasProgress && !task.readPaths.includes(progressPath) ? { ...task, readPaths: [progressPath, ...task.readPaths] } : task
+  const extra = [...(hasProgress ? [progressPath] : []), ...(task.change ? [changePath(task.change, "request.md")] : [])].filter((path) => !task.readPaths.includes(path))
+  return extra.length ? { ...task, readPaths: [...extra, ...task.readPaths] } : task
 }
 
 function dependencySection(dependencyFiles: { taskId: string; files: string[] }[] | undefined): string | null {

@@ -9,6 +9,7 @@ import { BuildFailedIllustration } from "@/components/illustrations/build-failed
 import { OfficeTab } from "@/components/office/office-tab"
 import { PageHeader } from "@/components/page-header"
 import { AttemptsTab } from "@/components/project/attempts-tab"
+import { ChangeHistoryCard, ChangeMergeCard, ChangeRequestCard } from "@/components/project/changes-card"
 import { ConfigTab } from "@/components/project/config-tab"
 import { panelKinds, ProjectViewContext, type Panel, type ProjectView, type TranscriptRequest } from "@/components/project/context"
 import { DeployCard } from "@/components/project/deploy-card"
@@ -212,6 +213,7 @@ function ProjectBody({ name, detail, stream }: { name: string; detail: ProjectDe
       <div className="flex flex-col gap-4">
         <PipelineStepper />
         {gate && <GatePanel phase={gate} />}
+        <ChangeMergeCard />
         <IncidentBanner />
         {!gate && !humanNeeded && <StopBanner />}
         <ProblemBanner detail={detail} />
@@ -227,6 +229,8 @@ function ProjectBody({ name, detail, stream }: { name: string; detail: ProjectDe
             </TabsList>
           </div>
           <TabsContent value="overview" className="mt-2 flex flex-col gap-4">
+            <ChangeRequestCard />
+            <ChangeHistoryCard />
             <LiveAgentsCard />
             <div className="grid gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
               <TasksCard />

@@ -48,3 +48,29 @@ export function commitPaths(dir: string, paths: string[], message: string): bool
 export function trackedFiles(dir: string): string[] {
   return git(dir, ["ls-files"]).split("\n").filter(Boolean)
 }
+
+// A file as committed on a branch, or null when the branch or the file does not exist there.
+export function fileAtRef(dir: string, ref: string, path: string): string | null {
+  try {
+    return execFileSync("git", ["show", `${ref}:${path}`], { cwd: dir, encoding: "utf8", maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] })
+  } catch {
+    return null
+  }
+}
+
+export function commitOf(dir: string, ref: string): string {
+  return git(dir, ["rev-parse", ref]).trim()
+}
+
+export function isAncestor(dir: string, ancestor: string, ref: string): boolean {
+  try {
+    execFileSync("git", ["merge-base", "--is-ancestor", ancestor, ref], { cwd: dir, stdio: "ignore" })
+    return true
+  } catch {
+    return false
+  }
+}
+
+export function createBranch(dir: string, name: string, from: string): void {
+  git(dir, ["branch", "-q", name, from])
+}

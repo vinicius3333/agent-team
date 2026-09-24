@@ -3,6 +3,7 @@ template: custom       # custom (the architect chooses the stack) or a stack tem
 
 autonomy:
   gates: [spec, architecture]   # any of: spec, architecture, branding, design, plan. [] = fully autonomous
+  changeMerge: auto             # auto | manual: manual waits for Approve before a change request merges into main
 
 budget:
   perTaskUsd: 2

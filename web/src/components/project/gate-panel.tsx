@@ -23,10 +23,13 @@ const feedbackLimit = 4000
 
 function PlanOutput() {
   const { detail, openPanel } = useProjectView()
-  if (!detail.tasks.length) return <DocumentView path="tasks.json" />
+  const changeId = detail.change?.id
+  const tasks = changeId ? detail.tasks.filter((task) => task.change === changeId) : detail.tasks
+  if (changeId && !tasks.length) return <p className="text-sm text-muted-foreground">The planner added no tasks: the change needs no code.</p>
+  if (!tasks.length) return <DocumentView path="tasks.json" />
   return (
     <ol className="flex flex-col divide-y rounded-md border">
-      {detail.tasks.map((task) => (
+      {tasks.map((task) => (
         <li key={task.id}>
           <button type="button" className="flex w-full items-start gap-3 px-3 py-2 text-left text-sm hover:bg-muted/50" onClick={() => openPanel({ kind: "task", id: task.id })}>
             <span className="font-mono text-xs text-muted-foreground">{task.id}</span>
@@ -43,9 +46,12 @@ function PlanOutput() {
 }
 
 function PhaseOutputs({ phase, version, onSuggest }: { phase: string; version: string; onSuggest: (text: string) => void }) {
+  const { detail } = useProjectView()
+  const delta = phase === "spec" ? detail.change?.specDelta : phase === "architecture" ? detail.change?.architectureDelta : null
   const documents = phaseDocuments[phase] ?? []
   const showBranding = phase === "branding" || phase === "design"
   const tabs = [
+    ...(delta ? [{ id: "change-delta", label: `${detail.change?.id} delta` }] : []),
     ...(phase === "design" ? [{ id: "design-system", label: "Design system" }] : []),
     ...(showBranding ? [{ id: "branding", label: "Branding" }] : []),
     ...(phase === "marketing" ? [{ id: "marketing", label: "Pieces" }] : []),
@@ -62,6 +68,11 @@ function PhaseOutputs({ phase, version, onSuggest }: { phase: string; version: s
             </TabsTrigger>
           ))}
         </TabsList>
+      )}
+      {delta && (
+        <TabsContent value="change-delta">
+          <Markdown text={delta} />
+        </TabsContent>
       )}
       {phase === "design" && (
         <TabsContent value="design-system">
@@ -135,6 +146,7 @@ export function GatePanel({ phase }: { phase: string }) {
         <CardHeader>
           <CardTitle className="flex flex-wrap items-center gap-2">
             <FileText className="size-5 text-muted-foreground" aria-hidden="true" /> Review the {label.toLowerCase()} output
+            {detail.change && <span className="font-mono text-sm text-muted-foreground">for change {detail.change.id}</span>}
           </CardTitle>
           <CardDescription>Read what the agents wrote, then approve it or ask for changes.</CardDescription>
         </CardHeader>

@@ -180,3 +180,11 @@ export function normalizeFailure(text: string): string {
     .replace(/\s+/g, " ")
     .trim()
 }
+
+// A change task may take over files that merged tasks owned. Planning outputs stay off limits, shared foundation
+// files need a foundation task, and files of a task that is not merged yet stay with that task.
+export function changeTaskConflict(task: Task, tasks: Task[], mergedIds: ReadonlySet<string>): string | null {
+  const open = tasks.filter((entry) => entry.id !== task.id && !mergedIds.has(entry.id))
+  const paths = task.phase === "foundation" ? task.allowedPaths.filter((path) => !sharedFoundationPatterns.some((pattern) => globsOverlap(path, pattern))) : task.allowedPaths
+  return scopeConflict(paths, open, [])
+}

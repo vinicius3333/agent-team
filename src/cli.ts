@@ -9,7 +9,7 @@ import { currentTunnelUrl, deployProject, undeployProject } from "./deploy.ts"
 import { interruptPrefix } from "./notify/events.ts"
 import { sendTest } from "./notify/index.ts"
 import { compareResults, defaultEvalsDir, evalTiers, formatComparison, hasRegressions, listBriefs, readBaseYaml, runEval, type EvalResult, type EvalTier } from "./evals.ts"
-import { approvePhase, createProject, openProjectStore, retryTask, withProjectStore } from "./project.ts"
+import { approvePhase, createProject, openChange, openProjectStore, retryTask, withProjectStore } from "./project.ts"
 import { runProject } from "./run.ts"
 import { generateSessionSecret, hashPassword, passwordMinLength } from "./ui/auth.ts"
 import { listTemplates, templateTargets, type TemplateTarget } from "./templates.ts"
@@ -19,6 +19,7 @@ const usage = `Usage:
   agent-team init <projectDir> --brief <file> [--template <name>] [--target web|api|web+api]
   agent-team templates
   agent-team run <projectDir>
+  agent-team change <projectDir> --request <file>
   agent-team status <projectDir>
   agent-team approve <projectDir> <phase>
   agent-team retry <projectDir> <taskId>
@@ -39,6 +40,12 @@ function init(projectDir: string, briefPath: string | undefined, template: strin
   const choices = { ...(template === undefined ? {} : { template }), ...(target === undefined ? {} : { target: target as TemplateTarget }) }
   createProject(projectDir, readFileSync(briefPath, "utf8"), Object.keys(choices).length ? choices : undefined)
   console.log(`Created ${projectDir}. Edit pipeline.yaml if needed, then: agent-team run ${projectDir}`)
+}
+
+function change(projectDir: string, requestPath: string | undefined): void {
+  if (!requestPath) throw new Error("change needs --request <file>")
+  const opened = withProjectStore(projectDir, (store) => openChange(projectDir, store, readFileSync(requestPath, "utf8")))
+  console.log(`Opened change ${opened.id} on ${opened.branch}. Start it with: agent-team run ${projectDir}`)
 }
 
 function templates(): void {
@@ -67,6 +74,8 @@ async function run(projectDir: string): Promise<void> {
 function status(projectDir: string): void {
   const store = openProjectStore(projectDir)
   const phases = new Map(store.phases().map((phase) => [phase.name, phase.status]))
+  const open = store.currentChange()
+  if (open) console.log(`Change ${open.id} ${open.status} on ${open.branch}: ${open.request.split("\n")[0].slice(0, 100)}`)
   console.log("Phases")
   for (const phase of [...planningPhases, "qa", "deploy"]) console.log(`  ${phase.padEnd(13)} ${phases.get(phase) ?? "pending"}`)
   const tasks = store.tasks()
@@ -239,7 +248,7 @@ function evalCompare(paths: string[], flags: EvalFlags): void {
 
 async function main(): Promise<void> {
   if (process.argv[2] === "eval") return evalCommand()
-  const { positionals, values } = parseArgs({ allowPositionals: true, options: { brief: { type: "string" }, template: { type: "string" }, target: { type: "string" }, port: { type: "string" }, host: { type: "string" }, once: { type: "boolean" }, "insecure-no-auth": { type: "boolean" }, channel: { type: "string" } } })
+  const { positionals, values } = parseArgs({ allowPositionals: true, options: { brief: { type: "string" }, request: { type: "string" }, template: { type: "string" }, target: { type: "string" }, port: { type: "string" }, host: { type: "string" }, once: { type: "boolean" }, "insecure-no-auth": { type: "boolean" }, channel: { type: "string" } } })
   const [command, target, extra] = positionals
   if (command === "hash-password") return printPasswordHash()
   if (command === "session-secret") return console.log(generateSessionSecret())
@@ -255,6 +264,8 @@ async function main(): Promise<void> {
       return init(projectDir, values.brief, values.template, values.target)
     case "run":
       return run(projectDir)
+    case "change":
+      return change(projectDir, values.request)
     case "status":
       return status(projectDir)
     case "approve":

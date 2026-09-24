@@ -293,3 +293,50 @@ test("startUi refuses a public bind without a login unless told to allow it", as
   await once(server, "listening")
   t.after(() => server.close())
 })
+
+test("POST /changes validates the request and refuses while busy or unfinished", async (t) => {
+  const runsDir = join(scratch, "change-runs")
+  const started: string[] = []
+  const server = startUi({ runsDir, port: 0, auth: { mode: "none" }, startRun: (projectDir) => void started.push(projectDir) })
+  await once(server, "listening")
+  t.after(() => server.close())
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  const post = (path: string, body: unknown) => fetch(`${base}${path}`, { method: "POST", headers: { "content-type": "application/json", "x-agent-team": "1" }, body: JSON.stringify(body) })
+  const projectDir = join(runsDir, "notes")
+  createProject(projectDir, "brief")
+
+  assert.equal((await post("/api/projects/notes/changes", { request: "  " })).status, 400)
+  assert.equal((await post("/api/projects/notes/changes", { request: "x".repeat(4001) })).status, 400)
+  const unfinished = await post("/api/projects/notes/changes", { request: "Add tags" })
+  assert.equal(unfinished.status, 409)
+  assert.match((await unfinished.json()).error, /Finish or fix the current run first/)
+
+  withProjectStore(projectDir, (store) => {
+    for (const phase of ["plan", "qa", "deploy"]) store.setPhase(phase, "approved")
+    store.syncTasks(["T001"])
+    store.updateTask("T001", "merged")
+    store.setMeta("run.pid", String(process.pid))
+  })
+  assert.equal((await post("/api/projects/notes/changes", { request: "Add tags" })).status, 409, "a run is alive")
+  withProjectStore(projectDir, (store) => store.setMeta("run.pid", ""))
+
+  const opened = await post("/api/projects/notes/changes", { request: "Add tags" })
+  assert.equal(opened.status, 201)
+  assert.deepEqual(await opened.json(), { id: "C001", branch: "change/C001-add-tags", started: true })
+  assert.deepEqual(started, [projectDir])
+  const again = await post("/api/projects/notes/changes", { request: "More" })
+  assert.equal(again.status, 409)
+  assert.match((await again.json()).error, /C001 is still open/)
+
+  const detail = await (await fetch(`${base}/api/projects/notes`)).json()
+  assert.equal(detail.changes[0].id, "C001")
+  assert.equal(detail.changes[0].status, "open")
+  assert.equal(detail.change.id, "C001")
+  assert.equal(detail.canRequestChange, false)
+
+  assert.equal((await post("/api/projects/notes/changes/C009/abandon", {})).status, 404)
+  assert.equal((await post("/api/projects/notes/changes/C001/abandon", {})).status, 200)
+  const after = await (await fetch(`${base}/api/projects/notes`)).json()
+  assert.equal(after.changes[0].status, "abandoned")
+  assert.equal(after.canRequestChange, true)
+})

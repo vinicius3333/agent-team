@@ -132,8 +132,9 @@ node src/cli.ts init ~/projects/my-app --brief brief.md   # create a project fro
 node src/cli.ts init ~/projects/my-api --brief brief.md --target api --template node-api
 node src/cli.ts templates                                 # list the stack templates
 node src/cli.ts run ~/projects/my-app                     # start or resume the run
+node src/cli.ts change ~/projects/my-app --request change.md   # open a change request, then run
 node src/cli.ts approve ~/projects/my-app spec            # approve a gate, then run again
-node src/cli.ts status ~/projects/my-app                  # phases, tasks, and cost
+node src/cli.ts status ~/projects/my-app                  # open change, phases, tasks, and cost
 node src/cli.ts retry ~/projects/my-app T007              # retry a blocked task
 node src/cli.ts deploy ~/projects/my-app                  # redeploy the live preview
 node src/cli.ts undeploy ~/projects/my-app                # stop the live preview
@@ -238,6 +239,24 @@ With `deploy.enabled: true`, the orchestrator runs the finished app from `main` 
 - `agent-team deploy <projectDir>` redeploys; `agent-team undeploy <projectDir>` stops it.
 - Quick tunnels have no uptime guarantee, and the URL changes if the tunnel container restarts. For a stable address, use a named Cloudflare tunnel with your own domain.
 - Anyone with the URL can reach the app. Do not deploy apps that hold real data.
+
+## Change requests
+
+A finished project can take changes without a rebuild. Once the run is complete, the project page shows **Request a change**. Describe the change ("add CSV export to the reports page") and submit it. From the command line, write it to a file and run `agent-team change <projectDir> --request change.md`, then `agent-team run <projectDir>`.
+
+Each change gets an id (`C001`, `C002`, ...) and a branch `change/<id>-<slug>` from `main`. The run then:
+
+1. Reruns spec, architecture, and plan in change mode. Each agent writes a delta in `docs/changes/<id>/` and updates `docs/spec.md`, `docs/architecture.md`, and `AGENTS.md` in place. The design phase reruns only when the architecture delta starts with `Design: needed`. Branding and marketing never rerun.
+2. Builds only the new tasks. The planner writes them to `docs/changes/<id>/tasks.json`, and the orchestrator appends them to `tasks.json` with `"change": "<id>"`. Merged tasks do not run again.
+3. Lands every phase and task on the change branch. `main` and the live app stay as they are.
+4. Runs the full QA on the change branch. QA judges the change's routes against the spec delta and fails other routes only on regressions.
+5. Merges the branch into `main` once, with a merge commit (a pull request titled `feat: <request>` when GitHub is on), then redeploys.
+
+Only one change is open at a time. Gates work as for the first build, and the gate panel shows the change's delta. Set `autonomy.changeMerge: manual` in `pipeline.yaml` to approve the final merge yourself.
+
+When a change needs no code, its docs merge without a build, QA, or a redeploy. When `main` moved during the change (a doctor hotfix), the run merges `main` into the change branch first; on a conflict it stops and names the files. **Abandon** in the change history puts the phases back, removes the change's tasks, and closes its GitHub issue and pull requests. The branch stays for reference.
+
+The change history lists each change with its status, branch, pull request, dates, and cost. Data migrations on a live app are out of scope.
 
 ## GitHub
 
@@ -384,6 +403,7 @@ agent-team can tell you when a run needs you, so you do not have to watch the da
 | `qa_failed` | QA stopped after its failed rounds | yes |
 | `paused`, `failed` | The run paused or failed (not a runner cooldown the doctor resumes, unless `cooldowns: true`) | yes |
 | `incident` | The doctor opened an incident (info) or gave up on one (needs you) | on give-up |
+| `change` | A change request opened or merged (info), or waits for a merge approval or a conflict fix (needs you) | on wait |
 | `finished` | The run completed | no |
 | `live` | The app is live. The message never has the demo password. | no |
 | `stopped` | Ctrl+C, a dashboard stop, or a service restart. Off by default; add it to a channel's `events` to get it. | no |

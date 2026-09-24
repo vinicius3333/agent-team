@@ -45,7 +45,8 @@ export interface PublishConfig {
 
 export interface PipelineConfig {
   target: "web" | "api" | "web+api"
-  autonomy: { gates: PlanningPhase[] }
+  // changeMerge "manual" stops a change before its final merge into main until a person approves it.
+  autonomy: { gates: PlanningPhase[]; changeMerge: "auto" | "manual" }
   // mobile: the illustrator also draws a phone version of every desktop screen.
   branding: { enabled: boolean; count: number; mobile: boolean }
   marketing: { enabled: boolean; pieces: number; formats: MarketingFormat[] }
@@ -84,7 +85,7 @@ export function loadConfig(path: string): PipelineConfig {
   const raw = parse(readFileSync(path, "utf8")) ?? {}
   const config: PipelineConfig = {
     target: raw.target ?? "web",
-    autonomy: { gates: normalizeGates(raw.autonomy?.gates) },
+    autonomy: { gates: normalizeGates(raw.autonomy?.gates), changeMerge: raw.autonomy?.changeMerge ?? "auto" },
     branding: normalizeBranding(raw.branding ?? raw.mockups),
     marketing: {
       enabled: raw.marketing?.enabled ?? true,
@@ -202,6 +203,7 @@ function validateConfig(config: PipelineConfig, projectDir: string): void {
   if (!Number.isInteger(config.parallelTasks) || config.parallelTasks < 1) errors.push("parallelTasks must be a whole number of 1 or more")
   if (!(config.budget.runUsd > 0)) errors.push("budget.runUsd must be a number above 0")
   if (!["web", "api", "web+api"].includes(config.target)) errors.push(`target must be web, api, or web+api`)
+  if (config.autonomy.changeMerge !== "auto" && config.autonomy.changeMerge !== "manual") errors.push("autonomy.changeMerge must be auto or manual")
   for (const gate of config.autonomy.gates) {
     if (!planningPhases.includes(gate)) errors.push(`unknown gate "${gate}"`)
   }

@@ -14,20 +14,33 @@ export interface Task {
   // Set by the planner when the task changes UI code; the orchestrator then loads `routes` in a browser after verify.
   ui?: boolean
   routes?: string[]
+  // The change request (C001, ...) that added the task; unset for the first build.
+  change?: string
 }
+
+export const changeIdPattern = /^C\d{3,}$/
 
 const staticRoutePattern = /^\/[A-Za-z0-9\-._~/?=&%]*$/
 
 // sharedPaths are the stack template's foundation-only files; a feature task may not touch them.
 export function loadTasks(path: string, sharedPaths: string[] = []): Task[] {
+  return parseTasks(readFileSync(path, "utf8"), sharedPaths)
+}
+
+export function parseTasks(text: string, sharedPaths: string[] = []): Task[] {
   let parsed: unknown
   try {
-    parsed = JSON.parse(readFileSync(path, "utf8"))
+    parsed = JSON.parse(text)
   } catch (error) {
     throw new Error(`tasks.json is not valid JSON: ${(error as Error).message}`)
   }
-  const tasks = validateTasks(parsed, sharedPaths)
-  return orderTasks(tasks)
+  return orderTasks(validateTasks(parsed, sharedPaths))
+}
+
+// QA fix ids (Q101) have their own prefix, so only T ids set the next number.
+export function nextTaskId(tasks: Pick<Task, "id">[]): string {
+  const highest = Math.max(0, ...tasks.map((task) => Number(/^T(\d+)/.exec(task.id)?.[1] ?? 0)))
+  return `T${String(highest + 1).padStart(3, "0")}`
 }
 
 export function validateTasks(value: unknown, sharedPaths: string[] = []): Task[] {
@@ -53,6 +66,7 @@ export function validateTasks(value: unknown, sharedPaths: string[] = []): Task[
         errors.push(`${label}: feature tasks may not touch the shared file ${shared}; give it to a foundation task`)
       }
     }
+    if (task?.change !== undefined && (typeof task.change !== "string" || !changeIdPattern.test(task.change))) errors.push(`${label}: change must be a change id like C001`)
     if (task?.ui !== undefined && typeof task.ui !== "boolean") errors.push(`${label}: ui must be true or false`)
     if (task?.routes !== undefined && (!Array.isArray(task.routes) || !task.routes.every((route: unknown) => typeof route === "string" && staticRoutePattern.test(route)))) {
       errors.push(`${label}: routes must be an array of paths that start with /, without parameters`)
