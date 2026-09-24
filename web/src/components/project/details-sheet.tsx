@@ -9,7 +9,6 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { formatClock, formatDateTime, formatDuration, formatTokens } from "@/lib/format"
 import { attemptNumber, deployState, qaState, describeCandidate, maxRetries, phaseDocuments, phaseOutputs, phaseRoles, skippedPhases, stepLabels, taskCounts } from "@/lib/pipeline"
 import { useProjectView, type Panel, type TranscriptRequest } from "./context"
-import { DocumentView } from "./document-view"
 import { EventList, EventType } from "./events"
 import { RetryButton } from "./tasks-card"
 import { runnerCooldown } from "./system-tab"
@@ -528,23 +527,6 @@ function containerPanel(detail: ProjectDetail, name: string): PanelContent {
   }
 }
 
-function docPanel(path: string, showDocument: (path: string) => void): PanelContent {
-  return {
-    title: path.split("/").pop() ?? path,
-    subtitle: path,
-    body: (
-      <>
-        <div>
-          <Button variant="outline" size="sm" onClick={() => showDocument(path)}>
-            Open in documents
-          </Button>
-        </div>
-        <DocumentView path={path} compact />
-      </>
-    ),
-  }
-}
-
 export function DetailsSheet({ panel }: { panel: Panel | null }) {
   const view = useProjectView()
   const { detail } = view
@@ -558,9 +540,7 @@ export function DetailsSheet({ panel }: { panel: Panel | null }) {
           ? eventPanel(detail, panel.id, view.openPanel)
           : panel.kind === "runner"
             ? runnerPanel(detail, panel.id)
-            : panel.kind === "container"
-              ? containerPanel(detail, panel.id)
-              : docPanel(panel.id, view.showDocument)
+            : containerPanel(detail, panel.id)
 
   return (
     <Sheet open={content !== null} onOpenChange={(open) => !open && view.closePanel()}>

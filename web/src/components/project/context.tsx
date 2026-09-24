@@ -1,7 +1,7 @@
 import { createContext, useContext } from "react"
 import type { ProjectDetail } from "@/api/types"
 
-export const panelKinds = ["task", "phase", "event", "runner", "container", "doc"] as const
+export const panelKinds = ["task", "phase", "event", "runner", "container"] as const
 export type PanelKind = (typeof panelKinds)[number]
 
 export interface Panel {

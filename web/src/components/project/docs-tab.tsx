@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react"
-import { Expand, FileText, PanelRight } from "lucide-react"
+import { Expand, FileText } from "lucide-react"
 import { api } from "@/api/client"
 import { useAsync } from "@/api/hooks"
 import { Button } from "@/components/ui/button"
@@ -12,7 +12,7 @@ import { DocumentView } from "./document-view"
 import { useProjectView } from "./context"
 
 export function DocsTab({ path, onSelect }: { path: string; onSelect: (path: string) => void }) {
-  const { name, detail, openPanel } = useProjectView()
+  const { name, detail } = useProjectView()
   const [reader, setReader] = useState(false)
   const lastEvent = detail.events.at(-1)?.id ?? 0
   const { value: markdownFiles } = useAsync(() => api.markdownFiles(name), [name, Math.floor(lastEvent / 5)])
@@ -78,16 +78,9 @@ export function DocsTab({ path, onSelect }: { path: string; onSelect: (path: str
         <CardContent className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="font-mono text-sm font-medium break-all">{path}</h2>
-            <div className="flex gap-2">
-              {/\.md$/i.test(path) && (
-                <Button variant="outline" size="sm" onClick={() => openPanel({ kind: "doc", id: path })}>
-                  <PanelRight /> Open in panel
-                </Button>
-              )}
-              <Button variant="outline" size="sm" onClick={() => setReader(true)}>
-                <Expand /> Expand
-              </Button>
-            </div>
+            <Button variant="outline" size="sm" onClick={() => setReader(true)}>
+              <Expand /> Expand
+            </Button>
           </div>
           <DocumentView key={path} path={path} version={version} />
         </CardContent>
