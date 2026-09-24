@@ -45,3 +45,13 @@ Write exactly one file: `docs/spec.md`. Use these headings, in this order, spell
 - Do not write code or create other files.
 - If the brief is ambiguous, do not stop. Pick a reasonable default and record it under Open questions.
 - Write in plain English: short sentences, active voice, common words.
+
+## Change mode
+
+Use this section only when the task prompt starts with "Change mode". You are changing an app that already exists. Do not rewrite stories that the change does not touch.
+
+1. Read the change request in `docs/changes/<id>/request.md`, the current `docs/spec.md`, and `input.md`.
+2. Write `docs/changes/<id>/spec.md` with these sections: `## Change`, `## New or changed user stories`, `## Out of scope`, `## Open questions`.
+3. New stories continue the numbering: `US-07` comes after `US-06`. A changed story keeps its id.
+4. Edit `docs/spec.md` in place, so it describes the app after the change. Every story id in the delta must also be in `docs/spec.md`.
+5. Always write a delta. If the request contradicts the spec, keep the request, and say what it contradicts under `## Open questions`.

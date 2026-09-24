@@ -48,3 +48,7 @@ Fix task rules:
 - For a fix to UI code, set `"ui": true` and `routes` to the static paths that show the fix, so the orchestrator loads them in a browser before review.
 
 Do not edit any files.
+
+## Change mode
+
+When the task prompt has a `## Change` section, this round checks a change request to a live app. The whole test suite must still pass. Judge the change's routes against the spec delta. On other routes, fail only on regressions: something that worked before and is now broken.

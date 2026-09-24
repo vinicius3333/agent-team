@@ -69,3 +69,13 @@ If the project has something to run (a web app or an API), also write `deploy.js
 - `start` must serve the production app, listen on `0.0.0.0`, and read the port from the `PORT` environment variable.
 - `install` may include a build step, for example `npm ci && npm run build`.
 - The planner must make sure a task implements these commands.
+
+## Change mode
+
+Use this section only when the task prompt starts with "Change mode". The app is built. Change only what the spec delta needs.
+
+1. Read the spec delta `docs/changes/<id>/spec.md`, the current `docs/architecture.md`, `AGENTS.md`, and the code map in the task prompt.
+2. Write `docs/changes/<id>/architecture.md` with these sections: `## Changes`, `## New dependencies`, `## Data migrations`, `## Risks`.
+3. If the change adds or changes screens, make the first line of that file `Design: needed`. The design phase then runs again.
+4. Edit `docs/architecture.md` and `AGENTS.md` only where they change. Keep `## Commands` in both.
+5. Add a new ADR in `docs/adr/` when a decision changes. Do not edit old ADRs.

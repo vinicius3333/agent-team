@@ -56,3 +56,14 @@ Each task has these fields:
 15. If the app has accounts, the task that builds auth also seeds the demo user from `DEMO_EMAIL` and `DEMO_PASSWORD` at startup (see `## Auth` in `docs/architecture.md`), with a test that the seed runs once and skips when the variables are missing.
 
 Output valid JSON only. Do not create any other file.
+
+## Change mode
+
+Use this section only when the task prompt starts with "Change mode". The app is built and every task in `tasks.json` is merged.
+
+1. Read the spec delta and the architecture delta in `docs/changes/<id>/`, the current `tasks.json`, `docs/progress.md`, and the code map in the task prompt.
+2. Write only the new tasks, as a JSON array, to `docs/changes/<id>/tasks.json`. Write `[]` when the change needs no code. Do not edit `tasks.json`: the orchestrator appends your tasks to it.
+3. New ids continue after the highest `T` id in `tasks.json`: `T031` after `T030`.
+4. Rule 1 does not apply: the change has no scaffold task. Rules 10 to 15 apply only to what the change adds.
+5. A new task may list merged tasks in `dependsOn`, and may own files that merged tasks owned.
+6. Shared foundation files (rule 3) still need a task with `"phase": "foundation"`. A new dependency goes in `package.json` and the lockfile, so its task is a foundation task.
