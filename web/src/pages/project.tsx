@@ -184,10 +184,13 @@ function ProjectBody({ name, phase, view, detail, stream }: { name: string; phas
   const navigate = useNavigate()
   const [transcript, setTranscript] = useState<TranscriptRequest | null>(null)
 
+  // The Changes drill-down keeps its own ?task= selection, which is not the task panel.
+  const drillDown = phase === "operate" && view === "changes"
   const panel = useMemo<Panel | null>(() => {
+    if (drillDown) return null
     const kind = panelKinds.find((key) => searchParams.has(key))
     return kind ? { kind, id: searchParams.get(kind) ?? "" } : null
-  }, [searchParams])
+  }, [searchParams, drillDown])
   const document = searchParams.get("doc") ?? "input.md"
 
   const update = useCallback(

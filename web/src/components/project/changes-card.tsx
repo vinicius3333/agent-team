@@ -1,14 +1,12 @@
 import { useState } from "react"
-import { CircleAlert, ExternalLink, GitMerge, History, Loader2, MessageSquarePlus, Send } from "lucide-react"
+import { CircleAlert, ExternalLink, GitMerge, Loader2, MessageSquarePlus, Send } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@/api/client"
-import { StatusBadge } from "@/components/status-badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { formatCost, formatDateTime } from "@/lib/format"
 import type { ChangeSummary } from "@/api/types"
 import { useProjectView } from "./context"
 
@@ -112,7 +110,7 @@ export function ChangeMergeCard() {
   )
 }
 
-function AbandonButton({ change }: { change: ChangeSummary }) {
+export function AbandonButton({ change }: { change: ChangeSummary }) {
   const { name, detail } = useProjectView()
   const [busy, setBusy] = useState(false)
   if (change.status !== "open" || detail.active) return null
@@ -135,54 +133,11 @@ function AbandonButton({ change }: { change: ChangeSummary }) {
   )
 }
 
-function PullRequestLink({ url }: { url: string | null }) {
+export function PullRequestLink({ url }: { url: string | null }) {
   if (!url) return <span>No PR</span>
   return (
     <a href={url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
       PR #{url.split("/").pop()} <ExternalLink className="size-3.5" aria-hidden="true" />
     </a>
-  )
-}
-
-export function ChangeHistoryCard() {
-  const { detail } = useProjectView()
-  const changes = detail.changes ?? []
-  if (!changes.length) return null
-  return (
-    <Card className="gap-4">
-      <CardHeader>
-        <CardTitle>Change history</CardTitle>
-        <CardAction>
-          <History className="size-5 text-muted-foreground" aria-hidden="true" />
-        </CardAction>
-      </CardHeader>
-      <CardContent>
-        <ul className="flex flex-col divide-y">
-          {changes.map((change) => (
-            <li key={change.id} className="grid grid-cols-[3.5rem_minmax(0,1fr)_auto] gap-x-3 gap-y-2 py-3 text-sm md:grid-cols-[4rem_minmax(0,1fr)_7rem_6rem] md:items-center">
-              <span className="font-mono text-xs text-muted-foreground">{change.id}</span>
-              <span className="min-w-0">
-                <span className="block truncate font-medium" title={change.request}>
-                  {change.title}
-                </span>
-                <span className="block truncate font-mono text-xs text-muted-foreground">{change.branch}</span>
-                <span className="flex flex-wrap gap-x-3 text-xs text-muted-foreground">
-                  <PullRequestLink url={change.prUrl} />
-                  <span>Created {formatDateTime(change.createdAt)}</span>
-                  <span>Finished {change.finishedAt ? formatDateTime(change.finishedAt) : "not yet"}</span>
-                  <span>Cost {formatCost(change.costUsd)}</span>
-                </span>
-              </span>
-              <span>
-                <StatusBadge status={change.status} />
-              </span>
-              <span className="col-start-2 md:col-start-auto md:justify-self-end">
-                <AbandonButton change={change} />
-              </span>
-            </li>
-          ))}
-        </ul>
-      </CardContent>
-    </Card>
   )
 }
