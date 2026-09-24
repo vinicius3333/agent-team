@@ -3,7 +3,9 @@ import { readFileSync } from "node:fs"
 import { createInterface } from "node:readline/promises"
 import { join, resolve } from "node:path"
 import { parseArgs } from "node:util"
-import { loadConfig, planningPhases } from "./config.ts"
+import { insightAgents, loadConfig, planningPhases, type InsightAgent } from "./config.ts"
+import { runInsightAgent } from "./operate/agents.ts"
+import type { Finding } from "./store.ts"
 import { runDoctor } from "./doctor.ts"
 import { currentTunnelUrl, deployProject, undeployProject } from "./deploy.ts"
 import { interruptPrefix } from "./notify/events.ts"
@@ -25,6 +27,8 @@ const usage = `Usage:
   agent-team retry <projectDir> <taskId>
   agent-team reset-cooldowns <projectDir>
   agent-team deploy <projectDir>
+  agent-team operate <projectDir> [--agent monitoring|analytics|research]
+  agent-team findings <projectDir>
   agent-team undeploy <projectDir>
   agent-team ui <runsDir> [--port 4400] [--host 127.0.0.1] [--insecure-no-auth]
   agent-team doctor <runsDir> [--once]
@@ -246,9 +250,34 @@ function evalCompare(paths: string[], flags: EvalFlags): void {
   if (hasRegressions(comparison)) process.exitCode = 1
 }
 
+function printFinding(finding: Finding): void {
+  console.log(`  #${finding.id} [${finding.severity}] ${finding.title} (${finding.source})`)
+  console.log(`      evidence: ${finding.evidence}`)
+  console.log(`      proposal: ${finding.proposal}`)
+}
+
+// Runs now, whatever the schedule says.
+async function operate(projectDir: string, agent: string | undefined): Promise<void> {
+  if (agent !== undefined && !(insightAgents as readonly string[]).includes(agent)) throw new Error(`--agent must be one of ${insightAgents.join(", ")}`)
+  const agents = agent ? [agent as InsightAgent] : [...insightAgents]
+  for (const name of agents) {
+    const outcome = await runInsightAgent({ projectDir, agent: name })
+    console.log(`${name}: ${outcome.status}: ${outcome.summary}`)
+    outcome.findings.forEach(printFinding)
+    if (outcome.status === "failed") process.exitCode = 1
+  }
+}
+
+function findings(projectDir: string): void {
+  const open = withProjectStore(projectDir, (store) => store.listFindings({ status: "open" }))
+  if (!open.length) return console.log("No open findings.")
+  console.log(`${open.length} open finding${open.length === 1 ? "" : "s"}. Approve one as a change in the dashboard (Operate > Next steps).`)
+  open.forEach(printFinding)
+}
+
 async function main(): Promise<void> {
   if (process.argv[2] === "eval") return evalCommand()
-  const { positionals, values } = parseArgs({ allowPositionals: true, options: { brief: { type: "string" }, request: { type: "string" }, template: { type: "string" }, target: { type: "string" }, port: { type: "string" }, host: { type: "string" }, once: { type: "boolean" }, "insecure-no-auth": { type: "boolean" }, channel: { type: "string" } } })
+  const { positionals, values } = parseArgs({ allowPositionals: true, options: { brief: { type: "string" }, request: { type: "string" }, template: { type: "string" }, target: { type: "string" }, port: { type: "string" }, host: { type: "string" }, once: { type: "boolean" }, "insecure-no-auth": { type: "boolean" }, channel: { type: "string" }, agent: { type: "string" } } })
   const [command, target, extra] = positionals
   if (command === "hash-password") return printPasswordHash()
   if (command === "session-secret") return console.log(generateSessionSecret())
@@ -276,6 +305,10 @@ async function main(): Promise<void> {
       return resetCooldowns(projectDir)
     case "deploy":
       return deploy(projectDir)
+    case "operate":
+      return operate(projectDir, values.agent)
+    case "findings":
+      return findings(projectDir)
     case "undeploy":
       return undeployProject(projectDir, openProjectStore(projectDir))
     case "ui":
