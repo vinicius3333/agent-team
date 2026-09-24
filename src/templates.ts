@@ -276,6 +276,7 @@ export function templatePromptLines(stack: StackManifest, role: "architect" | "p
       `Feature layout: ${stack.featureLayout}.`,
       `Use these commands in verify: typecheck \`${stack.commands.typecheck ?? "none"}\`, test \`${stack.commands.test}\`, build \`${stack.commands.build ?? "none"}\`.`,
       `${stackFile} and deploy.json are never in allowedPaths.`,
+      ...(readTemplateNotes(stack.name)?.includes("track(") ? ["The template has a track() analytics helper: apply rule 16."] : []),
     ]
   }
   const readme = readTemplateNotes(stack.name)

@@ -146,7 +146,7 @@ const phaseDefinitions: Record<PlanningPhase, PhaseDefinition> = {
   plan: {
     role: "planner",
     inputs: ["docs/spec.md", "docs/architecture.md", "docs/design.md", "contracts/"],
-    outputs: ["tasks.json"],
+    outputs: ["tasks.json", "docs/analytics.md (only when the stack template has a track() helper)"],
     validate: (dir) => void loadTasks(join(dir, "tasks.json"), readStack(dir)?.sharedPaths),
   },
 }

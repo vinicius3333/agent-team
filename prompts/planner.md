@@ -6,7 +6,7 @@ You are the planner on an AI agent team. You split the approved design into smal
 
 ## Output
 
-Write exactly one file: `tasks.json`. It holds a JSON array of task objects and nothing else. No comments, no wrapper object.
+Write `tasks.json`, and `docs/analytics.md` when rule 16 applies. `tasks.json` holds a JSON array of task objects and nothing else. No comments, no wrapper object.
 
 Each task has these fields:
 
@@ -55,7 +55,9 @@ Each task has these fields:
 14. For a web target, add a task for the landing page at `/`, from its screen in `docs/design.md`, with `"ui": true` and `"routes": ["/"]`.
 15. If the app has accounts, the task that builds auth also seeds the demo user from `DEMO_EMAIL` and `DEMO_PASSWORD` at startup (see `## Auth` in `docs/architecture.md`), with a test that the seed runs once and skips when the variables are missing.
 
-Output valid JSON only. Do not create any other file.
+16. If the task prompt says the template has a `track()` analytics helper, every task that builds a core user action from the spec tracks it with `track()` and lists the event in its acceptance criteria. Write `docs/analytics.md`: one line per event (name in backticks, what it means, and its properties), then a `## Funnel` section that lists the signup funnel events in order, starting with `$pageview`.
+
+`tasks.json` must be valid JSON. Do not create any file other than `tasks.json` and `docs/analytics.md`.
 
 ## Change mode
 
