@@ -1,4 +1,4 @@
-import type { Defaults, NewProjectRequest, ProjectDetail, ProjectSummary, QaRound } from "@/api/types"
+import type { Defaults, Incident, IncidentDetail, NewProjectRequest, ProjectDetail, ProjectSummary, QaRound } from "@/api/types"
 
 export class ApiError extends Error {
   status: number
@@ -52,6 +52,8 @@ export const api = {
   branding: (name: string) => getJson<string[]>(`${projectPath(name)}/branding`),
   qa: (name: string) => getJson<QaRound[]>(`${projectPath(name)}/qa`),
   file: (name: string, path: string) => getText(`${projectPath(name)}/file?path=${encodeURIComponent(path)}`),
+  incidents: () => getJson<Incident[]>("/api/incidents"),
+  incident: (project: string, id: string) => getJson<IncidentDetail>(`/api/incidents/${encodeURIComponent(project)}/${encodeURIComponent(id)}`),
   transcript: (name: string, file: string) => getText(`${projectPath(name)}/transcript/${encodeURIComponent(file)}`),
 
   createProject: (body: NewProjectRequest) => post<{ name: string }>("/api/projects", body),

@@ -863,7 +863,7 @@ async function appendFixTasks(context: PipelineContext, round: number, tasks: Ta
 }
 
 // Writes tasks.json in a worktree from main, checks it, and lands it on main through the normal merge path.
-function landTasksFile(context: PipelineContext, workspace: Workspace, tasks: Task[], title: string, body: string): void {
+export function landTasksFile(context: PipelineContext, workspace: Workspace, tasks: Task[], title: string, body: string): void {
   const path = join(workspace.path, "tasks.json")
   writeJson(path, tasks)
   loadTasks(path)
@@ -996,7 +996,8 @@ function isInfrastructureFailure(outcome: HarnessOutcome): boolean {
 
 let egressProxy: ReturnType<typeof ensureEgressProxy> | null = null
 
-async function createExecutor(context: PipelineContext, hostDir: string, name: string): Promise<Executor> {
+// readOnlyPaths defaults to the project's .git, which a project worktree's .git file points to.
+export async function createExecutor(context: PipelineContext, hostDir: string, name: string, readOnlyPaths?: string[]): Promise<Executor> {
   const { config, projectDir } = context
   if (config.harness.isolation === "none") return hostExecutor(hostDir)
   const { allowlist, extraDomains } = config.harness.network
@@ -1008,7 +1009,7 @@ async function createExecutor(context: PipelineContext, hostDir: string, name: s
     name: `agent-team-${name.toLowerCase().replace(/[^a-z0-9-]/g, "-")}`,
     limits: config.harness.docker,
     credentials,
-    readOnlyPaths: hostDir === projectDir ? [] : [join(projectDir, ".git")],
+    readOnlyPaths: readOnlyPaths ?? (hostDir === projectDir ? [] : [join(projectDir, ".git")]),
     network: allowlist ? await egressProxy! : undefined,
   })
 }
@@ -1144,7 +1145,7 @@ function isStringList(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((entry) => typeof entry === "string")
 }
 
-interface AgentOptions {
+export interface AgentOptions {
   // Globs the agent may edit; the Claude runner turns them into path-scoped permission rules.
   writablePaths?: string[]
   // Prompt file in prompts/, when it differs from the role name (the replanner runs as the planner role).
@@ -1173,7 +1174,7 @@ function budgetStop(context: PipelineContext, subject: string): HarnessOutcome |
   }
 }
 
-async function runAgent(context: PipelineContext, executor: Executor, role: Role, subject: string, allowedTools: string[], taskPrompt: string, options: AgentOptions = {}): Promise<HarnessOutcome> {
+export async function runAgent(context: PipelineContext, executor: Executor, role: Role, subject: string, allowedTools: string[], taskPrompt: string, options: AgentOptions = {}): Promise<HarnessOutcome> {
   const { config, harness } = context
   const stopped = budgetStop(context, subject)
   if (stopped) return stopped

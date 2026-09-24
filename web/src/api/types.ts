@@ -34,6 +34,8 @@ export interface ProjectSummary {
   live: boolean
   liveUrl: string | null
   stop?: RunStop | null
+  // An incident the doctor is working on, shown as a banner.
+  incident?: IncidentBanner | null
 }
 
 export interface Task {
@@ -206,4 +208,61 @@ export interface NewProjectRequest {
   github: boolean
   deploy: boolean
   branding: boolean
+}
+
+export type IncidentStatus = "open" | "diagnosing" | "fixed" | "gave_up"
+
+export interface IncidentBanner {
+  id: string
+  status: IncidentStatus
+  reason: string
+  attempts: number
+  issueUrl: string | null
+  createdAt: string
+}
+
+export interface IncidentAction {
+  at: string
+  action: string
+  detail: string
+}
+
+export interface Incident {
+  id: string
+  project: string
+  fingerprint: string
+  kind: "failed" | "paused" | "stalled" | "crashed"
+  reason: string
+  subject: string | null
+  status: IncidentStatus
+  attempts: number
+  costUsd: number
+  diagnosis: string | null
+  cause: "agent_team_bug" | "project_state" | "external" | "unknown" | null
+  actions: IncidentAction[]
+  branch: string | null
+  prUrl: string | null
+  issueUrl: string | null
+  createdAt: string
+  updatedAt: string
+  resumedAt: string | null
+  succeededAt: string | null
+  closedAt: string | null
+}
+
+export interface IncidentCall {
+  subject: string
+  role: string
+  runner: string
+  model: string
+  status: string
+  failureClass: string | null
+  costUsd: number | null
+  durationMs: number | null
+  createdAt: string
+  transcript: string
+}
+
+export interface IncidentDetail extends Incident {
+  calls: IncidentCall[]
 }

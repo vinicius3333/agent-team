@@ -8,7 +8,8 @@ import { fileURLToPath } from "node:url"
 import { parse as parseYaml } from "yaml"
 import { defaultRunBudgetUsd, loadConfig, normalizePhaseName, planningPhases, runnerNames, type PlanningPhase } from "../config.ts"
 import { pendingFeedback } from "../feedback.ts"
-import { approvePhase, createProject, ProjectError, raiseRunBudget, requestChanges, retryTask, runAlive, startRun as spawnRun, withProjectStore, type ProjectChoices } from "../project.ts"
+import { approvePhase, createProject, listProjects, ProjectError, raiseRunBudget, requestChanges, retryTask, runAlive, runLogPath, startRun as spawnRun, withProjectStore, type ProjectChoices } from "../project.ts"
+import { listIncidents, openIncident, readIncident } from "../incidents.ts"
 import { reviewerMetrics, type ReviewRow } from "../reviews.ts"
 
 const execFileAsync = promisify(execFile)
@@ -148,14 +149,6 @@ function all(db: DatabaseSync, sql: string, ...params: (string | number)[]): any
   }
 }
 
-function projectDirs(runsDir: string): string[] {
-  if (!existsSync(runsDir)) return []
-  return readdirSync(runsDir)
-    .filter((name) => projectNamePattern.test(name))
-    .filter((name) => existsSync(join(runsDir, name, "pipeline.yaml")))
-    .sort()
-}
-
 function readTasksFile(projectDir: string): any[] {
   try {
     const parsed = JSON.parse(readFileSync(join(projectDir, "tasks.json"), "utf8"))
@@ -180,10 +173,34 @@ function summary(runsDir: string, name: string) {
       const active = pidRow ? processAlive(Number(pidRow.value)) : Boolean(lastEvent && Date.now() - Date.parse(lastEvent.at) < activeWindowMs && !/^finished/.test(lastEvent.message))
       const cost = all(db, "SELECT COALESCE(SUM(cost_usd), 0) AS total, SUM(cost_usd IS NULL) AS unreported FROM attempts")[0]
       const stop = parseStop(all(db, "SELECT value FROM meta WHERE key = 'run.stop'")[0]?.value)
-      return { name, phases, counts, lastEvent, current: running ?? activePhase, active, costUsd: cost?.total ?? 0, costUnreported: (cost?.unreported ?? 0) > 0, stop }
+      return { name, phases, counts, lastEvent, current: running ?? activePhase, active, costUsd: cost?.total ?? 0, costUnreported: (cost?.unreported ?? 0) > 0, stop, incident: incidentBanner(projectDir) }
     },
-    { name, phases: [], counts: {}, lastEvent: null, current: null, active: false, costUsd: 0, costUnreported: false, stop: null },
+    { name, phases: [], counts: {}, lastEvent: null, current: null, active: false, costUsd: 0, costUnreported: false, stop: null, incident: incidentBanner(projectDir) },
   )
+}
+
+function incidentBanner(projectDir: string) {
+  const incident = openIncident(projectDir)
+  return incident ? { id: incident.id, status: incident.status, reason: incident.reason, attempts: incident.attempts, issueUrl: incident.issueUrl, createdAt: incident.createdAt } : null
+}
+
+function allIncidents(runsDir: string) {
+  return listProjects(runsDir)
+    .flatMap((name) => listIncidents(join(runsDir, name)))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+}
+
+function incidentDetail(runsDir: string, name: string, id: string) {
+  const projectDir = join(runsDir, name)
+  const incident = readIncident(projectDir, id)
+  if (!incident) return null
+  const attempts = withDatabase(
+    projectDir,
+    (db) =>
+      all(db, "SELECT subject, role, runner, model, status, failure_class AS failureClass, cost_usd AS costUsd, duration_ms AS durationMs, transcript_path AS transcriptPath, created_at AS createdAt FROM attempts WHERE subject LIKE ? ORDER BY id", `doctor-${id}-%`),
+    [],
+  ).map(({ transcriptPath, ...attempt }: any) => ({ ...attempt, transcript: String(transcriptPath ?? "").split("/").pop() }))
+  return { ...incident, calls: attempts }
 }
 
 async function command(cwd: string, file: string, args: string[]): Promise<string> {
@@ -370,7 +387,7 @@ async function detail(runsDir: string, name: string) {
       activeTime: activeTime(all(db, "SELECT at, type, message FROM events ORDER BY id")),
       cooldowns: all(db, "SELECT runner, cooldown_until AS until, reason FROM runner_health"),
       reviews: all(db, "SELECT task_id AS taskId, attempt, verdict, flagged_files AS flaggedFiles, file_hashes AS fileHashes FROM reviews ORDER BY id"),
-      spend: all(db, "SELECT COALESCE(SUM(cost_usd), 0) AS usd, COALESCE(SUM(cost_usd IS NULL), 0) AS unreportedCalls FROM attempts")[0] ?? { usd: 0, unreportedCalls: 0 },
+      spend: all(db, "SELECT COALESCE(SUM(cost_usd), 0) AS usd, COALESCE(SUM(cost_usd IS NULL), 0) AS unreportedCalls FROM attempts WHERE role != 'doctor'")[0] ?? { usd: 0, unreportedCalls: 0 },
     }),
     { phases: [], tasks: [], attempts: [], events: [], activeTime: { ms: 0, openSince: null } as ActiveTime, cooldowns: [], reviews: [], spend: { usd: 0, unreportedCalls: 0 }, meta: {} as Record<string, string> },
   )
@@ -558,7 +575,7 @@ export function startUi(options: UiOptions) {
   const startRunIfIdle = (name: string) => {
     const projectDir = join(runsDir, name)
     if (runAlive(projectDir)) return false
-    launchRun(projectDir, join(runsDir, `${name}.log`))
+    launchRun(projectDir, runLogPath(runsDir, name))
     return true
   }
 
@@ -614,8 +631,14 @@ export function startUi(options: UiOptions) {
       if (parts[0] !== "api") return serveStatic(response, webDist, url.pathname)
 
       if (parts[0] === "api" && parts[1] === "defaults" && parts.length === 2) return send(response, 200, { roles: defaultRoles() })
+      if (parts[0] === "api" && parts[1] === "incidents" && parts.length === 2) return send(response, 200, allIncidents(runsDir))
+      if (parts[0] === "api" && parts[1] === "incidents" && parts.length === 4) {
+        if (!knownProject(parts[2])) return send(response, 404, { error: "unknown project" })
+        const incident = incidentDetail(runsDir, parts[2], parts[3])
+        return incident ? send(response, 200, incident) : send(response, 404, { error: "unknown incident" })
+      }
       if (parts[0] === "api" && parts[1] === "projects" && parts.length === 2) {
-        const names = projectDirs(runsDir)
+        const names = listProjects(runsDir)
         const deploys = await Promise.all(names.map((name) => deployInfo(join(runsDir, name), metaValue(join(runsDir, name), "deploy.url"))))
         return send(response, 200, names.map((name, index) => ({ ...summary(runsDir, name), live: deploys[index].status === "live", liveUrl: deploys[index].url })))
       }

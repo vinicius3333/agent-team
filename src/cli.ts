@@ -4,6 +4,7 @@ import { join, resolve } from "node:path"
 import { parseArgs } from "node:util"
 import { loadConfig, planningPhases } from "./config.ts"
 import { cleanupOrphans } from "./harness/docker.ts"
+import { runDoctor } from "./doctor.ts"
 import { currentTunnelUrl, deployProject, undeployProject } from "./deploy.ts"
 import { createGitHub } from "./github.ts"
 import { createHarness } from "./harness/harness.ts"
@@ -21,7 +22,8 @@ const usage = `Usage:
   agent-team reset-cooldowns <projectDir>
   agent-team deploy <projectDir>
   agent-team undeploy <projectDir>
-  agent-team ui <runsDir> [--port 4400]`
+  agent-team ui <runsDir> [--port 4400]
+  agent-team doctor <runsDir> [--once]`
 
 function init(projectDir: string, briefPath: string | undefined): void {
   if (!briefPath) throw new Error("init needs --brief <file>")
@@ -98,8 +100,17 @@ function resetCooldowns(projectDir: string): void {
   store.log("harness", "runner cooldowns cleared")
 }
 
+async function doctor(runsDir: string, once: boolean): Promise<void> {
+  const controller = new AbortController()
+  const stop = () => controller.abort()
+  process.on("SIGINT", stop)
+  process.on("SIGTERM", stop)
+  console.log(`[doctor] watching ${runsDir}${once ? " (one check)" : ""}`)
+  await runDoctor({ runsDir, once, signal: controller.signal })
+}
+
 async function main(): Promise<void> {
-  const { positionals, values } = parseArgs({ allowPositionals: true, options: { brief: { type: "string" }, port: { type: "string" } } })
+  const { positionals, values } = parseArgs({ allowPositionals: true, options: { brief: { type: "string" }, port: { type: "string" }, once: { type: "boolean" } } })
   const [command, target, extra] = positionals
   if (!command || !target) {
     console.log(usage)
@@ -127,6 +138,8 @@ async function main(): Promise<void> {
     case "ui":
       startUi({ runsDir: projectDir, port: Number(values.port ?? 4400) })
       return
+    case "doctor":
+      return doctor(projectDir, values.once ?? false)
     default:
       console.log(usage)
       process.exitCode = 1

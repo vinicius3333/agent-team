@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card"
 import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { ThemeProvider } from "@/hooks/use-theme"
+import { IncidentPage, IncidentsPage } from "@/pages/incidents"
 import { NewProjectPage } from "@/pages/new-project"
 import { ProjectsPage } from "@/pages/projects"
 import { SettingsPage } from "@/pages/settings"
@@ -41,6 +42,8 @@ export function App() {
                       <ProjectPage />
                     </Suspense>
                   } />
+                <Route path="incidents" element={<IncidentsPage />} />
+                <Route path="incidents/:project/:id" element={<IncidentPage />} />
                 <Route path="settings" element={<SettingsPage />} />
                 <Route path="*" element={<NotFound />} />
               </Route>

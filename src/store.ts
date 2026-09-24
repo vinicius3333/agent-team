@@ -160,9 +160,10 @@ export function openStore(path: string) {
         now(),
       )
     },
-    // Cost of every agent call in the project; codex reports none, so its calls are counted instead.
+    // Cost of every agent call the run made; codex reports none, so its calls are counted instead.
+    // Doctor calls have their own limit (doctor.maxUsdPerIncident), so they do not use up the run budget.
     projectCost(): { usd: number; unreportedCalls: number } {
-      const row = db.prepare("SELECT COALESCE(SUM(cost_usd), 0) AS usd, COALESCE(SUM(cost_usd IS NULL), 0) AS unreported FROM attempts").get() as { usd: number; unreported: number }
+      const row = db.prepare("SELECT COALESCE(SUM(cost_usd), 0) AS usd, COALESCE(SUM(cost_usd IS NULL), 0) AS unreported FROM attempts WHERE role != 'doctor'").get() as { usd: number; unreported: number }
       return { usd: row.usd, unreportedCalls: row.unreported }
     },
     // fileHashes maps each file in the reviewed diff to a hash of its part of the diff, so a later attempt can be compared.
@@ -182,6 +183,18 @@ export function openStore(path: string) {
     taskFiles(id: string): string[] {
       const row = db.prepare("SELECT value FROM meta WHERE key = ?").get(`task.files.${id}`) as { value: string } | undefined
       return row ? (JSON.parse(row.value) as string[]) : []
+    },
+    // Newest first. subjectPrefix narrows to one task or phase, for example "T005-".
+    recentAttempts(subjectPrefix: string | null, limit: number) {
+      const columns = "subject, role, runner, model, status, failure_class AS failureClass, cost_usd AS costUsd, transcript_path AS transcriptPath, created_at AS createdAt"
+      const rows = subjectPrefix
+        ? db.prepare(`SELECT ${columns} FROM attempts WHERE subject LIKE ? ESCAPE '\\' ORDER BY id DESC LIMIT ?`).all(`${subjectPrefix.replace(/[\\%_]/g, "\\$&")}%`, limit)
+        : db.prepare(`SELECT ${columns} FROM attempts ORDER BY id DESC LIMIT ?`).all(limit)
+      return rows as unknown as { subject: string; role: string; runner: string; model: string; status: string; failureClass: string | null; costUsd: number | null; transcriptPath: string; createdAt: string }[]
+    },
+    lastAttemptAt(): string | null {
+      const row = db.prepare("SELECT created_at AS at FROM attempts ORDER BY id DESC LIMIT 1").get() as { at: string } | undefined
+      return row?.at ?? null
     },
     costByRole() {
       return db
@@ -226,6 +239,10 @@ export function openStore(path: string) {
     },
     lastEvent(): { at: string; type: string; message: string } | null {
       return (db.prepare("SELECT at, type, message FROM events ORDER BY id DESC LIMIT 1").get() as { at: string; type: string; message: string } | undefined) ?? null
+    },
+    // Newest first.
+    recentEvents(limit: number): { at: string; type: string; message: string }[] {
+      return db.prepare("SELECT at, type, message FROM events ORDER BY id DESC LIMIT ?").all(limit) as { at: string; type: string; message: string }[]
     },
     log(type: string, message: string) {
       db.prepare("INSERT INTO events (at, type, message) VALUES (?, ?, ?)").run(now(), type, message)

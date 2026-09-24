@@ -16,6 +16,7 @@ import { DocsTab } from "@/components/project/docs-tab"
 import { EventsCard } from "@/components/project/events"
 import { GatePanel } from "@/components/project/gate-panel"
 import { GithubCard } from "@/components/project/github-card"
+import { IncidentBanner } from "@/components/project/incident-banner"
 import { ProjectBranding } from "@/components/project/branding"
 import { QaSection } from "@/components/project/qa-section"
 import { StatCards } from "@/components/project/stat-cards"
@@ -204,6 +205,7 @@ function ProjectBody({ name, detail, stream }: { name: string; detail: ProjectDe
       <div className="flex flex-col gap-4">
         <PipelineStepper />
         {gate && <GatePanel phase={gate} />}
+        <IncidentBanner />
         {!gate && !humanNeeded && <StopBanner />}
         <ProblemBanner detail={detail} />
         <StatCards />

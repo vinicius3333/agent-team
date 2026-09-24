@@ -8,7 +8,10 @@ import { appendFeedback, archiveFeedback } from "./feedback.ts"
 import { commitAll, initRepository } from "./git.ts"
 import { openStore, type Store } from "./store.ts"
 
-const cliPath = fileURLToPath(new URL("./cli.ts", import.meta.url))
+export const cliPath = fileURLToPath(new URL("./cli.ts", import.meta.url))
+// The directory the CLI runs from; the doctor copies hotfixes here.
+export const installDir = fileURLToPath(new URL("..", import.meta.url))
+const projectNamePattern = /^[A-Za-z0-9._-]+$/
 const examplePipelinePath = new URL("../pipeline.example.yaml", import.meta.url)
 
 // Thrown for problems the caller caused; status maps to an HTTP status in the dashboard.
@@ -54,6 +57,20 @@ function applyChoices(pipelineYaml: string, choices: ProjectChoices): string {
     document.setIn(["roles", "worker", "model"], "gpt-5.5")
   }
   return document.toString()
+}
+
+// Project folder names in runsDir, sorted. A folder counts when it has a pipeline.yaml.
+export function listProjects(runsDir: string): string[] {
+  if (!existsSync(runsDir)) return []
+  return readdirSync(runsDir)
+    .filter((name) => projectNamePattern.test(name))
+    .filter((name) => existsSync(join(runsDir, name, "pipeline.yaml")))
+    .sort()
+}
+
+// Where a run started from the dashboard or the doctor writes its output.
+export function runLogPath(runsDir: string, name: string): string {
+  return join(runsDir, `${name}.log`)
 }
 
 export function openProjectStore(projectDir: string): Store {
@@ -118,7 +135,7 @@ export function raiseRunBudget(projectDir: string, store: Store): number {
   return raised
 }
 
-function processAlive(pid: number): boolean {
+export function processAlive(pid: number): boolean {
   if (!Number.isInteger(pid) || pid <= 0) return false
   try {
     process.kill(pid, 0)

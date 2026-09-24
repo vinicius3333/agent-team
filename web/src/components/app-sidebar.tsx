@@ -1,5 +1,5 @@
 import { Link, NavLink, useLocation } from "react-router"
-import { FolderKanban, Globe, Plus, Settings } from "lucide-react"
+import { FolderKanban, Globe, Plus, Settings, Stethoscope } from "lucide-react"
 import { useProjectList } from "@/api/projects-context"
 import { Logo } from "@/components/logo"
 import { StatusDot } from "@/components/status-badge"
@@ -24,6 +24,7 @@ import { projectStatus, projectStatusLabels } from "@/lib/pipeline"
 const mainLinks = [
   { to: "/", label: "Projects", icon: FolderKanban, end: true },
   { to: "/new", label: "New project", icon: Plus, end: true },
+  { to: "/incidents", label: "Incidents", icon: Stethoscope, end: false },
   { to: "/settings", label: "Settings", icon: Settings, end: true },
 ]
 
@@ -32,6 +33,7 @@ export function AppSidebar() {
   const { pathname } = useLocation()
   const { setOpenMobile } = useSidebar()
   const close = () => setOpenMobile(false)
+  const openIncidents = (projects ?? []).filter((project) => project.incident).length
 
   return (
     <Sidebar>
@@ -52,6 +54,7 @@ export function AppSidebar() {
                       <span>{link.label}</span>
                     </NavLink>
                   </SidebarMenuButton>
+                  {link.to === "/incidents" && openIncidents > 0 && <SidebarMenuBadge aria-label={`${openIncidents} open`}>{openIncidents}</SidebarMenuBadge>}
                 </SidebarMenuItem>
               ))}
             </SidebarMenu>

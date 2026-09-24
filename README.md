@@ -86,6 +86,7 @@ node src/cli.ts status ~/projects/my-app                  # phases, tasks, and c
 node src/cli.ts retry ~/projects/my-app T007              # retry a blocked task
 node src/cli.ts deploy ~/projects/my-app                  # redeploy the live preview
 node src/cli.ts undeploy ~/projects/my-app                # stop the live preview
+node src/cli.ts doctor ~/projects                         # watch every project and repair stopped runs
 ```
 
 `init` creates the folder, runs `git init`, writes `input.md`, and copies `pipeline.example.yaml` to `pipeline.yaml`. Edit `pipeline.yaml` to choose models, gates, and budget.
@@ -181,6 +182,87 @@ The harness runs every agent call. It isolates each attempt, retries infrastruct
 
 Commands: `agent-team reset-cooldowns <projectDir>` clears runner cooldowns after you fix a login.
 
+## Doctor
+
+`agent-team doctor <runsDir>` watches every project in `runsDir`. Every 60 seconds it checks each run. When a run stops for a reason a machine can fix, it opens an incident, asks a doctor agent to diagnose and fix it, and resumes the run. `--once` checks one time and exits, for cron and tests.
+
+### What counts as an incident
+
+| Run state | What the doctor does |
+| --- | --- |
+| Stopped as `failed` or `paused` | Opens an incident. |
+| Alive, but nothing logged for `stallMinutes` (and longer than the agent timeout plus 5 minutes) | Opens a `stalled` incident. It stops the run before it resumes it. |
+| Exited without recording why (for example killed) | Opens a `crashed` incident. |
+| Paused because every runner is cooling down | Waits for the cooldown, resumes once, and opens an incident only if the run pauses the same way again. |
+| Completed, waiting at a gate, or stopped with Ctrl+C | Nothing. |
+| Budget reached, or a replan that needs a person | Opens one GitHub issue and does not act. |
+
+The same stop (same kind and first line, ignoring times and amounts) never gets a second open incident.
+
+### How it repairs
+
+1. It prepares a git worktree of the agent-team source clone on branch `doctor/<project>-<incident>`, with a read-only `.incident/` folder: the stop reason, `status` output, the last 300 log lines and events, `tasks.json`, `pipeline.yaml`, and the last 6 transcripts of the failing task or phase.
+2. The doctor agent (role `doctor`, default Claude Opus, prompt `prompts/doctor.md`) runs in the same sandbox as the workers. It answers with a diagnosis, a cause, a code fix or none, and project actions: `retry`, `reset_cooldowns`, `edit_task` (widens `allowedPaths` under the same rules as a replan), or `resume`.
+3. For a code fix, the orchestrator checks that a file under `test/` changed, runs `npm ci`, `npx tsc --noEmit`, and `npm test`, commits, pushes the branch, and opens a pull request with `gh pr create`. When an open doctor pull request changes the same files, the new branch builds on it. The doctor never merges its own pull requests and never force-pushes.
+4. It copies the changed files into the live install (the folder `src/cli.ts` runs from), runs the project actions, and resumes the run.
+
+Incidents live in `<project>/.agent-team/incidents/<id>.json`. The dashboard lists them on the Incidents page and shows an open one as a banner on the project page.
+
+On the agent-team repo, the doctor opens one issue per incident (label `incident`), comments when it diagnoses, opens a pull request, resumes, sees the run pass the failing point, or gives up, and closes the issue when the project's run completes.
+
+### Settings
+
+Put them in `<runsDir>/doctor.yaml`. All are optional:
+
+```yaml
+stallMinutes: 45          # quiet time before a live run counts as stalled
+maxAttempts: 3            # doctor attempts per incident
+maxUsdPerIncident: 15     # doctor cost per incident; doctor calls do not use the project's run budget
+sourceDir: ~/agent-team-src
+repo: owner/agent-team    # default: the source clone's origin
+role: { runner: claude, model: opus }
+```
+
+After `maxAttempts` or `maxUsdPerIncident`, the incident is marked `gave_up`, the issue gets a comment, and the doctor leaves that stop alone.
+
+### Source clone and hotfixes
+
+The doctor needs a git clone of agent-team at `sourceDir`. If it is missing and `repo` is set, the doctor clones it with `gh repo clone`. It fetches `origin` before it works on an incident.
+
+A hotfix lives only in the live install until its pull request is merged and pulled there. Deploying from a laptop with rsync overwrites hotfixes, so merge and pull doctor pull requests first. The doctor process keeps its own code in memory; restart it to pick up a fix to the doctor itself.
+
+### Run it as a systemd user service
+
+`~/.config/systemd/user/agent-team-doctor.service`:
+
+```ini
+[Unit]
+Description=agent-team doctor
+After=network-online.target docker.service
+
+[Service]
+WorkingDirectory=%h/agent-team
+# From `claude setup-token`; a file with CLAUDE_CODE_OAUTH_TOKEN=... and mode 600
+EnvironmentFile=%h/.config/agent-team/doctor.env
+ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning %h/agent-team/src/cli.ts doctor %h/projects
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=default.target
+```
+
+Use the path from `command -v node` in `ExecStart`. Then:
+
+```sh
+systemctl --user daemon-reload
+systemctl --user enable --now agent-team-doctor
+loginctl enable-linger "$USER"      # keep it running after you log out
+journalctl --user -u agent-team-doctor -f
+```
+
+The service needs `gh` logged in for the same user (`gh auth login`, `gh auth setup-git`), because it pushes branches and opens issues and pull requests.
+
 ## Limits
 
 - Tasks still run one at a time.
@@ -189,13 +271,12 @@ Commands: `agent-team reset-cooldowns <projectDir>` clears runner cooldowns afte
 
 ## Roadmap
 
-Done: sequential pipeline, both runners, Docker sandbox, retries and fallbacks, network allowlist, scope guard at edit time, web dashboard with project creation and gates, branding and design system, QA gates, preview deploy.
+Done: sequential pipeline, both runners, Docker sandbox, retries and fallbacks, network allowlist, scope guard at edit time, web dashboard with project creation and gates, branding and design system, QA gates, preview deploy, doctor.
 
 Next:
 
 1. Parallel task scheduler for tasks with separate `allowedPaths`
-2. Doctor: a monitor that diagnoses stopped runs and fixes them
-3. Gate approvals from the phone (Telegram)
+2. Gate approvals from the phone (Telegram)
 
 ## License
 
