@@ -38,7 +38,8 @@ Each task has these fields:
 ## Rules
 
 1. `T001` is always the project scaffold: install dependencies, create the directory layout, and get the test runner working with one passing smoke test. Its `verify` runs the test command from `docs/architecture.md`.
-2. Foundation tasks come first: scaffold, config, data model, auth, app shell, routing. They run one at a time.
+2. Foundation tasks come first: scaffold, config, data model, auth, app shell, routing. They depend on `T001`, and on each other only where rule 2a requires it.
+2a. The orchestrator builds tasks in parallel. A task starts as soon as every task in its `dependsOn` is merged. Add a dependency only when the task imports, calls, or renders code the other task creates. Do not chain tasks to order them. For example, the app shell does not depend on auth, and the landing page depends only on the app shell. To keep two tasks apart, split their `allowedPaths` instead of adding a dependency.
 3. Shared files belong to foundation tasks only: the package manifest, lockfile, app entry point, router, and migration index. Feature tasks must not list them in `allowedPaths`.
 4. Two feature tasks must not share any `allowedPaths` glob, unless one depends on the other.
 5. Keep feature tasks small: roughly under 300 lines of diff each.
