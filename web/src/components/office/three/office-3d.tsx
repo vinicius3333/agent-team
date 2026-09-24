@@ -1,5 +1,5 @@
-import { Suspense, useMemo, useRef, useState, type ComponentRef } from "react"
-import { Canvas } from "@react-three/fiber"
+import { Suspense, useEffect, useMemo, useRef, useState, type ComponentRef, type RefObject } from "react"
+import { Canvas, useThree } from "@react-three/fiber"
 import { ContactShadows, OrbitControls } from "@react-three/drei"
 import { RotateCcw, SunMoon } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -49,6 +49,29 @@ function runningClock(): SceneTime {
   return { startHours: startingHours(), running: true, since: performance.now() }
 }
 
+const desktopZoom = 52
+const desktopWidth = 900
+
+// The orthographic zoom is in pixels per world unit, so a fixed value crops the office on narrow screens.
+function fittedZoom(width: number) {
+  return Math.min(desktopZoom, (desktopZoom * width) / desktopWidth)
+}
+
+function FitCamera({ controls }: { controls: RefObject<ComponentRef<typeof OrbitControls> | null> }) {
+  const camera = useThree((state) => state.camera)
+  const width = useThree((state) => state.size.width)
+  useEffect(() => {
+    const zoom = fittedZoom(width)
+    camera.zoom = zoom
+    camera.updateProjectionMatrix()
+    const orbit = controls.current
+    if (!orbit) return
+    orbit.minZoom = zoom * 0.75
+    orbit.saveState()
+  }, [camera, controls, width])
+  return null
+}
+
 function LightingMenu({ mode, onChange }: { mode: LightingMode; onChange: (mode: LightingMode) => void }) {
   const current = lightingModes.find((entry) => entry.value === mode)!
   return (
@@ -92,14 +115,14 @@ export function Office3D() {
   }
 
   return (
-    <div className="relative aspect-[16/10] w-full overflow-hidden rounded-lg bg-muted">
+    <div className="relative aspect-[4/5] w-full sm:aspect-[16/10] overflow-hidden rounded-lg bg-muted">
       <div className="absolute top-3 right-3 z-10 flex gap-2">
         <Button variant="outline" size="sm" className="bg-background/85 backdrop-blur-sm" onClick={() => controls.current?.reset()}>
           <RotateCcw /> Reset view
         </Button>
         <LightingMenu mode={mode} onChange={changeMode} />
       </div>
-      <Canvas shadows orthographic flat dpr={[1, 2]} camera={{ position: [5, 11, 15], zoom: 52, near: 0.1, far: 100 }} gl={{ antialias: true }}>
+      <Canvas shadows orthographic flat dpr={[1, 2]} camera={{ position: [5, 11, 15], zoom: desktopZoom, near: 0.1, far: 100 }} gl={{ antialias: true }}>
         <Lighting time={time} />
         <Suspense fallback={null}>
           <Sky time={time} />
@@ -110,6 +133,7 @@ export function Office3D() {
           <Decor />
           <ContactShadows position={[0, 0.01, 0]} scale={20} blur={2.4} opacity={0.35} far={3} />
         </Suspense>
+        <FitCamera controls={controls} />
         <OrbitControls
           ref={controls}
           makeDefault
@@ -118,7 +142,6 @@ export function Office3D() {
           enableZoom
           zoomSpeed={0.8}
           zoomToCursor
-          minZoom={40}
           maxZoom={220}
           minPolarAngle={0.35}
           maxPolarAngle={1.1}
