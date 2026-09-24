@@ -15,6 +15,7 @@ import { cooldownPattern, incidentGaveUpText, incidentOpenedPrefix } from "./not
 import { startNotificationLoop } from "./notify/index.ts"
 import { createExecutor, landingBranch, landTasksFile, runAgent, type PipelineContext, type RunStop } from "./pipeline.ts"
 import { cliPath, installDir as liveInstallDir, listProjects, openProjectStore, processAlive, retryTask, runAlive, runLogPath, startRun, withProjectStore } from "./project.ts"
+import { operateTick } from "./operate/tick.ts"
 import { decideReplan } from "./replan.ts"
 import type { Store } from "./store.ts"
 import { loadTasks } from "./tasks.ts"
@@ -882,6 +883,8 @@ export async function runDoctor(options: DoctorOptions & { once?: boolean }): Pr
         console.error(`[doctor] ${errorText(error)}`)
         if (options.once) throw error
       }
+      // --once is for cron incident checks; Operate agents run only in the long-lived doctor.
+      if (!options.once) await operateTick({ runsDir }).catch((error) => console.error(`[operate] ${errorText(error)}`))
       if (options.once || options.signal?.aborted) return
       await sleep(tickMs, undefined, { signal: options.signal }).catch(() => {})
       if (options.signal?.aborted) return

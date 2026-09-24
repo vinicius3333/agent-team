@@ -7,6 +7,7 @@ import { loadConfig } from "../src/config.ts"
 import { healthSummary, percentile, probe, probeProject } from "../src/operate/health.ts"
 import { fetchPosthogData, posthogMetrics, PosthogError } from "../src/operate/posthog.ts"
 import { dueAgents, parseInsightReply, runInsightAgent } from "../src/operate/agents.ts"
+import { operateTick } from "../src/operate/tick.ts"
 import { approveFinding, dismissFinding } from "../src/operate/findings.ts"
 import { createProject, ProjectError, withProjectStore } from "../src/project.ts"
 import { toClaudeTools } from "../src/runners/claude.ts"
@@ -346,4 +347,32 @@ test("approveFinding opens a change from the finding and refuses like openChange
     assert.equal(store.finding(other)?.status, "dismissed")
     assert.throws(() => dismissFinding(store, other), rejectsWith(409, /already dismissed/))
   })
+})
+
+test("operateTick probes live projects and runs due agents one at a time", async () => {
+  const runsDir = join(scratch, "tick-runs")
+  createProject(join(runsDir, "live"), "Dad jokes")
+  createProject(join(runsDir, "building"), "Recipes")
+  withProjectStore(join(runsDir, "live"), (store) => {
+    store.setMeta("deploy.url", "https://app.example")
+    store.setPhase("deploy", "approved")
+  })
+  const probed: string[] = []
+  const calls: string[] = []
+  let release = () => {}
+  const done = new Promise<void>((resolve) => (release = resolve))
+  await operateTick({
+    runsDir,
+    probe: async (url) => {
+      probed.push(url)
+      return { ok: true, statusCode: 200, latencyMs: 50, error: null }
+    },
+    runAgent: async (projectDir, agent) => {
+      calls.push(`${projectDir.split("/").pop()}:${agent}`)
+      if (calls.length === 3) release()
+    },
+  })
+  await done
+  assert.deepEqual(probed, ["https://app.example"])
+  assert.deepEqual(calls, ["live:monitoring", "live:analytics", "live:research"])
 })
