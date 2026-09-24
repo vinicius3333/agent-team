@@ -82,3 +82,17 @@ export function orderTasks(tasks: Task[]): Task[] {
 export function filesOutsideScope(files: string[], allowedPaths: string[]): string[] {
   return files.filter((file) => !allowedPaths.some((pattern) => file === pattern || matchesGlob(file, pattern)))
 }
+
+// Conservative: two patterns overlap when the literal part before the first wildcard of one is a prefix of the other's.
+export function pathsOverlap(first: string[], second: string[]): boolean {
+  const literalPrefix = (pattern: string) => pattern.split(/[*?[{]/, 1)[0]
+  return first.some((a) =>
+    second.some((b) => {
+      const [prefixA, prefixB] = [literalPrefix(a), literalPrefix(b)]
+      if (prefixA === a && prefixB === b) return a === b
+      if (prefixA === a) return a.startsWith(prefixB)
+      if (prefixB === b) return b.startsWith(prefixA)
+      return prefixA.startsWith(prefixB) || prefixB.startsWith(prefixA)
+    }),
+  )
+}

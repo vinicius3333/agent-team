@@ -15,7 +15,7 @@ import { createProject } from "../src/project.ts"
 import { decideReplan, normalizeFailure, parseBlock, parseReplanAction } from "../src/replan.ts"
 import { toClaudeTools } from "../src/runners/claude.ts"
 import { openStore } from "../src/store.ts"
-import type { Task } from "../src/tasks.ts"
+import { pathsOverlap, type Task } from "../src/tasks.ts"
 
 const scratch = mkdtempSync(join(tmpdir(), "agent-team-loop-"))
 after(() => rmSync(scratch, { recursive: true, force: true }))
@@ -256,4 +256,13 @@ test("the same failure twice goes to the replanner, which may escalate", async (
   assert.equal(await run(harness), "awaiting_approval")
   assert.equal(jobs.filter((job) => job.role === "worker").length, 2, "stops after two identical failures, not three")
   assert.match(store.task("T001").humanReason ?? "", /escalated: the contract and the story disagree/)
+})
+
+test("pathsOverlap flags patterns that can match the same file", () => {
+  assert.equal(pathsOverlap(["src/a/**"], ["src/b/**"]), false)
+  assert.equal(pathsOverlap(["src/**"], ["src/b/x.ts"]), true)
+  assert.equal(pathsOverlap(["src/a/**"], ["src/a/x.ts"]), true)
+  assert.equal(pathsOverlap(["package.json"], ["package-lock.json"]), false)
+  assert.equal(pathsOverlap(["package.json"], ["package.json"]), true)
+  assert.equal(pathsOverlap(["src/*.ts"], ["src/**/*.css"]), true)
 })

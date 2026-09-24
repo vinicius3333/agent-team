@@ -6,7 +6,7 @@ import { createDockerExecutor, ensureImage } from "./harness/docker.ts"
 import { hostExecutor, type Executor } from "./harness/executor.ts"
 import { defaultAllowlist, ensureEgressProxy } from "./harness/network.ts"
 import type { Harness, HarnessOutcome } from "./harness/harness.ts"
-import { commitAndRebase, createWorkspace, detectSetupCommand, fastForwardMain, removeWorkspace, type Workspace } from "./harness/workspace.ts"
+import { amendCommit, commitAndRebase, createWorkspace, detectSetupCommand, fastForwardMain, removeWorkspace, type Workspace } from "./harness/workspace.ts"
 import { deployProject } from "./deploy.ts"
 import { archiveFeedback, readFeedback } from "./feedback.ts"
 import type { GitHub } from "./github.ts"
@@ -17,7 +17,7 @@ import { diffFileHashes, flaggedFiles } from "./reviews.ts"
 import { captureScreenshots, type VisualReport } from "./screenshots.ts"
 import { runUiSmoke, type SmokeCheck } from "./smoke.ts"
 import type { Store } from "./store.ts"
-import { filesOutsideScope, loadTasks, type Task } from "./tasks.ts"
+import { filesOutsideScope, loadTasks, pathsOverlap, type Task } from "./tasks.ts"
 
 const phaseAttempts = 2
 const deployAttempts = 3
@@ -331,9 +331,11 @@ async function runTasks(context: PipelineContext): Promise<RunOutcome> {
   return "completed"
 }
 
-// Runs every task in tasks.json that is not merged yet. QA fix tasks and replans change the same file.
+// Runs every task in tasks.json that is not merged yet, up to config.parallelTasks at once.
+// A task starts once its dependencies are merged and no running task can write the same paths.
+// QA fix tasks and replans change tasks.json, so a replan waits for the running tasks, then reloads it.
 async function buildTasks(context: PipelineContext): Promise<RunOutcome> {
-  const { projectDir, store } = context
+  const { projectDir, config, store } = context
   const load = () => {
     const tasks = loadTasks(join(projectDir, "tasks.json"))
     store.syncTasks(tasks.map((task) => task.id))
@@ -341,29 +343,61 @@ async function buildTasks(context: PipelineContext): Promise<RunOutcome> {
     return tasks
   }
   let tasks = load()
+  const running = new Map<string, { task: Task; result: Promise<{ id: string; outcome: TaskOutcome }> }>()
+  let stop: RunOutcome | null = null
+  let replanned = false
   for (;;) {
-    const task = tasks.find((candidate) => store.task(candidate.id).status !== "merged")
-    if (!task) break
-    const row = store.task(task.id)
-    if (row.status === "blocked") {
-      if (row.humanReason) {
-        noteStop(context, `${task.id} needs a human decision: ${row.humanReason}`)
-        store.log("gate", `${task.id} needs a human decision: ${row.humanReason.slice(0, 500)}. Edit tasks.json if needed, then: agent-team retry ${projectDir} ${task.id}`)
-        return "awaiting_approval"
+    if (!stop && !replanned) {
+      stop = blockedStop(context, tasks.filter((task) => !running.has(task.id)))
+      if (!stop) {
+        for (const task of tasks) {
+          if (running.size >= config.parallelTasks) break
+          if (!isReady(store, task, running)) continue
+          const result = runTask(context, task).then((outcome) => ({ id: task.id, outcome }))
+          running.set(task.id, { task, result })
+        }
       }
-      noteStop(context, `${task.id} is blocked: ${row.lastFailure}`)
-      store.log("task", `${task.id} is blocked: ${row.lastFailure}. Fix it, then: agent-team retry ${projectDir} ${task.id}`)
+    }
+    if (!running.size) {
+      if (stop) return stop
+      if (replanned) {
+        replanned = false
+        tasks = load()
+        continue
+      }
+      const unmerged = tasks.filter((task) => store.task(task.id).status !== "merged")
+      if (!unmerged.length) break
+      noteStop(context, `no task can start: ${unmerged.map((task) => task.id).join(", ")} wait on tasks that are not merged`)
       return "failed"
     }
-    const outcome = await runTask(context, task)
-    if (outcome === "replanned") {
-      tasks = load()
-      continue
-    }
-    if (outcome !== "completed") return outcome
+    const { id, outcome } = await Promise.race([...running.values()].map((entry) => entry.result))
+    running.delete(id)
+    if (outcome === "replanned") replanned = true
+    else if (outcome !== "completed") stop ??= outcome
   }
   store.log("run", "all tasks merged")
   return "completed"
+}
+
+function isReady(store: Store, task: Task, running: Map<string, { task: Task }>): boolean {
+  if (running.has(task.id) || store.task(task.id).status === "merged") return false
+  if (!task.dependsOn.every((dependency) => store.task(dependency)?.status === "merged")) return false
+  return ![...running.values()].some((entry) => pathsOverlap(entry.task.allowedPaths, task.allowedPaths))
+}
+
+function blockedStop(context: PipelineContext, tasks: Task[]): RunOutcome | null {
+  const { projectDir, store } = context
+  const task = tasks.find((candidate) => store.task(candidate.id).status === "blocked")
+  if (!task) return null
+  const row = store.task(task.id)
+  if (row.humanReason) {
+    noteStop(context, `${task.id} needs a human decision: ${row.humanReason}`)
+    store.log("gate", `${task.id} needs a human decision: ${row.humanReason.slice(0, 500)}. Edit tasks.json if needed, then: agent-team retry ${projectDir} ${task.id}`)
+    return "awaiting_approval"
+  }
+  noteStop(context, `${task.id} is blocked: ${row.lastFailure}`)
+  store.log("task", `${task.id} is blocked: ${row.lastFailure}. Fix it, then: agent-team retry ${projectDir} ${task.id}`)
+  return "failed"
 }
 
 async function runTask(context: PipelineContext, task: Task): Promise<TaskOutcome> {
@@ -523,6 +557,14 @@ export function replanPrompt(input: { task: Task; block: Block; tasks: Task[]; s
   return lines.join("\n")
 }
 
+// The smoke check uses fixed container names per project, so parallel tasks take turns.
+let smokeQueue: Promise<unknown> = Promise.resolve()
+function serializeSmoke<T>(check: () => Promise<T>): Promise<T> {
+  const result = smokeQueue.then(check, check)
+  smokeQueue = result.catch(() => {})
+  return result
+}
+
 async function attemptTask(context: PipelineContext, task: Task, attempt: number, previous: PreviousAttempt | null): Promise<AttemptResult> {
   const { projectDir, store } = context
   const workspace = createWorkspace(projectDir, `${task.id}-${attempt}`)
@@ -555,7 +597,7 @@ async function attemptTask(context: PipelineContext, task: Task, attempt: number
     if (!verification.passed) return rejected(`verify command failed:\n${verification.output}`)
 
     if (task.ui) {
-      const smoke = await (context.smokeCheck ?? runUiSmoke)({ projectDir, worktree: workspace.path, task, attempt, signal: context.signal })
+      const smoke = await serializeSmoke(() => (context.smokeCheck ?? runUiSmoke)({ projectDir, worktree: workspace.path, task, attempt, signal: context.signal }))
       if (smoke.kind === "skipped") store.log("smoke", `${task.id} attempt ${attempt}: UI smoke check skipped: ${smoke.reason.slice(0, 500)}`)
       else if (smoke.kind === "passed") store.log("smoke", `${task.id} attempt ${attempt}: UI smoke check passed on ${smoke.routes} routes`)
       else {
@@ -596,10 +638,12 @@ async function attemptTask(context: PipelineContext, task: Task, attempt: number
       return { kind: "failed", reason: `reviewer rejected the change.\nReasons: ${verdict.reasons.join("; ")}\nFixes: ${verdict.fixes.join("; ")}`, diff }
     }
 
-    appendProgress(workspace.path, task, changed, worker.result.summary)
     const title = `feat(${task.id}): ${task.title}`
     try {
+      // Tasks run in parallel, so the progress entry goes on after the rebase; appending first would conflict on every merge.
       commitAndRebase(workspace, title)
+      appendProgress(workspace.path, task, changed, worker.result.summary)
+      amendCommit(workspace, title)
       context.github.land({
         branch: workspace.branch,
         title,

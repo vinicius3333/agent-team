@@ -51,6 +51,13 @@ export function commitAndRebase(workspace: Workspace, message: string): void {
   }
 }
 
+// Folds the files written after the rebase into the task commit, or makes one if the task changed nothing.
+export function amendCommit(workspace: Workspace, message: string): void {
+  git(workspace.path, ["add", "-A"])
+  const committed = git(workspace.path, ["rev-parse", "HEAD"]).trim() !== git(workspace.path, ["rev-parse", "main"]).trim()
+  git(workspace.path, committed ? ["commit", "-q", "--amend", "--no-edit"] : ["commit", "-q", "-m", message])
+}
+
 export function fastForwardMain(repoDir: string, ref: string): void {
   git(repoDir, ["merge", "-q", "--ff-only", ref])
 }

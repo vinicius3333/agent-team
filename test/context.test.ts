@@ -274,6 +274,7 @@ test("a failed workspace setup pauses with the key npm lines on the detail API",
 test("the run budget stops the run for approval, and the dashboard raises it", async (t) => {
   const { projectDir, config, store, run } = setupProject("budget", [task("T001"), task("T002")])
   config.budget.runUsd = 1
+  config.parallelTasks = 1
   const recorder = stubHarness(
     {
       worker: [

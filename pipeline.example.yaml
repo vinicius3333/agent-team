@@ -7,6 +7,8 @@ budget:
   perTaskUsd: 2
   runUsd: 30           # the run stops for approval when the project's reported agent cost reaches this; codex reports none
 
+parallelTasks: 5       # tasks built at once; tasks whose allowedPaths overlap never run together
+
 branding:
   enabled: true        # the illustrator draws the logo and desktop screens before the design phase
   count: 4             # total images, logo included (2 to 6). The old key "mockups:" still works
