@@ -1,5 +1,7 @@
 import { execFileSync, spawnSync } from "node:child_process"
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs"
+import { Resolver } from "node:dns/promises"
+import { request } from "node:https"
 import { setTimeout as sleep } from "node:timers/promises"
 import { basename, join } from "node:path"
 import type { Store } from "./store.ts"
@@ -150,36 +152,56 @@ export function commandFailure(error: unknown): string {
   return (failure.stderr || failure.message).trim()
 }
 
-export type DeployResult = { url: string; error: null } | { url: null; error: string }
+// "tunnel" means the app answered inside Docker but the public URL did not: no code change can fix that.
+export type DeployResult = { url: string; error: null } | { url: null; error: string; stage: "app" | "tunnel" }
 
 // A fresh quick-tunnel hostname can take a few seconds to resolve; wait so the URL we report works.
+// It resolves through public DNS because the first lookup happens before the name exists, and the
+// host resolver (for example Tailscale MagicDNS) caches that NXDOMAIN for the zone's 30-minute negative TTL.
 async function waitForPublicUrl(url: string): Promise<void> {
   const deadline = Date.now() + tunnelTimeoutMs
   while (Date.now() < deadline) {
     try {
-      const response = await fetch(url, { signal: AbortSignal.timeout(10_000) })
-      if (response.status < 500) return
+      if ((await publicStatus(url)) < 500) return
     } catch {}
     await sleep(3000)
   }
   throw new Error(`tunnel URL ${url} did not answer`)
 }
 
+const publicResolver = new Resolver()
+publicResolver.setServers(["1.1.1.1", "8.8.8.8"])
+
+async function publicStatus(url: string): Promise<number> {
+  const [address] = await publicResolver.resolve4(new URL(url).hostname)
+  return new Promise((resolve, reject) => {
+    const probe = request(url, { lookup: (_host, _options, callback) => callback(null, [{ address, family: 4 }]), timeout: 10_000 }, (response) => {
+      response.resume()
+      resolve(response.statusCode ?? 0)
+    })
+    probe.on("timeout", () => probe.destroy(new Error("timed out")))
+    probe.on("error", reject)
+    probe.end()
+  })
+}
+
 export async function deployProject(projectDir: string, store: Store): Promise<DeployResult> {
   const { app, tunnel } = names(projectDir)
+  let stage: "app" | "tunnel" = "app"
   try {
     const dir = snapshotMain(projectDir, "deploy")
     const plan = detectDeployPlan(dir)
     if (!plan) {
       const error = "no deploy.json, npm start script, or index.html to serve"
       store.log("deploy", `failed: ${error}`)
-      return { url: null, error }
+      return { url: null, error, stage }
     }
     store.log("deploy", `starting app: ${plan.install ? `${plan.install} && ` : ""}${plan.start} (port ${plan.port})`)
     ensureNetwork()
     removeContainers(app, tunnel)
     startAppContainer({ name: app, dir, plan, label: "agent-team-app=1", restart: true })
     await waitForApp(app, plan.port)
+    stage = "tunnel"
     run("docker", [
       "run", "-d",
       "--name", tunnel,
@@ -197,7 +219,7 @@ export async function deployProject(projectDir: string, store: Store): Promise<D
   } catch (error) {
     const reason = commandFailure(error)
     store.log("deploy", `failed: ${reason.slice(0, 500)}`)
-    return { url: null, error: reason.slice(0, 4000) }
+    return { url: null, error: reason.slice(0, 4000), stage }
   }
 }
 

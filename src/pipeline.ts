@@ -955,9 +955,15 @@ async function runDeployPhase(context: PipelineContext): Promise<{ outcome: RunO
       }
     }
     const result = await deployProject(projectDir, store)
-    if (result.url) {
+    if (result.url !== null) {
       store.setPhase("deploy", "approved")
       return { outcome: "completed", url: result.url }
+    }
+    if (result.stage === "tunnel") {
+      store.setPhase("deploy", "pending")
+      noteStop(context, `deploy paused: the app runs, but its public URL did not answer: ${result.error}`)
+      store.log("deploy", "paused: the app runs, but the tunnel failed; no code fix is attempted")
+      return { outcome: "paused", url: null }
     }
     failure = result.error
   }
@@ -1216,7 +1222,7 @@ function budgetStop(context: PipelineContext, subject: string): HarnessOutcome |
     store.log("budget", message)
   }
   return {
-    result: { status: "aborted", summary: "run budget reached", costUsd: null, durationMs: 0, exitCode: null, diagnostics: "" },
+    result: { status: "aborted", summary: "run budget reached", costUsd: null, tokens: null, durationMs: 0, exitCode: null, diagnostics: "" },
     candidate: null,
     failureClass: "aborted",
   }
