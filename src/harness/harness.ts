@@ -1,3 +1,4 @@
+import { basename } from "node:path"
 import { setTimeout as sleep } from "node:timers/promises"
 import type { Candidate, HarnessConfig, Role, RoleConfig } from "../config.ts"
 import { getRunner } from "../runners/index.ts"
@@ -16,6 +17,19 @@ export interface AgentJob {
   budgetUsd: number
   transcriptPath: (candidate: Candidate, attempt: number) => string
 }
+
+// An agent call in progress, kept in the meta table under liveAgentPrefix so the dashboard can follow it.
+export interface LiveAgent {
+  subject: string
+  role: string
+  runner: string
+  model: string
+  startedAt: string
+  transcript: string
+  hostDir: string
+}
+
+export const liveAgentPrefix = "agent.live."
 
 export interface HarnessOutcome {
   result: RunResult
@@ -50,7 +64,10 @@ export function createHarness(options: {
         transcriptPath: job.transcriptPath(candidate, attempt),
         signal,
       }
-      const result = await resolveRunner(candidate.runner).run(request)
+      const liveKey = `${liveAgentPrefix}${basename(request.transcriptPath)}`
+      const live: LiveAgent = { subject: job.subject, role: job.role, runner: candidate.runner, model: candidate.model, startedAt: new Date().toISOString(), transcript: basename(request.transcriptPath), hostDir: executor.hostDir }
+      store.setMeta(liveKey, JSON.stringify(live))
+      const result = await resolveRunner(candidate.runner).run(request).finally(() => store.deleteMeta(liveKey))
       const failureClass = classifyFailure(result)
       store.recordAttempt({
         subject: job.subject,

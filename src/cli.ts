@@ -7,7 +7,7 @@ import { cleanupOrphans } from "./harness/docker.ts"
 import { runDoctor } from "./doctor.ts"
 import { currentTunnelUrl, deployProject, undeployProject } from "./deploy.ts"
 import { createGitHub } from "./github.ts"
-import { createHarness } from "./harness/harness.ts"
+import { createHarness, liveAgentPrefix } from "./harness/harness.ts"
 import { removeAllWorkspaces } from "./harness/workspace.ts"
 import { runPipeline } from "./pipeline.ts"
 import { approvePhase, createProject, openProjectStore, retryTask, withProjectStore } from "./project.ts"
@@ -47,6 +47,7 @@ async function run(projectDir: string): Promise<void> {
   if (config.harness.isolation === "docker") await cleanupOrphans()
   const harness = createHarness({ config: config.harness, store, signal: controller.signal })
   const github = createGitHub({ projectDir, config, store })
+  for (const { key } of store.metaWithPrefix(liveAgentPrefix)) store.deleteMeta(key)
   store.setMeta("run.pid", String(process.pid))
   const outcome = await runPipeline({ projectDir, config, store, harness, github, signal: controller.signal }).finally(() => store.setMeta("run.pid", ""))
   store.log("run", `finished: ${outcome}`)

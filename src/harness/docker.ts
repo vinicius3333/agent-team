@@ -111,6 +111,7 @@ export function createDockerExecutor(options: {
   return {
     kind: "docker",
     workdir: "/workspace",
+    hostDir: options.hostDir,
     async exec(spec) {
       execCount += 1
       const containerName = `${options.name}-${execCount}`

@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process"
-import { mkdirSync, writeFileSync } from "node:fs"
+import { appendFileSync, mkdirSync, writeFileSync } from "node:fs"
 import { dirname } from "node:path"
 
 export interface ProcessResult {
@@ -26,6 +26,8 @@ const killGraceMs = 10_000
 
 export function runProcess(spec: ProcessSpec): Promise<ProcessResult> {
   const startedAt = Date.now()
+  mkdirSync(dirname(spec.transcriptPath), { recursive: true })
+  writeFileSync(spec.transcriptPath, "")
   return new Promise((resolve) => {
     const child = spawn(spec.command, spec.args, {
       cwd: spec.cwd,
@@ -51,14 +53,19 @@ export function runProcess(spec: ProcessSpec): Promise<ProcessResult> {
     }
     spec.signal?.addEventListener("abort", onAbort, { once: true })
 
-    child.stdout.on("data", (chunk) => (stdout += chunk))
+    // Appended as it arrives so the dashboard can show what a running agent is doing.
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk
+      try {
+        appendFileSync(spec.transcriptPath, chunk)
+      } catch {}
+    })
     child.stderr.on("data", (chunk) => (stderr += chunk))
 
     const finish = (exitCode: number | null, spawnError?: Error) => {
       clearTimeout(timer)
       spec.signal?.removeEventListener("abort", onAbort)
       if (spawnError) stderr += `\n${spawnError.message}`
-      mkdirSync(dirname(spec.transcriptPath), { recursive: true })
       writeFileSync(spec.transcriptPath, `${stdout}\n--- stderr ---\n${stderr}`)
       resolve({ exitCode, stdout, stderr, timedOut, aborted, durationMs: Date.now() - startedAt })
     }

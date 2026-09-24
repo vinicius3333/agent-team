@@ -29,12 +29,25 @@ export function claudeTokens(usage: Record<string, unknown> | undefined): number
   return fields.reduce((sum, field) => sum + (typeof usage[field] === "number" ? (usage[field] as number) : 0), 0)
 }
 
+// The final "result" event carries the answer, cost, and usage; with plain json output it is the only line.
+export function claudeResult(stdout: string): Record<string, any> {
+  for (const line of stdout.trim().split("\n").reverse()) {
+    try {
+      const event = JSON.parse(line)
+      if (event?.type === "result") return event
+    } catch {}
+  }
+  throw new Error("no result event in the Claude output")
+}
+
 export const claudeRunner: AgentRunner = {
   name: "claude",
   async run(request: RunRequest): Promise<RunResult> {
     const args = [
       "-p",
-      "--output-format", "json",
+      // stream-json writes each tool call as it happens, so the dashboard can follow a running agent.
+      "--output-format", "stream-json",
+      "--verbose",
       "--model", request.model,
       "--append-system-prompt", request.systemPrompt,
       // acceptEdits approves any edit in the working directory, which would bypass the path rules.
@@ -55,7 +68,7 @@ export const claudeRunner: AgentRunner = {
     if (result.timedOut) return { ...base, status: "timeout", summary: "", costUsd: null, tokens: null }
 
     try {
-      const output = JSON.parse(result.stdout.trim().split("\n").at(-1) ?? "")
+      const output = claudeResult(result.stdout)
       return {
         status: output.is_error || result.exitCode !== 0 ? "failed" : "done",
         summary: String(output.result ?? ""),

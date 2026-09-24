@@ -235,6 +235,12 @@ export function openStore(path: string) {
       const row = db.prepare("SELECT value FROM meta WHERE key = ?").get(key) as { value: string } | undefined
       return row?.value ?? null
     },
+    deleteMeta(key: string) {
+      db.prepare("DELETE FROM meta WHERE key = ?").run(key)
+    },
+    metaWithPrefix(prefix: string): { key: string; value: string }[] {
+      return db.prepare("SELECT key, value FROM meta WHERE substr(key, 1, ?) = ?").all(prefix.length, prefix) as { key: string; value: string }[]
+    },
     setMeta(key: string, value: string) {
       db.prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(key, value)
     },
