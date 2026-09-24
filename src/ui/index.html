@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>agent-team</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --panel-2: #f0f2f5; --border: #e2e5ea; --text: #16181d; --muted: #6b7280;
+  --accent: #5b5bd6; --green: #1f9d55; --amber: #c27c0e; --red: #d33c3c; --blue: #2f6fdb; --gray: #9aa1ac;
+  --green-bg: #e6f6ec; --amber-bg: #fdf3e1; --red-bg: #fdeaea; --blue-bg: #e8f0fd; --gray-bg: #eef0f3;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel-2: #1e222b; --border: #2a2f3a; --text: #e6e8ec; --muted: #8b93a1;
+    --accent: #8b8bf5; --green: #3fbf74; --amber: #e0a33b; --red: #ef6666; --blue: #6b9cf0; --gray: #6b7280;
+    --green-bg: #15291e; --amber-bg: #2d2412; --red-bg: #321a1a; --blue-bg: #17233a; --gray-bg: #22262e;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+.layout { display: grid; grid-template-columns: 240px 1fr; min-height: 100%; }
+aside { background: var(--panel); border-right: 1px solid var(--border); padding: 16px 12px; }
+.brand { font-weight: 700; font-size: 15px; padding: 0 8px 14px; display: flex; gap: 8px; align-items: center; }
+.brand .logo { width: 22px; height: 22px; border-radius: 6px; background: var(--accent); display: grid; place-items: center; color: #fff; font-size: 12px; }
+.project { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; cursor: pointer; color: var(--text); }
+.project:hover { background: var(--panel-2); }
+.project.selected { background: var(--panel-2); font-weight: 600; }
+.project .meta { color: var(--muted); font-size: 12px; font-weight: 400; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--gray); flex: none; }
+.dot.active { background: var(--green); box-shadow: 0 0 0 0 var(--green); animation: pulse 1.6s infinite; }
+.dot.done { background: var(--blue); } .dot.failed { background: var(--red); } .dot.gate { background: var(--amber); }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(63,191,116,.6) } 70% { box-shadow: 0 0 0 7px rgba(63,191,116,0) } 100% { box-shadow: 0 0 0 0 rgba(63,191,116,0) } }
+main { padding: 20px 24px 40px; min-width: 0; }
+header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+header h1 { font-size: 20px; margin: 0; }
+.live { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 16px; }
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; min-width: 0; }
+.card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; font-weight: 600; }
+.span-12 { grid-column: span 12; } .span-8 { grid-column: span 8; } .span-4 { grid-column: span 4; } .span-6 { grid-column: span 6; }
+.pipeline { display: flex; gap: 8px; }
+.stage { flex: 1; padding: 10px 12px; border-radius: 8px; background: var(--gray-bg); border: 1px solid transparent; min-width: 0; }
+.stage .name { font-weight: 600; text-transform: capitalize; }
+.stage .state { font-size: 12px; color: var(--muted); }
+.stage.approved, .stage.completed { background: var(--green-bg); } .stage.approved .state, .stage.completed .state { color: var(--green); }
+.stage.running { background: var(--blue-bg); border-color: var(--blue); } .stage.running .state { color: var(--blue); }
+.stage.awaiting_approval { background: var(--amber-bg); } .stage.awaiting_approval .state { color: var(--amber); }
+.stage.failed { background: var(--red-bg); } .stage.failed .state { color: var(--red); }
+.board { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.column { background: var(--panel-2); border-radius: 8px; padding: 8px; min-height: 80px; min-width: 0; }
+.column h3 { font-size: 12px; margin: 2px 4px 8px; color: var(--muted); display: flex; justify-content: space-between; text-transform: capitalize; }
+.task { background: var(--panel); border: 1px solid var(--border); border-radius: 7px; padding: 8px 10px; margin-bottom: 6px; cursor: pointer; }
+.task .id { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.task .title { font-size: 13px; margin-top: 2px; }
+.task .foot { font-size: 11px; color: var(--muted); margin-top: 4px; display: flex; gap: 8px; }
+.task .failure { display: none; margin-top: 6px; font-family: var(--mono); font-size: 11px; white-space: pre-wrap; color: var(--red); max-height: 180px; overflow: auto; }
+.task.open .failure { display: block; }
+.task.running { border-color: var(--blue); }
+.log { font-family: var(--mono); font-size: 12px; height: 340px; overflow: auto; background: var(--panel-2); border-radius: 8px; padding: 8px 10px; }
+.log div { white-space: pre-wrap; word-break: break-word; padding: 1px 0; }
+.log .time { color: var(--muted); margin-right: 6px; }
+.log .type { font-weight: 600; margin-right: 6px; }
+.t-phase { color: var(--accent); } .t-task { color: var(--blue); } .t-gate { color: var(--amber); } .t-harness { color: var(--red); } .t-run { color: var(--green); }
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+th { color: var(--muted); font-weight: 600; }
+tbody tr { cursor: pointer; } tbody tr:hover { background: var(--panel-2); }
+.table-wrap { overflow: auto; max-height: 360px; }
+.badge { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; background: var(--gray-bg); color: var(--muted); }
+.b-done { background: var(--green-bg); color: var(--green); } .b-failed { background: var(--red-bg); color: var(--red); }
+.b-timeout, .b-rate_limit, .b-unavailable { background: var(--amber-bg); color: var(--amber); }
+.b-auth, .b-missing_binary { background: var(--red-bg); color: var(--red); } .b-agent_failure { background: var(--gray-bg); color: var(--text); }
+.mono-list { font-family: var(--mono); font-size: 12px; margin: 0; padding: 0; list-style: none; max-height: 260px; overflow: auto; }
+.mono-list li { padding: 3px 0; border-bottom: 1px dashed var(--border); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.empty { color: var(--muted); font-size: 13px; }
+.tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 10px; }
+.tab { border: 1px solid var(--border); background: var(--panel-2); color: var(--text); border-radius: 7px; padding: 5px 10px; font-size: 12px; cursor: pointer; }
+.tab.selected { background: var(--accent); color: #fff; border-color: var(--accent); }
+.artifact { font-family: var(--mono); font-size: 12px; white-space: pre-wrap; word-break: break-word; background: var(--panel-2); border-radius: 8px; padding: 12px; max-height: 520px; overflow: auto; margin: 0; }
+.artifact .h { color: var(--accent); font-weight: 700; }
+.drawer { position: fixed; inset: 0 0 0 auto; width: min(760px, 100%); background: var(--panel); border-left: 1px solid var(--border); box-shadow: -10px 0 30px rgba(0,0,0,.15); transform: translateX(100%); transition: transform .2s; display: flex; flex-direction: column; z-index: 10; }
+.drawer.open { transform: none; }
+.drawer header { padding: 14px 16px; border-bottom: 1px solid var(--border); margin: 0; justify-content: space-between; flex-wrap: nowrap; }
+.drawer header h3 { margin: 0; font-size: 14px; font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drawer .body { overflow: auto; padding: 12px 16px; flex: 1; }
+.close { background: none; border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+.item { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; }
+.item .label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 4px; }
+.item pre { margin: 0; font-family: var(--mono); font-size: 12px; white-space: pre-wrap; word-break: break-word; max-height: 300px; overflow: auto; }
+.item.message .label { color: var(--accent); } .item.command .label { color: var(--blue); } .item.file .label { color: var(--green); }
+.item.error .label { color: var(--red); }
+.exit-ok { color: var(--green); } .exit-bad { color: var(--red); }
+.stats { display: flex; gap: 18px; flex-wrap: wrap; }
+.stat .n { font-size: 22px; font-weight: 700; } .stat .l { font-size: 12px; color: var(--muted); }
+.placeholder { display: grid; place-items: center; height: 60vh; color: var(--muted); text-align: center; }
+@media (max-width: 1000px) { .span-8, .span-4, .span-6 { grid-column: span 12; } }
+@media (max-width: 720px) {
+  .layout { grid-template-columns: 1fr; }
+  aside { border-right: none; border-bottom: 1px solid var(--border); display: flex; gap: 6px; overflow-x: auto; padding: 10px; align-items: center; }
+  .brand { padding: 0 8px 0 0; }
+  .project { flex: none; }
+  main { padding: 14px 16px 32px; }
+  .pipeline { flex-wrap: wrap; } .stage { flex: 1 1 40%; }
+  .board { grid-template-columns: 1fr 1fr; }
+}
+</style>
+</head>
+<body>
+<div class="layout">
+  <aside id="sidebar"><div class="brand"><span class="logo">at</span>agent-team</div><div id="projects"></div></aside>
+  <main id="main"><div class="placeholder">Select a project</div></main>
+</div>
+<div class="drawer" id="drawer">
+  <header><h3 id="drawer-title"></h3><button class="close" id="drawer-close">Close</button></header>
+  <div class="body" id="drawer-body"></div>
+</div>
+<script>
+const state = { selected: null, detail: null, stream: null, artifact: "input.md", openTasks: new Set(), logPinned: true }
+const phases = ["spec", "architecture", "design", "plan"]
+const artifacts = ["input.md", "docs/spec.md", "docs/architecture.md", "docs/design.md", "tasks.json"]
+const escape = (text) => String(text ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c])
+const time = (iso) => (iso ? new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "")
+const ago = (iso) => {
+  if (!iso) return "no activity"
+  const seconds = Math.round((Date.now() - Date.parse(iso)) / 1000)
+  if (seconds < 60) return `${seconds}s ago`
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m ago`
+  if (seconds < 86400) return `${Math.round(seconds / 3600)}h ago`
+  return `${Math.round(seconds / 86400)}d ago`
+}
+const duration = (ms) => (ms == null ? "" : ms < 60000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`)
+
+function projectStatus(project) {
+  if (project.active) return "active"
+  if (project.phases.some((p) => p.status === "failed") || project.counts.blocked) return "failed"
+  if (project.phases.some((p) => p.status === "awaiting_approval")) return "gate"
+  if (project.lastEvent && /finished: completed/.test(project.lastEvent.message)) return "done"
+  return ""
+}
+
+async function loadProjects() {
+  const projects = await fetch("api/projects").then((r) => r.json()).catch(() => [])
+  document.getElementById("projects").innerHTML = projects
+    .map((p) => `<div class="project ${p.name === state.selected ? "selected" : ""}" data-name="${escape(p.name)}">
+      <span class="dot ${projectStatus(p)}"></span>
+      <div><div>${escape(p.name)}</div><div class="meta">${escape(p.current ?? "")} ${p.current ? "· " : ""}${ago(p.lastEvent?.at)}</div></div></div>`)
+    .join("") || `<div class="empty" style="padding:8px">No projects yet</div>`
+  if (!state.selected && projects.length) {
+    const initial = decodeURIComponent(location.hash.slice(1)) || (projects.find((p) => p.active) ?? projects[0]).name
+    select(initial)
+  }
+}
+
+function select(name) {
+  state.selected = name
+  state.detail = null
+  state.logPinned = true
+  location.hash = encodeURIComponent(name)
+  document.querySelectorAll(".project").forEach((el) => el.classList.toggle("selected", el.dataset.name === name))
+  state.stream?.close()
+  state.stream = new EventSource(`api/stream/${encodeURIComponent(name)}`)
+  state.stream.onmessage = (event) => {
+    state.detail = JSON.parse(event.data)
+    render()
+  }
+  loadArtifact()
+}
+
+function pipelineHtml(detail) {
+  const byName = Object.fromEntries(detail.phases.map((p) => [p.name, p.status]))
+  const counts = countTasks(detail.tasks)
+  const total = detail.tasks.length
+  const buildState = !total ? "pending" : counts.blocked ? "failed" : counts.merged === total ? "completed" : counts.running || counts.merged ? "running" : "pending"
+  const stages = phases.map((name) => ({ name, status: byName[name] ?? "pending" }))
+  stages.push({ name: "build", status: buildState, note: total ? `${counts.merged}/${total} merged` : "" })
+  return stages
+    .map((s) => `<div class="stage ${s.status}"><div class="name">${s.name}</div><div class="state">${s.status.replace("_", " ")}${s.note ? ` · ${s.note}` : ""}</div></div>`)
+    .join("")
+}
+
+function countTasks(tasks) {
+  const counts = { pending: 0, running: 0, merged: 0, blocked: 0 }
+  for (const task of tasks) counts[task.status] = (counts[task.status] ?? 0) + 1
+  return counts
+}
+
+function boardHtml(detail) {
+  if (!detail.tasks.length) return `<div class="empty">No tasks yet. The planner writes tasks.json after the plan phase.</div>`
+  return ["pending", "running", "merged", "blocked"]
+    .map((column) => {
+      const tasks = detail.tasks.filter((t) => t.status === column)
+      return `<div class="column"><h3>${column}<span>${tasks.length}</span></h3>${tasks
+        .map((t) => `<div class="task ${t.status} ${state.openTasks.has(t.id) ? "open" : ""}" data-task="${escape(t.id)}">
+          <div class="id">${escape(t.id)}${t.phase ? ` · ${escape(t.phase)}` : ""}</div>
+          <div class="title">${escape(t.title)}</div>
+          <div class="foot"><span>attempts ${t.attempts}</span>${t.dependsOn?.length ? `<span>after ${escape(t.dependsOn.join(", "))}</span>` : ""}</div>
+          ${t.lastFailure ? `<div class="failure">${escape(t.lastFailure)}</div>` : ""}
+        </div>`)
+        .join("")}</div>`
+    })
+    .join("")
+}
+
+function logHtml(detail) {
+  if (!detail.events.length) return `<div class="empty">No events yet</div>`
+  return detail.events
+    .map((e) => `<div><span class="time">${time(e.at)}</span><span class="type t-${escape(e.type)}">${escape(e.type)}</span>${escape(e.message)}</div>`)
+    .join("")
+}
+
+function attemptsHtml(detail) {
+  if (!detail.attempts.length) return `<div class="empty">No agent calls yet</div>`
+  return `<div class="table-wrap"><table><thead><tr><th>Subject</th><th>Role</th><th>Runner</th><th>Status</th><th>Failure</th><th>Time</th><th>Cost</th></tr></thead><tbody>${detail.attempts
+    .map((a) => `<tr data-transcript="${escape(a.transcript)}">
+      <td>${escape(a.subject)}</td><td>${escape(a.role)}</td><td>${escape(a.runner)} <span class="empty">${escape(a.model)}</span></td>
+      <td><span class="badge b-${escape(a.status)}">${escape(a.status)}</span></td>
+      <td>${a.failureClass ? `<span class="badge b-${escape(a.failureClass)}">${escape(a.failureClass)}</span>` : ""}</td>
+      <td>${duration(a.durationMs)}</td><td>${a.costUsd ? `$${Number(a.costUsd).toFixed(3)}` : ""}</td></tr>`)
+    .join("")}</tbody></table></div>`
+}
+
+function statsHtml(detail) {
+  const counts = countTasks(detail.tasks)
+  const cost = detail.attempts.reduce((sum, a) => sum + (a.costUsd ?? 0), 0)
+  const agentTime = detail.attempts.reduce((sum, a) => sum + (a.durationMs ?? 0), 0)
+  return `<div class="stats">
+    <div class="stat"><div class="n">${counts.merged}/${detail.tasks.length}</div><div class="l">tasks merged</div></div>
+    <div class="stat"><div class="n">${detail.attempts.length}</div><div class="l">agent calls</div></div>
+    <div class="stat"><div class="n">${duration(agentTime) || "0s"}</div><div class="l">agent time</div></div>
+    <div class="stat"><div class="n">$${cost.toFixed(2)}</div><div class="l">reported cost</div></div>
+  </div>`
+}
+
+function listHtml(items, emptyText) {
+  return items.length ? `<ul class="mono-list">${items.map((i) => `<li title="${escape(i)}">${escape(i)}</li>`).join("")}</ul>` : `<div class="empty">${emptyText}</div>`
+}
+
+function healthHtml(detail) {
+  const cooling = detail.cooldowns.filter((c) => c.until > Date.now())
+  const containers = detail.containers.map((c) => `${c.name} · ${c.status}`)
+  return `${cooling.length ? cooling.map((c) => `<div><span class="badge b-${escape(c.reason)}">${escape(c.reason)}</span> ${escape(c.runner)} until ${time(new Date(c.until).toISOString())}</div>`).join("") : `<div class="empty">All runners available</div>`}
+    <h2 style="margin-top:14px">Containers</h2>${listHtml(containers, "No agent containers running")}
+    <h2 style="margin-top:14px">Worktrees</h2>${listHtml(detail.worktrees, "None")}`
+}
+
+function render() {
+  const detail = state.detail
+  if (!detail) return
+  const main = document.getElementById("main")
+  const log = document.getElementById("log")
+  const previousScroll = log ? { top: log.scrollTop, pinned: log.scrollTop + log.clientHeight >= log.scrollHeight - 20 } : null
+  const artifactEl = document.getElementById("artifact")
+  const artifactHtml = artifactEl ? artifactEl.innerHTML : ""
+  main.innerHTML = `
+    <header><h1>${escape(detail.name)}</h1>
+      <span class="live"><span class="dot ${detail.active ? "active" : ""}"></span>${detail.active ? "running" : "idle"} · last event ${ago(detail.lastEvent?.at)}</span></header>
+    <div class="grid">
+      <section class="card span-12"><h2>Pipeline</h2><div class="pipeline">${pipelineHtml(detail)}</div></section>
+      <section class="card span-12">${statsHtml(detail)}</section>
+      <section class="card span-12"><h2>Tasks</h2><div class="board">${boardHtml(detail)}</div></section>
+      <section class="card span-8"><h2>Activity</h2><div class="log" id="log">${logHtml(detail)}</div></section>
+      <section class="card span-4"><h2>Runners</h2>${healthHtml(detail)}</section>
+      <section class="card span-12"><h2>Agent calls</h2>${attemptsHtml(detail)}</section>
+      <section class="card span-6"><h2>Artifacts</h2>
+        <div class="tabs">${artifacts.map((a) => `<button class="tab ${a === state.artifact ? "selected" : ""}" data-artifact="${a}">${a.split("/").pop()}</button>`).join("")}</div>
+        <pre class="artifact" id="artifact">${artifactHtml || "Loading…"}</pre></section>
+      <section class="card span-6"><h2>Git log (main)</h2>${listHtml(detail.gitLog, "No commits")}</section>
+    </div>`
+  const newLog = document.getElementById("log")
+  if (!previousScroll || previousScroll.pinned) newLog.scrollTop = newLog.scrollHeight
+  else newLog.scrollTop = previousScroll.top
+  if (!artifactHtml) loadArtifact()
+}
+
+async function loadArtifact() {
+  if (!state.selected) return
+  const response = await fetch(`api/projects/${encodeURIComponent(state.selected)}/file?path=${encodeURIComponent(state.artifact)}`)
+  const text = response.ok ? await response.text() : `Not written yet (${state.artifact})`
+  const el = document.getElementById("artifact")
+  if (!el) return
+  const html = state.artifact.endsWith(".json") ? escape(prettyJson(text)) : escape(text).replace(/^(#{1,6} .*)$/gm, '<span class="h">$1</span>')
+  el.innerHTML = html
+}
+
+function prettyJson(text) {
+  try { return JSON.stringify(JSON.parse(text), null, 2) } catch { return text }
+}
+
+async function openTranscript(file) {
+  if (!file) return
+  document.getElementById("drawer-title").textContent = file
+  const body = document.getElementById("drawer-body")
+  body.innerHTML = `<div class="empty">Loading…</div>`
+  document.getElementById("drawer").classList.add("open")
+  const response = await fetch(`api/projects/${encodeURIComponent(state.selected)}/transcript/${encodeURIComponent(file)}`)
+  const text = response.ok ? await response.text() : "Transcript not found"
+  body.innerHTML = renderTranscript(text)
+}
+
+function renderTranscript(text) {
+  const [stdout, stderr = ""] = text.split("\n--- stderr ---\n")
+  const items = []
+  let parsed = 0
+  for (const line of stdout.split("\n")) {
+    if (!line.startsWith("{")) continue
+    let event
+    try { event = JSON.parse(line) } catch { continue }
+    parsed++
+    if (event.type === "item.completed" && event.item) {
+      const item = event.item
+      if (item.type === "agent_message") items.push(`<div class="item message"><div class="label">Agent</div><pre>${escape(item.text)}</pre></div>`)
+      else if (item.type === "command_execution") {
+        const ok = item.exit_code === 0
+        items.push(`<div class="item command"><div class="label">Command <span class="${ok ? "exit-ok" : "exit-bad"}">exit ${escape(item.exit_code)}</span></div><pre>$ ${escape(item.command)}\n${escape(String(item.aggregated_output ?? "").slice(-3000))}</pre></div>`)
+      } else if (item.type === "file_change") {
+        const changes = (item.changes ?? []).map((c) => `${c.kind ?? "change"} ${c.path}`).join("\n")
+        items.push(`<div class="item file"><div class="label">File change</div><pre>${escape(changes)}</pre></div>`)
+      } else if (item.type === "reasoning") items.push(`<div class="item"><div class="label">Reasoning</div><pre>${escape(item.text)}</pre></div>`)
+    } else if (event.type === "result") {
+      items.push(`<div class="item ${event.is_error ? "error" : "message"}"><div class="label">Result${event.total_cost_usd ? ` · $${event.total_cost_usd.toFixed(3)}` : ""}</div><pre>${escape(event.result)}</pre></div>`)
+    } else if (event.type === "error" || event.type === "turn.failed") {
+      items.push(`<div class="item error"><div class="label">Error</div><pre>${escape(JSON.stringify(event, null, 2))}</pre></div>`)
+    } else if (event.type === "turn.completed" && event.usage) {
+      items.push(`<div class="item"><div class="label">Usage</div><pre>${escape(`input ${event.usage.input_tokens} · cached ${event.usage.cached_input_tokens} · output ${event.usage.output_tokens}`)}</pre></div>`)
+    }
+  }
+  if (!parsed) items.push(`<div class="item"><div class="label">Output</div><pre>${escape(stdout)}</pre></div>`)
+  if (stderr.trim()) items.push(`<div class="item error"><div class="label">stderr</div><pre>${escape(stderr.slice(-5000))}</pre></div>`)
+  return items.join("") || `<div class="empty">Empty transcript</div>`
+}
+
+document.addEventListener("click", (event) => {
+  const project = event.target.closest(".project")
+  if (project) return select(project.dataset.name)
+  const task = event.target.closest(".task")
+  if (task) {
+    const id = task.dataset.task
+    state.openTasks.has(id) ? state.openTasks.delete(id) : state.openTasks.add(id)
+    task.classList.toggle("open")
+    return
+  }
+  const tab = event.target.closest(".tab")
+  if (tab) {
+    state.artifact = tab.dataset.artifact
+    document.querySelectorAll(".tab").forEach((el) => el.classList.toggle("selected", el === tab))
+    return loadArtifact()
+  }
+  const row = event.target.closest("tr[data-transcript]")
+  if (row) return openTranscript(row.dataset.transcript)
+  if (event.target.id === "drawer-close") document.getElementById("drawer").classList.remove("open")
+})
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") document.getElementById("drawer").classList.remove("open")
+})
+
+loadProjects()
+setInterval(loadProjects, 5000)
+</script>
+</body>
+</html>

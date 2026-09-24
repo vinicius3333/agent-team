@@ -9,6 +9,7 @@ import { createHarness } from "./harness/harness.ts"
 import { removeAllWorkspaces } from "./harness/workspace.ts"
 import { runPipeline } from "./pipeline.ts"
 import { openStore } from "./store.ts"
+import { startUi } from "./ui/server.ts"
 
 const usage = `Usage:
   agent-team init <projectDir> --brief <file>
@@ -16,7 +17,8 @@ const usage = `Usage:
   agent-team status <projectDir>
   agent-team approve <projectDir> <phase>
   agent-team retry <projectDir> <taskId>
-  agent-team reset-cooldowns <projectDir>`
+  agent-team reset-cooldowns <projectDir>
+  agent-team ui <runsDir> [--port 4400]`
 
 function stateDir(projectDir: string): string {
   const dir = join(projectDir, ".agent-team")
@@ -109,7 +111,7 @@ function resetCooldowns(projectDir: string): void {
 }
 
 async function main(): Promise<void> {
-  const { positionals, values } = parseArgs({ allowPositionals: true, options: { brief: { type: "string" } } })
+  const { positionals, values } = parseArgs({ allowPositionals: true, options: { brief: { type: "string" }, port: { type: "string" } } })
   const [command, target, extra] = positionals
   if (!command || !target) {
     console.log(usage)
@@ -130,6 +132,9 @@ async function main(): Promise<void> {
       return retry(projectDir, extra)
     case "reset-cooldowns":
       return resetCooldowns(projectDir)
+    case "ui":
+      startUi({ runsDir: projectDir, port: Number(values.port ?? 4400) })
+      return
     default:
       console.log(usage)
       process.exitCode = 1
