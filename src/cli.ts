@@ -9,6 +9,8 @@ import { currentTunnelUrl, deployProject, undeployProject } from "./deploy.ts"
 import { createGitHub } from "./github.ts"
 import { createHarness, liveAgentPrefix } from "./harness/harness.ts"
 import { removeAllWorkspaces } from "./harness/workspace.ts"
+import { interruptPrefix } from "./notify/events.ts"
+import { sendTest } from "./notify/index.ts"
 import { runPipeline } from "./pipeline.ts"
 import { approvePhase, createProject, openProjectStore, retryTask, withProjectStore } from "./project.ts"
 import { startUi } from "./ui/server.ts"
@@ -23,7 +25,8 @@ const usage = `Usage:
   agent-team deploy <projectDir>
   agent-team undeploy <projectDir>
   agent-team ui <runsDir> [--port 4400] [--host 127.0.0.1]
-  agent-team doctor <runsDir> [--once]`
+  agent-team doctor <runsDir> [--once]
+  agent-team notify-test <runsDir> [--channel <name>]`
 
 function init(projectDir: string, briefPath: string | undefined): void {
   if (!briefPath) throw new Error("init needs --brief <file>")
@@ -37,7 +40,7 @@ async function run(projectDir: string): Promise<void> {
   const controller = new AbortController()
   const onInterrupt = () => {
     if (controller.signal.aborted) process.exit(130)
-    store.log("run", "interrupt received; stopping agents and cleaning up (press Ctrl+C again to force)")
+    store.log("run", `${interruptPrefix}; stopping agents and cleaning up (press Ctrl+C again to force)`)
     controller.abort()
   }
   process.on("SIGINT", onInterrupt)
@@ -110,8 +113,15 @@ async function doctor(runsDir: string, once: boolean): Promise<void> {
   await runDoctor({ runsDir, once, signal: controller.signal })
 }
 
+async function notifyTest(runsDir: string, channel: string | undefined): Promise<void> {
+  const results = await sendTest(runsDir, channel ?? null)
+  for (const result of results) console.log(`${result.ok ? "sent  " : "failed"} ${result.channel}${result.error ? `: ${result.error}` : ""}`)
+  if (!results.length) console.log("No channels in notifications.yaml")
+  if (results.some((result) => !result.ok)) process.exitCode = 1
+}
+
 async function main(): Promise<void> {
-  const { positionals, values } = parseArgs({ allowPositionals: true, options: { brief: { type: "string" }, port: { type: "string" }, host: { type: "string" }, once: { type: "boolean" } } })
+  const { positionals, values } = parseArgs({ allowPositionals: true, options: { brief: { type: "string" }, port: { type: "string" }, host: { type: "string" }, once: { type: "boolean" }, channel: { type: "string" } } })
   const [command, target, extra] = positionals
   if (!command || !target) {
     console.log(usage)
@@ -141,6 +151,8 @@ async function main(): Promise<void> {
       return
     case "doctor":
       return doctor(projectDir, values.once ?? false)
+    case "notify-test":
+      return notifyTest(projectDir, values.channel)
     default:
       console.log(usage)
       process.exitCode = 1
