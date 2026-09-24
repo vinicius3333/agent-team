@@ -1,0 +1,193 @@
+{
+  "resultId": "20260924T205120Z-35d8640-planner-fix",
+  "gitSha": "35d8640",
+  "dirty": true,
+  "label": "planner-fix",
+  "tier": "smoke",
+  "configHash": "1b1e51364597b44d",
+  "config": {
+    "roles": {
+      "pm": {
+        "runner": "claude",
+        "model": "opus"
+      },
+      "architect": {
+        "runner": "claude",
+        "model": "opus"
+      },
+      "illustrator": {
+        "runner": "codex",
+        "model": "gpt-6-astra"
+      },
+      "designer": {
+        "runner": "claude",
+        "model": "sonnet"
+      },
+      "marketer": {
+        "runner": "codex",
+        "model": "gpt-6-astra"
+      },
+      "planner": {
+        "runner": "claude",
+        "model": "opus"
+      },
+      "worker": {
+        "runner": "claude",
+        "model": "sonnet",
+        "maxRetries": 3,
+        "fallbacks": []
+      },
+      "reviewer": {
+        "runner": "claude",
+        "model": "opus",
+        "fallbacks": []
+      },
+      "design-reviewer": {
+        "runner": "claude",
+        "model": "opus"
+      },
+      "qa": {
+        "runner": "claude",
+        "model": "opus"
+      },
+      "lead": {
+        "runner": "claude",
+        "model": "opus"
+      },
+      "monitor": {
+        "runner": "claude",
+        "model": "sonnet"
+      },
+      "analyst": {
+        "runner": "claude",
+        "model": "sonnet"
+      },
+      "researcher": {
+        "runner": "claude",
+        "model": "sonnet"
+      }
+    },
+    "harness": {
+      "isolation": "docker",
+      "docker": {
+        "cpus": 2,
+        "memory": "4g",
+        "pidsLimit": 512
+      },
+      "network": {
+        "allowlist": true,
+        "extraDomains": []
+      },
+      "transientRetries": 2,
+      "backoffMs": 15000,
+      "cooldownMs": 900000,
+      "agentTimeoutMs": 1800000
+    }
+  },
+  "runnerVersions": {
+    "claude": "2.1.282 (Claude Code)",
+    "codex": "codex-cli 0.155.1"
+  },
+  "aborted": null,
+  "briefs": [
+    {
+      "id": "landing-page",
+      "briefHash": "f92c2067aafd712e",
+      "outcome": "failed",
+      "stop": {
+        "outcome": "failed",
+        "kind": "other",
+        "reason": "T003 blocked after 3 attempts: reviewer rejected the change.\nReasons: scripts/serve.test.mjs runs under the project-wide jsdom environment (vite.config.ts sets test.environment: \"jsdom\") instead of the Vitest node environment the acceptance criterion requires.\nFixes: Add the docblock `// @vitest-environment node` as the very first line of scripts/serve.test.mjs, before the imports, so Vitest runs this file in the node environment. Do not change vite.config.ts because it is a shared file.",
+        "at": "2026-09-24T21:20:27.835Z"
+      },
+      "phases": {
+        "spec": "approved",
+        "architecture": "approved",
+        "branding": "approved",
+        "design": "approved",
+        "marketing": "approved",
+        "plan": "approved"
+      },
+      "tasks": {
+        "total": 10,
+        "merged": 7,
+        "blocked": 1,
+        "replans": 0
+      },
+      "attempts": {
+        "total": 26,
+        "byRole": {
+          "architect": 1,
+          "design-reviewer": 1,
+          "designer": 2,
+          "planner": 1,
+          "pm": 1,
+          "reviewer": 10,
+          "worker": 10
+        },
+        "fallbacks": 0
+      },
+      "reviews": {
+        "total": 10,
+        "fail": 3
+      },
+      "qa": {
+        "rounds": 0,
+        "verdict": null,
+        "fixTasks": 0
+      },
+      "costUsd": 11.9402,
+      "unreportedCalls": 0,
+      "tokens": 17703089,
+      "wallMs": 1746757
+    },
+    {
+      "id": "notes-api",
+      "briefHash": "496f315c1f35dd1a",
+      "outcome": "failed",
+      "stop": {
+        "outcome": "failed",
+        "kind": "other",
+        "reason": "T001 blocked after 3 attempts: verify command failed:\nnpm error code ENOTCACHED\nnpm error request to https://registry.npmjs.org/wrappy/-/wrappy-1.0.2.tgz failed: cache mode is 'only-if-cached' but no cached response is available.\nnpm error A complete log of this run can be found in: /home/agent/.npm/_logs/2026-09-24T21_26_02_317Z-debug-0.log",
+        "at": "2026-09-24T21:26:02.657Z"
+      },
+      "phases": {
+        "spec": "approved",
+        "architecture": "approved",
+        "branding": "approved",
+        "design": "approved",
+        "marketing": "approved",
+        "plan": "approved"
+      },
+      "tasks": {
+        "total": 7,
+        "merged": 0,
+        "blocked": 1,
+        "replans": 0
+      },
+      "attempts": {
+        "total": 6,
+        "byRole": {
+          "architect": 1,
+          "planner": 1,
+          "pm": 1,
+          "worker": 3
+        },
+        "fallbacks": 0
+      },
+      "reviews": {
+        "total": 0,
+        "fail": 0
+      },
+      "qa": {
+        "rounds": 0,
+        "verdict": null,
+        "fixTasks": 0
+      },
+      "costUsd": 2.1626,
+      "unreportedCalls": 0,
+      "tokens": 2764685,
+      "wallMs": 334746
+    }
+  ]
+}
