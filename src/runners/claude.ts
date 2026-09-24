@@ -18,8 +18,10 @@ export function toClaudeTools(allowedTools: string[], writablePaths?: string[]):
 }
 
 // `./` anchors the rule to the working directory; a leading `/` would mean the settings file's directory.
+// Rules are globs, so literal brackets such as Next.js `[groupId]` folders must be escaped or they match nothing.
 function relativeRule(path: string): string {
-  return path.startsWith("./") || path.startsWith("/") ? path : `./${path}`
+  const escaped = path.replace(/[[\]]/g, "\\$&")
+  return escaped.startsWith("./") || escaped.startsWith("/") ? escaped : `./${escaped}`
 }
 
 // Claude reports cache reads and writes apart from input_tokens.
