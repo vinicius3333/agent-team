@@ -31,6 +31,7 @@ export interface ProjectSummary {
   active: boolean
   costUsd: number
   costUnreported: boolean
+  tokens?: number
   live: boolean
   liveUrl: string | null
   stop?: RunStop | null
@@ -66,6 +67,7 @@ export interface Attempt {
   failureClass: string | null
   durationMs: number | null
   costUsd: number | null
+  tokens?: number | null
   createdAt: string
   transcript: string
 }
@@ -115,6 +117,7 @@ export interface RunStop {
 export interface RunBudget {
   runUsd: number
   spentUsd: number
+  spentTokens?: number
   // Codex calls report no cost, so they are not in spentUsd.
   unreportedCalls: number
 }
@@ -237,6 +240,7 @@ export interface Incident {
   status: IncidentStatus
   attempts: number
   costUsd: number
+  tokens?: number
   diagnosis: string | null
   cause: "agent_team_bug" | "project_state" | "external" | "unknown" | null
   actions: IncidentAction[]
@@ -258,6 +262,7 @@ export interface IncidentCall {
   status: string
   failureClass: string | null
   costUsd: number | null
+  tokens?: number | null
   durationMs: number | null
   createdAt: string
   transcript: string

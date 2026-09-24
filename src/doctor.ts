@@ -632,6 +632,7 @@ function incidentFor(projectDir: string, name: string, store: Store, detection: 
     status: "open",
     attempts: 0,
     costUsd: 0,
+    tokens: 0,
     diagnosis: null,
     cause: null,
     actions: [],
@@ -768,6 +769,7 @@ async function treat(options: Candidate & { runsDir: string; config: DoctorConfi
     const subject = `doctor-${incident.id}-${attempt}`
     const outcome = await runAgent(context, executor, "doctor", subject, doctorTools, taskPrompt(incident, name, attempt), { writablePaths: writableRoots(worktree.path) })
     incident.costUsd += outcome.result.costUsd ?? 0
+    incident.tokens = (incident.tokens ?? 0) + (outcome.result.tokens ?? 0)
     if (outcome.result.status !== "done") {
       addAction(incident, "agent_failed", `${outcome.failureClass ?? outcome.result.status}: ${outcome.result.summary.slice(0, 500)}`)
       return

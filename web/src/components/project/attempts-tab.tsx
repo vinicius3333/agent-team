@@ -3,8 +3,9 @@ import { EmptyState } from "@/components/empty-state"
 import { StatusBadge } from "@/components/status-badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { formatClock, formatCost, formatDuration } from "@/lib/format"
-import { costByRole, totalCost } from "@/lib/pipeline"
+import { TokenCount } from "@/components/token-count"
+import { formatClock, formatDuration } from "@/lib/format"
+import { costByRole, totalCost, totalTokens } from "@/lib/pipeline"
 import { useProjectView } from "./context"
 
 export function transcriptRequest(attempt: Attempt) {
@@ -15,11 +16,12 @@ function CostByRoleCard() {
   const { detail } = useProjectView()
   const rows = costByRole(detail.attempts)
   const total = totalCost(detail.attempts)
+  const tokens = totalTokens(detail.attempts)
   return (
     <Card className="gap-3">
       <CardHeader>
-        <CardTitle>Cost by role</CardTitle>
-        <CardDescription>Claude reports cost. Codex does not, so its calls show n/a.</CardDescription>
+        <CardTitle>Tokens by role</CardTitle>
+        <CardDescription>Hover a number to see the estimated cost. Codex reports no cost.</CardDescription>
       </CardHeader>
       <CardContent className="px-0 sm:px-6">
         <Table>
@@ -28,7 +30,7 @@ function CostByRoleCard() {
               <TableHead>Role</TableHead>
               <TableHead className="hidden sm:table-cell">Runners</TableHead>
               <TableHead className="text-right">Calls</TableHead>
-              <TableHead className="text-right">Cost</TableHead>
+              <TableHead className="text-right">Tokens</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -38,8 +40,7 @@ function CostByRoleCard() {
                 <TableCell className="hidden text-muted-foreground sm:table-cell">{row.runners.join(", ")}</TableCell>
                 <TableCell className="text-right tabular-nums">{row.calls}</TableCell>
                 <TableCell className="text-right font-mono tabular-nums">
-                  {row.unreported === row.calls ? "n/a" : formatCost(row.cost, 3)}
-                  {row.unreported > 0 && row.unreported < row.calls && <span className="text-muted-foreground"> + n/a</span>}
+                  <TokenCount tokens={row.untracked === row.calls ? null : row.tokens} usd={row.unreported === row.calls ? null : row.cost} digits={3} />
                 </TableCell>
               </TableRow>
             ))}
@@ -47,7 +48,9 @@ function CostByRoleCard() {
               <TableCell className="font-semibold">Total</TableCell>
               <TableCell className="hidden sm:table-cell" />
               <TableCell className="text-right tabular-nums">{detail.attempts.length}</TableCell>
-              <TableCell className="text-right font-mono font-semibold tabular-nums">{formatCost(total, 3)}</TableCell>
+              <TableCell className="text-right font-mono font-semibold tabular-nums">
+                <TokenCount tokens={tokens} usd={total} digits={3} />
+              </TableCell>
             </TableRow>
           </TableBody>
         </Table>
@@ -119,7 +122,7 @@ export function AttemptsTab() {
                 <TableHead className="text-right">Duration</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="hidden md:table-cell">Failure class</TableHead>
-                <TableHead className="text-right">Cost</TableHead>
+                <TableHead className="text-right">Tokens</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -148,7 +151,9 @@ export function AttemptsTab() {
                     <StatusBadge status={attempt.status} />
                   </TableCell>
                   <TableCell className="hidden md:table-cell">{attempt.failureClass ? <StatusBadge status={attempt.failureClass === "agent_failure" ? "agent_failure" : "failed"} label={attempt.failureClass} /> : <span className="text-muted-foreground">—</span>}</TableCell>
-                  <TableCell className="text-right font-mono text-xs tabular-nums">{attempt.costUsd ? formatCost(attempt.costUsd, 3) : attempt.runner === "codex" ? "n/a" : "—"}</TableCell>
+                  <TableCell className="text-right font-mono text-xs tabular-nums">
+                    <TokenCount tokens={attempt.tokens} usd={attempt.costUsd} digits={3} />
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>

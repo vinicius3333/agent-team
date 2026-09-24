@@ -308,7 +308,7 @@ test("the run budget stops the run for approval, and the dashboard raises it", a
   assert.equal((await post({ "x-agent-team": "1" }, "x".repeat(70 * 1024))).status, 413)
   const detail = await (await fetch(`${base}/api/projects/budget`)).json()
   assert.equal(detail.stop.kind, "budget")
-  assert.deepEqual(detail.budget, { runUsd: 30, spentUsd: 1.2, unreportedCalls: 1 })
+  assert.deepEqual(detail.budget, { runUsd: 30, spentUsd: 1.2, spentTokens: 0, unreportedCalls: 1 })
   assert.deepEqual(detail.reviewer, { reviews: 1, fails: 0, followedFails: 0, confirmedFails: 0 })
 
   store.setMeta("run.pid", String(process.pid))

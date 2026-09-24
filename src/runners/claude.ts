@@ -22,6 +22,13 @@ function relativeRule(path: string): string {
   return path.startsWith("./") || path.startsWith("/") ? path : `./${path}`
 }
 
+// Claude reports cache reads and writes apart from input_tokens.
+export function claudeTokens(usage: Record<string, unknown> | undefined): number | null {
+  if (!usage) return null
+  const fields = ["input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"]
+  return fields.reduce((sum, field) => sum + (typeof usage[field] === "number" ? (usage[field] as number) : 0), 0)
+}
+
 export const claudeRunner: AgentRunner = {
   name: "claude",
   async run(request: RunRequest): Promise<RunResult> {
@@ -44,8 +51,8 @@ export const claudeRunner: AgentRunner = {
       signal: request.signal,
     })
     const base = { durationMs: result.durationMs, exitCode: result.exitCode, diagnostics: result.stderr.slice(-3000) }
-    if (result.aborted) return { ...base, status: "aborted", summary: "", costUsd: null }
-    if (result.timedOut) return { ...base, status: "timeout", summary: "", costUsd: null }
+    if (result.aborted) return { ...base, status: "aborted", summary: "", costUsd: null, tokens: null }
+    if (result.timedOut) return { ...base, status: "timeout", summary: "", costUsd: null, tokens: null }
 
     try {
       const output = JSON.parse(result.stdout.trim().split("\n").at(-1) ?? "")
@@ -53,6 +60,7 @@ export const claudeRunner: AgentRunner = {
         status: output.is_error || result.exitCode !== 0 ? "failed" : "done",
         summary: String(output.result ?? ""),
         costUsd: typeof output.total_cost_usd === "number" ? output.total_cost_usd : null,
+        tokens: claudeTokens(output.usage),
         ...base,
         // A Claude error result is the CLI's own message (auth, limits), not the agent's work.
         diagnostics: output.is_error ? `${String(output.result ?? "")}\n${base.diagnostics}` : base.diagnostics,
@@ -62,6 +70,7 @@ export const claudeRunner: AgentRunner = {
         status: "failed",
         summary: (result.stderr || result.stdout).slice(-2000),
         costUsd: null,
+        tokens: null,
         ...base,
       }
     }

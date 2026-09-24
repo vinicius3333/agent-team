@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react"
-import { Bot, CircleDollarSign, Clock, ListChecks, type LucideIcon } from "lucide-react"
+import { Bot, Clock, Coins, ListChecks, type LucideIcon } from "lucide-react"
 import { Card } from "@/components/ui/card"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { formatCost, formatDuration } from "@/lib/format"
-import { elapsedMs, taskCounts, totalCost } from "@/lib/pipeline"
+import { formatCost, formatDuration, formatTokens } from "@/lib/format"
+import { elapsedMs, taskCounts, totalCost, totalTokens } from "@/lib/pipeline"
 import { useProjectView } from "./context"
 
 function Stat({ icon: Icon, label, value, hint }: { icon: LucideIcon; label: string; value: string; hint?: string }) {
@@ -44,14 +44,16 @@ export function StatCards() {
   const cost = totalCost(detail.attempts)
   const runners = new Set(detail.attempts.map((attempt) => attempt.runner))
   const unreported = detail.attempts.filter((attempt) => attempt.costUsd == null).length
-  const costValue = !detail.attempts.length ? "—" : cost === 0 && unreported ? "n/a (codex)" : `${formatCost(cost)}${unreported ? " + n/a" : ""}`
+  const tokens = totalTokens(detail.attempts)
+  const tokensValue = !detail.attempts.length ? "—" : formatTokens(tokens)
+  const estimate = cost === 0 && unreported ? "Estimated cost: not reported (codex)." : `Estimated cost: ${formatCost(cost)}${unreported ? `, plus ${unreported} codex calls with no reported cost` : ""}.`
   const budgetHint = detail.budget ? ` Run budget: ${formatCost(detail.budget.runUsd)}.` : ""
-  const costHint = (unreported ? `Claude reports cost. Codex reports none, so ${unreported} of ${detail.attempts.length} calls have no cost.` : `Reported by ${[...runners].join(", ") || "the runners"}.`) + budgetHint
+  const tokensHint = `${tokens.toLocaleString()} tokens from ${[...runners].join(", ") || "the runners"}. ${estimate}${budgetHint}`
 
   return (
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
       <Stat icon={Clock} label="Elapsed" value={formatDuration(elapsedMs(detail))} />
-      <Stat icon={CircleDollarSign} label="Cost" value={costValue} hint={costHint} />
+      <Stat icon={Coins} label="Tokens" value={tokensValue} hint={tokensHint} />
       <Stat icon={ListChecks} label="Tasks done" value={detail.tasks.length ? `${counts.merged} / ${detail.tasks.length}` : "—"} />
       <Stat icon={Bot} label="Agent calls" value={String(detail.attempts.length)} />
     </div>

@@ -20,6 +20,8 @@ export interface RunResult {
   status: "done" | "failed" | "timeout" | "aborted"
   summary: string
   costUsd: number | null
+  // Input, output, and cache tokens together; null when the runner did not report usage.
+  tokens: number | null
   durationMs: number
   exitCode: number | null
   // Tail of raw stdout/stderr, used to classify failures (rate limit, auth, crash).

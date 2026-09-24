@@ -1,5 +1,5 @@
 import { Link } from "react-router"
-import { Activity, CircleDollarSign, ExternalLink, ListChecks, Plus, ServerCrash } from "lucide-react"
+import { Activity, Coins, ExternalLink, ListChecks, Plus, ServerCrash } from "lucide-react"
 import { useProjectList } from "@/api/projects-context"
 import type { ProjectSummary } from "@/api/types"
 import { EmptyState } from "@/components/empty-state"
@@ -11,7 +11,8 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
-import { formatProjectCost, formatRelative } from "@/lib/format"
+import { TokenCount } from "@/components/token-count"
+import { formatRelative } from "@/lib/format"
 import { projectStatus, projectStatusLabels } from "@/lib/pipeline"
 
 function ProjectCard({ project }: { project: ProjectSummary }) {
@@ -47,10 +48,9 @@ function ProjectCard({ project }: { project: ProjectSummary }) {
         <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
           <span className="flex items-center gap-3">
             <span>Last activity {formatRelative(project.lastEvent?.at)}</span>
-            <span className="flex items-center gap-1 tabular-nums" title="Claude reports cost. Codex does not.">
-              <CircleDollarSign className="size-3.5" aria-hidden="true" />
-              <span className="sr-only">Cost</span>
-              {formatProjectCost(project.costUsd, project.costUnreported)}
+            <span className="relative z-10 flex items-center gap-1">
+              <Coins className="size-3.5" aria-hidden="true" />
+              <TokenCount tokens={project.tokens ?? 0} usd={project.costUnreported && project.costUsd === 0 ? null : project.costUsd} label />
             </span>
           </span>
           {project.live && project.liveUrl && (

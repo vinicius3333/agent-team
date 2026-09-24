@@ -6,7 +6,7 @@ import { Markdown } from "@/components/markdown"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { formatCost, formatDuration } from "@/lib/format"
+import { formatCost, formatDuration, formatTokens } from "@/lib/format"
 import { cleanCommand, parseTranscript, parseVerdict, type TranscriptEntry } from "@/lib/transcript"
 import { cn } from "@/lib/utils"
 import type { TranscriptRequest } from "./context"
@@ -49,7 +49,7 @@ function VerdictCard({ text }: { text: string }) {
 }
 
 function statValue(key: string, value: string | number | boolean): string {
-  if (key === "cost") return formatCost(Number(value), 3)
+  if (key === "tokens" || key === "input" || key === "output") return formatTokens(Number(value))
   if (key === "duration") return formatDuration(Number(value))
   return String(value)
 }
@@ -100,9 +100,13 @@ function Entry({ entry }: { entry: TranscriptEntry }) {
       return (
         <div className="flex flex-wrap gap-1.5">
           {Object.entries(entry.stats)
-            .filter((pair): pair is [string, string | number | boolean] => pair[1] != null)
+            .filter((pair): pair is [string, string | number | boolean] => pair[1] != null && pair[0] !== "cost")
             .map(([key, value]) => (
-              <span key={key} className="rounded-md bg-muted px-2 py-0.5 font-mono text-xs">
+              <span
+                key={key}
+                className="rounded-md bg-muted px-2 py-0.5 font-mono text-xs"
+                title={key === "tokens" && entry.stats.cost != null ? `Estimated cost: ${formatCost(Number(entry.stats.cost), 3)}` : undefined}
+              >
                 {key}: {statValue(key, value)}
               </span>
             ))}

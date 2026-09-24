@@ -19,7 +19,7 @@ interface CodexItem {
 interface TranscriptLine {
   type?: string
   item?: CodexItem
-  usage?: { input_tokens?: number; output_tokens?: number }
+  usage?: { input_tokens?: number; output_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number }
   message?: string
   error?: { message?: string }
   result?: unknown
@@ -27,6 +27,11 @@ interface TranscriptLine {
   total_cost_usd?: number
   duration_ms?: number
   is_error?: boolean
+}
+
+function claudeTokens(usage: TranscriptLine["usage"]): number | undefined {
+  if (!usage) return undefined
+  return (usage.input_tokens ?? 0) + (usage.output_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0)
 }
 
 export function parseTranscript(text: string): TranscriptEntry[] {
@@ -45,7 +50,7 @@ export function parseTranscript(text: string): TranscriptEntry[] {
   const entries: TranscriptEntry[] = []
   if (parsed.length === 1 && "result" in parsed[0]) {
     const result = parsed[0]
-    entries.push({ kind: "meta", stats: { turns: result.num_turns, cost: result.total_cost_usd, duration: result.duration_ms, error: result.is_error } })
+    entries.push({ kind: "meta", stats: { turns: result.num_turns, tokens: claudeTokens(result.usage), cost: result.total_cost_usd, duration: result.duration_ms, error: result.is_error } })
     entries.push({ kind: result.is_error ? "error" : "message", text: String(result.result ?? "") })
   } else {
     for (const event of parsed) {

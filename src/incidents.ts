@@ -25,6 +25,8 @@ export interface Incident {
   status: IncidentStatus
   attempts: number
   costUsd: number
+  // Missing in incidents saved before token tracking.
+  tokens?: number
   diagnosis: string | null
   cause: IncidentCause | null
   actions: IncidentAction[]

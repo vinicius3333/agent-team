@@ -60,6 +60,7 @@ export function createHarness(options: {
         status: result.status,
         failureClass,
         costUsd: result.costUsd,
+        tokens: result.tokens,
         durationMs: result.durationMs,
         transcriptPath: request.transcriptPath,
       })
@@ -104,7 +105,7 @@ export function createHarness(options: {
       }
       return (
         last ?? {
-          result: { status: "failed", summary: "no runner available: all candidates are cooling down", costUsd: null, durationMs: 0, exitCode: null, diagnostics: "" },
+          result: { status: "failed", summary: "no runner available: all candidates are cooling down", costUsd: null, tokens: null, durationMs: 0, exitCode: null, diagnostics: "" },
           candidate: null,
           failureClass: "rate_limit",
         }

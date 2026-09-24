@@ -153,9 +153,16 @@ export function totalCost(attempts: Attempt[]): number {
   return attempts.reduce((sum, attempt) => sum + (attempt.costUsd ?? 0), 0)
 }
 
+export function totalTokens(attempts: Attempt[]): number {
+  return attempts.reduce((sum, attempt) => sum + (attempt.tokens ?? 0), 0)
+}
+
 export interface CostByRole {
   role: string
   cost: number
+  tokens: number
+  // Calls saved before token tracking.
+  untracked: number
   calls: number
   unreported: number
   runners: string[]
@@ -164,14 +171,16 @@ export interface CostByRole {
 export function costByRole(attempts: Attempt[]): CostByRole[] {
   const byRole = new Map<string, CostByRole>()
   for (const attempt of attempts) {
-    const entry = byRole.get(attempt.role) ?? { role: attempt.role, cost: 0, calls: 0, unreported: 0, runners: [] }
+    const entry = byRole.get(attempt.role) ?? { role: attempt.role, cost: 0, tokens: 0, untracked: 0, calls: 0, unreported: 0, runners: [] }
     entry.calls++
+    entry.tokens += attempt.tokens ?? 0
+    if (attempt.tokens == null) entry.untracked++
     if (attempt.costUsd == null) entry.unreported++
     else entry.cost += attempt.costUsd
     if (!entry.runners.includes(attempt.runner)) entry.runners.push(attempt.runner)
     byRole.set(attempt.role, entry)
   }
-  return [...byRole.values()].sort((a, b) => b.cost - a.cost)
+  return [...byRole.values()].sort((a, b) => b.tokens - a.tokens || b.cost - a.cost)
 }
 
 export function elapsedMs(detail: ProjectDetail): number | null {

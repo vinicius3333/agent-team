@@ -70,6 +70,7 @@ export function openStore(path: string) {
 
   const attemptColumns = db.prepare("PRAGMA table_info(attempts)").all() as { name: string }[]
   if (!attemptColumns.some((column) => column.name === "failure_class")) db.exec("ALTER TABLE attempts ADD COLUMN failure_class TEXT")
+  if (!attemptColumns.some((column) => column.name === "tokens")) db.exec("ALTER TABLE attempts ADD COLUMN tokens INTEGER")
   const taskColumns = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[]
   if (!taskColumns.some((column) => column.name === "issue_number")) db.exec("ALTER TABLE tasks ADD COLUMN issue_number INTEGER")
   if (!taskColumns.some((column) => column.name === "replans")) db.exec("ALTER TABLE tasks ADD COLUMN replans INTEGER NOT NULL DEFAULT 0")
@@ -142,11 +143,12 @@ export function openStore(path: string) {
       status: string
       failureClass: string | null
       costUsd: number | null
+      tokens: number | null
       durationMs: number
       transcriptPath: string
     }) {
       db.prepare(
-        "INSERT INTO attempts (subject, role, runner, model, status, failure_class, cost_usd, duration_ms, transcript_path, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO attempts (subject, role, runner, model, status, failure_class, cost_usd, tokens, duration_ms, transcript_path, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       ).run(
         attempt.subject,
         attempt.role,
@@ -155,6 +157,7 @@ export function openStore(path: string) {
         attempt.status,
         attempt.failureClass,
         attempt.costUsd,
+        attempt.tokens ?? null,
         attempt.durationMs,
         attempt.transcriptPath,
         now(),

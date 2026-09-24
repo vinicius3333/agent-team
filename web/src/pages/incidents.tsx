@@ -13,7 +13,8 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { formatCost, formatDateTime, formatDuration, formatRelative } from "@/lib/format"
+import { TokenCount } from "@/components/token-count"
+import { formatCost, formatDateTime, formatDuration, formatRelative, formatTokens } from "@/lib/format"
 
 const refreshMs = 10_000
 
@@ -82,7 +83,7 @@ export function IncidentsPage() {
                 <TableHead>Status</TableHead>
                 <TableHead>Cause</TableHead>
                 <TableHead className="text-right">Attempts</TableHead>
-                <TableHead className="text-right">Cost</TableHead>
+                <TableHead className="text-right">Tokens</TableHead>
                 <TableHead>Links</TableHead>
                 <TableHead className="min-w-64">Diagnosis</TableHead>
               </TableRow>
@@ -101,7 +102,9 @@ export function IncidentsPage() {
                   </TableCell>
                   <TableCell className="align-top">{incident.cause ? causeLabels[incident.cause] : "—"}</TableCell>
                   <TableCell className="text-right align-top tabular-nums">{incident.attempts}</TableCell>
-                  <TableCell className="text-right align-top tabular-nums">{formatCost(incident.costUsd)}</TableCell>
+                  <TableCell className="text-right align-top tabular-nums">
+                    <TokenCount tokens={incident.tokens} usd={incident.costUsd} />
+                  </TableCell>
                   <TableCell className="align-top text-sm">
                     <ExternalLinks incident={incident} />
                   </TableCell>
@@ -147,7 +150,7 @@ export function IncidentPage() {
         title={incident.project}
         badge={<IncidentStatusBadge status={incident.status} />}
         breadcrumbs={breadcrumbs}
-        description={`Opened ${formatDateTime(incident.createdAt)}. ${incident.attempts} attempts, ${formatCost(incident.costUsd)}.`}
+        description={`Opened ${formatDateTime(incident.createdAt)}. ${incident.attempts} attempts, ${incident.tokens != null ? `${formatTokens(incident.tokens)} tokens` : "tokens not recorded"} (estimated ${formatCost(incident.costUsd)}).`}
         actions={
           projectExists && (
             <Button variant="outline" asChild>
@@ -212,7 +215,7 @@ export function IncidentPage() {
                     <span className="min-w-0">
                       <span className="block truncate font-mono text-xs">{call.subject}</span>
                       <span className="text-xs text-muted-foreground">
-                        {call.runner} {call.model} · {call.status} · {formatDuration(call.durationMs)} · {call.costUsd == null ? "n/a" : formatCost(call.costUsd, 3)}
+                        {call.runner} {call.model} · {call.status} · {formatDuration(call.durationMs)} · <TokenCount tokens={call.tokens} usd={call.costUsd} digits={3} label />
                       </span>
                     </span>
                     <Button variant="outline" size="sm" onClick={() => setTranscript(callRequest(call))}>

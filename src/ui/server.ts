@@ -171,11 +171,11 @@ function summary(runsDir: string, name: string) {
       const activePhase = phases.find((phase) => phase.status === "running")?.name ?? null
       const pidRow = all(db, "SELECT value FROM meta WHERE key = 'run.pid'")[0]
       const active = pidRow ? processAlive(Number(pidRow.value)) : Boolean(lastEvent && Date.now() - Date.parse(lastEvent.at) < activeWindowMs && !/^finished/.test(lastEvent.message))
-      const cost = all(db, "SELECT COALESCE(SUM(cost_usd), 0) AS total, SUM(cost_usd IS NULL) AS unreported FROM attempts")[0]
+      const cost = all(db, "SELECT COALESCE(SUM(cost_usd), 0) AS total, SUM(cost_usd IS NULL) AS unreported, COALESCE(SUM(tokens), 0) AS tokens FROM attempts")[0]
       const stop = parseStop(all(db, "SELECT value FROM meta WHERE key = 'run.stop'")[0]?.value)
-      return { name, phases, counts, lastEvent, current: running ?? activePhase, active, costUsd: cost?.total ?? 0, costUnreported: (cost?.unreported ?? 0) > 0, stop, incident: incidentBanner(projectDir) }
+      return { name, phases, counts, lastEvent, current: running ?? activePhase, active, costUsd: cost?.total ?? 0, costUnreported: (cost?.unreported ?? 0) > 0, tokens: cost?.tokens ?? 0, stop, incident: incidentBanner(projectDir) }
     },
-    { name, phases: [], counts: {}, lastEvent: null, current: null, active: false, costUsd: 0, costUnreported: false, stop: null, incident: incidentBanner(projectDir) },
+    { name, phases: [], counts: {}, lastEvent: null, current: null, active: false, costUsd: 0, costUnreported: false, tokens: 0, stop: null, incident: incidentBanner(projectDir) },
   )
 }
 
@@ -197,7 +197,7 @@ function incidentDetail(runsDir: string, name: string, id: string) {
   const attempts = withDatabase(
     projectDir,
     (db) =>
-      all(db, "SELECT subject, role, runner, model, status, failure_class AS failureClass, cost_usd AS costUsd, duration_ms AS durationMs, transcript_path AS transcriptPath, created_at AS createdAt FROM attempts WHERE subject LIKE ? ORDER BY id", `doctor-${id}-%`),
+      all(db, "SELECT subject, role, runner, model, status, failure_class AS failureClass, cost_usd AS costUsd, tokens, duration_ms AS durationMs, transcript_path AS transcriptPath, created_at AS createdAt FROM attempts WHERE subject LIKE ? ORDER BY id", `doctor-${id}-%`),
     [],
   ).map(({ transcriptPath, ...attempt }: any) => ({ ...attempt, transcript: String(transcriptPath ?? "").split("/").pop() }))
   return { ...incident, calls: attempts }
@@ -381,15 +381,15 @@ async function detail(runsDir: string, name: string) {
       meta: Object.fromEntries(all(db, "SELECT key, value FROM meta").filter((row) => !/^(github\.item|task\.files)\./.test(String(row.key))).map((row) => [row.key, row.value])),
       attempts: all(
         db,
-        "SELECT id, subject, role, runner, model, status, failure_class AS failureClass, duration_ms AS durationMs, cost_usd AS costUsd, transcript_path AS transcriptPath, created_at AS createdAt FROM attempts ORDER BY id DESC LIMIT 300",
+        "SELECT id, subject, role, runner, model, status, failure_class AS failureClass, duration_ms AS durationMs, cost_usd AS costUsd, tokens, transcript_path AS transcriptPath, created_at AS createdAt FROM attempts ORDER BY id DESC LIMIT 300",
       ),
       events: all(db, "SELECT id, at, type, message FROM events ORDER BY id DESC LIMIT 300").reverse(),
       activeTime: activeTime(all(db, "SELECT at, type, message FROM events ORDER BY id")),
       cooldowns: all(db, "SELECT runner, cooldown_until AS until, reason FROM runner_health"),
       reviews: all(db, "SELECT task_id AS taskId, attempt, verdict, flagged_files AS flaggedFiles, file_hashes AS fileHashes FROM reviews ORDER BY id"),
-      spend: all(db, "SELECT COALESCE(SUM(cost_usd), 0) AS usd, COALESCE(SUM(cost_usd IS NULL), 0) AS unreportedCalls FROM attempts WHERE role != 'doctor'")[0] ?? { usd: 0, unreportedCalls: 0 },
+      spend: all(db, "SELECT COALESCE(SUM(cost_usd), 0) AS usd, COALESCE(SUM(cost_usd IS NULL), 0) AS unreportedCalls, COALESCE(SUM(tokens), 0) AS tokens FROM attempts WHERE role != 'doctor'")[0] ?? { usd: 0, unreportedCalls: 0, tokens: 0 },
     }),
-    { phases: [], tasks: [], attempts: [], events: [], activeTime: { ms: 0, openSince: null } as ActiveTime, cooldowns: [], reviews: [], spend: { usd: 0, unreportedCalls: 0 }, meta: {} as Record<string, string> },
+    { phases: [], tasks: [], attempts: [], events: [], activeTime: { ms: 0, openSince: null } as ActiveTime, cooldowns: [], reviews: [], spend: { usd: 0, unreportedCalls: 0, tokens: 0 }, meta: {} as Record<string, string> },
   )
   const definitionFields = (definition: any) => ({
     title: definition.title,
@@ -443,7 +443,7 @@ async function detail(runsDir: string, name: string) {
     deploy,
     qa: { round: meta["qa.round"] ? Number(meta["qa.round"]) : null },
     feedback: pendingFeedback(projectDir),
-    budget: { runUsd: config?.budget.runUsd ?? defaultRunBudgetUsd, spentUsd: spend.usd, unreportedCalls: spend.unreportedCalls },
+    budget: { runUsd: config?.budget.runUsd ?? defaultRunBudgetUsd, spentUsd: spend.usd, spentTokens: spend.tokens, unreportedCalls: spend.unreportedCalls },
     reviewer: reviewerMetrics(reviews.map(parseReviewRow).filter((row: ReviewRow | null): row is ReviewRow => row !== null)),
   }
 }

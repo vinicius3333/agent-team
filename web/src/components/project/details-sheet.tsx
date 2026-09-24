@@ -6,7 +6,7 @@ import { CopyButton } from "@/components/copy-button"
 import { StatusBadge } from "@/components/status-badge"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
-import { formatClock, formatCost, formatDateTime, formatDuration } from "@/lib/format"
+import { formatClock, formatDateTime, formatDuration, formatTokens } from "@/lib/format"
 import { attemptNumber, deployState, qaState, describeCandidate, maxRetries, phaseDocuments, phaseOutputs, phaseRoles, skippedPhases, stepLabels, taskCounts } from "@/lib/pipeline"
 import { useProjectView, type Panel, type TranscriptRequest } from "./context"
 import { DocumentView } from "./document-view"
@@ -63,7 +63,7 @@ function Candidate({ role }: { role: RoleConfig | undefined }) {
 
 function CallButton({ attempt, label }: { attempt: Attempt; label: string }) {
   const { openTranscript } = useProjectView()
-  return <CallRow label={label} sub={`${attempt.runner} ${attempt.model}`} status={attempt.status} detail={[formatDuration(attempt.durationMs), attempt.failureClass, attempt.costUsd ? formatCost(attempt.costUsd, 3) : null, formatClock(attempt.createdAt)].filter(Boolean).join(" · ")} onClick={() => openTranscript(transcriptRequest(attempt))} />
+  return <CallRow label={label} sub={`${attempt.runner} ${attempt.model}`} status={attempt.status} detail={[formatDuration(attempt.durationMs), attempt.failureClass, attempt.tokens != null ? `${formatTokens(attempt.tokens)} tokens` : null, formatClock(attempt.createdAt)].filter(Boolean).join(" · ")} onClick={() => openTranscript(transcriptRequest(attempt))} />
 }
 
 function CommandButton({ file, subject, label }: { file: string; subject: string; label: string }) {
