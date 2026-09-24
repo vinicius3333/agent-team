@@ -6,6 +6,9 @@ import { CopyButton } from "@/components/copy-button"
 import { cn } from "@/lib/utils"
 
 const imagePattern = /\.(png|jpe?g|webp|gif)$/i
+const hexColorPattern = /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i
+// The illustrator's files in design/branding/, named like 02-landing.png or 02-landing.mobile.png.
+const brandingImagePattern = /^\d{2}-[\w.-]+\.(?:png|jpe?g|webp)$/i
 
 export function resolvePath(base: string, relative: string): string {
   const parts = (base ? base.split("/").slice(0, -1) : []).concat(relative.split("/"))
@@ -154,6 +157,27 @@ export function Markdown({ text, project, path = "", onOpenDocument, className }
             <pre>{children}</pre>
           </div>
         )
+      },
+      code: ({ className, children }) => {
+        const value = textOf(children)
+        if (!className && hexColorPattern.test(value)) {
+          return (
+            <code className="inline-flex items-center gap-1.5 align-middle">
+              <span className="inline-block size-3 shrink-0 rounded-sm border border-foreground/20" style={{ background: value }} aria-hidden="true" />
+              {value}
+            </code>
+          )
+        }
+        if (!className && project && brandingImagePattern.test(value)) {
+          const source = urls.brandingImage(project, value)
+          return (
+            <a href={source} target="_blank" rel="noopener noreferrer" className="group inline-flex flex-col gap-1 align-top no-underline" title={`Open ${value}`}>
+              <code>{value}</code>
+              <img src={source} alt={`Branding image ${value}`} loading="lazy" className="max-h-64 w-auto max-w-full rounded-md border object-contain object-top transition group-hover:opacity-90" />
+            </a>
+          )
+        }
+        return <code className={className}>{children}</code>
       },
       table: ({ children }) => (
         <div className="md-table">

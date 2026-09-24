@@ -15,6 +15,7 @@ import type { PipelineStep } from "@/api/types"
 import { StatusBadge } from "@/components/status-badge"
 import { DocumentView } from "./document-view"
 import { ProjectBranding } from "./branding"
+import { DesignSystemPreview } from "./design-system-preview"
 import { MarketingPieces } from "./marketing-tab"
 import { useProjectView } from "./context"
 
@@ -41,10 +42,11 @@ function PlanOutput() {
   )
 }
 
-function PhaseOutputs({ phase, version }: { phase: string; version: string }) {
+function PhaseOutputs({ phase, version, onSuggest }: { phase: string; version: string; onSuggest: (text: string) => void }) {
   const documents = phaseDocuments[phase] ?? []
   const showBranding = phase === "branding" || phase === "design"
   const tabs = [
+    ...(phase === "design" ? [{ id: "design-system", label: "Design system" }] : []),
     ...(showBranding ? [{ id: "branding", label: "Branding" }] : []),
     ...(phase === "marketing" ? [{ id: "marketing", label: "Pieces" }] : []),
     ...documents.map((path) => ({ id: path, label: path.split("/").pop() ?? path })),
@@ -60,6 +62,11 @@ function PhaseOutputs({ phase, version }: { phase: string; version: string }) {
             </TabsTrigger>
           ))}
         </TabsList>
+      )}
+      {phase === "design" && (
+        <TabsContent value="design-system">
+          <DesignSystemPreview version={version} onSuggest={onSuggest} />
+        </TabsContent>
       )}
       {showBranding && (
         <TabsContent value="branding">
@@ -132,7 +139,7 @@ export function GatePanel({ phase }: { phase: string }) {
           <CardDescription>Read what the agents wrote, then approve it or ask for changes.</CardDescription>
         </CardHeader>
         <CardContent>
-          <PhaseOutputs phase={phase} version={version} />
+          <PhaseOutputs phase={phase} version={version} onSuggest={(text) => setMessage((current) => (current.trim() ? `${current.trim()}\n\n${text}` : text).slice(0, feedbackLimit))} />
         </CardContent>
       </Card>
       <Card className="h-fit border-warning/40 lg:sticky lg:top-4">

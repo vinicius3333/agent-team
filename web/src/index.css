@@ -1,7 +1,8 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-@custom-variant dark (&:is(.dark *));
+/* A ".light" element inside dark mode, such as the design system preview, turns the dark: variants off again. */
+@custom-variant dark (&:is(.dark *):not(.light *));
 
 :root {
   --radius: 0.625rem;
