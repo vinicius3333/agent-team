@@ -5,6 +5,7 @@ import { request } from "node:https"
 import { setTimeout as sleep } from "node:timers/promises"
 import { basename, join } from "node:path"
 import { demoAccessEnv, ensureDemoAccess } from "./access.ts"
+import { loadConfig, type PipelineConfig } from "./config.ts"
 import type { Store } from "./store.ts"
 import { resolveCommands, type DeployPlan } from "./templates.ts"
 
@@ -167,6 +168,13 @@ async function publicStatus(url: string): Promise<number> {
   })
 }
 
+// The app reads the public key at build time (VITE_POSTHOG_KEY) or at runtime (POSTHOG_KEY); no key, no tracking.
+export function posthogEnv(config: PipelineConfig): Record<string, string> {
+  const posthog = config.operate.posthog
+  if (!posthog?.publicKey) return {}
+  return { POSTHOG_KEY: posthog.publicKey, VITE_POSTHOG_KEY: posthog.publicKey, POSTHOG_HOST: posthog.host }
+}
+
 export async function deployProject(projectDir: string, store: Store): Promise<DeployResult> {
   const { app, tunnel } = names(projectDir)
   let stage: "app" | "tunnel" = "app"
@@ -181,7 +189,7 @@ export async function deployProject(projectDir: string, store: Store): Promise<D
     store.log("deploy", `starting app: ${plan.install ? `${plan.install} && ` : ""}${plan.start} (port ${plan.port})`)
     ensureNetwork()
     removeContainers(app, tunnel)
-    startAppContainer({ name: app, dir, plan, label: "agent-team-app=1", restart: true, env: demoAccessEnv(ensureDemoAccess(store)) })
+    startAppContainer({ name: app, dir, plan, label: "agent-team-app=1", restart: true, env: { ...demoAccessEnv(ensureDemoAccess(store)), ...posthogEnv(loadConfig(join(projectDir, "pipeline.yaml"))) } })
     await waitForApp(app, plan.port)
     stage = "tunnel"
     run("docker", [

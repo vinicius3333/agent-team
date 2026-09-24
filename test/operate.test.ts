@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { after, test } from "node:test"
 import { loadConfig } from "../src/config.ts"
+import { posthogEnv } from "../src/deploy.ts"
 import { healthSummary, percentile, probe, probeProject } from "../src/operate/health.ts"
 import { fetchPosthogData, posthogMetrics, PosthogError } from "../src/operate/posthog.ts"
 import { dueAgents, parseInsightReply, runInsightAgent } from "../src/operate/agents.ts"
@@ -375,4 +376,10 @@ test("operateTick probes live projects and runs due agents one at a time", async
   await done
   assert.deepEqual(probed, ["https://app.example"])
   assert.deepEqual(calls, ["live:monitoring", "live:analytics", "live:research"])
+})
+
+test("posthogEnv passes the public key and host only when a key is set", () => {
+  const config = loadConfig(writePipeline("posthog-env", "operate:\n  posthog: { host: https://eu.posthog.com/, projectId: 1, publicKey: phc_x }\n"))
+  assert.deepEqual(posthogEnv(config), { POSTHOG_KEY: "phc_x", VITE_POSTHOG_KEY: "phc_x", POSTHOG_HOST: "https://eu.posthog.com" })
+  assert.deepEqual(posthogEnv(loadConfig(writePipeline("posthog-none", ""))), {})
 })
