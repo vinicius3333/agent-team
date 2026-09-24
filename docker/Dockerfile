@@ -4,7 +4,7 @@ ARG CLAUDE_CODE_VERSION=latest
 ARG CODEX_VERSION=latest
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends git ca-certificates \
+  && apt-get install -y --no-install-recommends git ca-certificates python3 make g++ \
   && rm -rf /var/lib/apt/lists/* \
   && npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} @openai/codex@${CODEX_VERSION} \
   && npm cache clean --force
