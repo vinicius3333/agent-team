@@ -1,4 +1,4 @@
-import type { Defaults, LeadActionState, RoleCandidate, Incident, IncidentDetail, NewProjectRequest, ProjectDetail, ProjectSummary, QaRound } from "@/api/types"
+import type { Defaults, LeadActionState, LeadSettings, RoleCandidate, Incident, IncidentDetail, NewProjectRequest, ProjectDetail, ProjectSummary, QaRound } from "@/api/types"
 
 export class ApiError extends Error {
   status: number
@@ -62,10 +62,19 @@ export const api = {
   feedback: (name: string, phase: string, message: string) => post<{ started: boolean }>(`${projectPath(name)}/feedback`, { phase, message }),
   retry: (name: string, taskId: string) => post<{ started: boolean }>(`${projectPath(name)}/retry`, { taskId }),
   saveRoles: (name: string, roles: Record<string, RoleCandidate>) => post<{ saved: boolean }>(`${projectPath(name)}/roles`, { roles }),
-  chat: (name: string, message: string) => post<{ accepted: boolean }>(`${projectPath(name)}/chat`, { message }),
+  chat: (name: string, message: string, attachments: string[] = []) => post<{ accepted: boolean }>(`${projectPath(name)}/chat`, { message, attachments }),
+  chatStop: (name: string) => post<{ stopped: boolean }>(`${projectPath(name)}/chat-stop`, {}),
   chatAction: (name: string, messageId: number, index: number, state: Exclude<LeadActionState, "proposed">) =>
-    post<{ saved: boolean }>(`${projectPath(name)}/chat-action`, { messageId, index, state }),
-  raiseBudget: (name: string) => post<{ runUsd: number; started: boolean }>(`${projectPath(name)}/raise-budget`, {}),
+    post<{ saved: boolean; note?: string; started?: boolean }>(`${projectPath(name)}/chat-action`, { messageId, index, state }),
+  uploadChatImage: async (name: string, file: File) => {
+    const response = await fetch(`${projectPath(name)}/chat-upload`, { method: "POST", headers: { "content-type": file.type, "x-agent-team": "1" }, body: file })
+    if (!response.ok) throw await errorFrom(response)
+    return (await response.json()) as { file: string }
+  },
+  files: (name: string) => getJson<string[]>(`${projectPath(name)}/files`),
+  saveLeadSettings: (name: string, settings: LeadSettings) => post<{ saved: boolean }>(`${projectPath(name)}/lead-settings`, settings),
+  // Without runUsd the server adds 50%.
+  raiseBudget: (name: string, runUsd?: number) => post<{ runUsd: number; started: boolean }>(`${projectPath(name)}/raise-budget`, runUsd === undefined ? {} : { runUsd }),
 }
 
 export const urls = {
@@ -74,4 +83,5 @@ export const urls = {
   qaFile: (name: string, round: number, file: string) => `${projectPath(name)}/qa/${round}/${encodeURIComponent(file)}`,
   raw: (name: string, path: string) => `${projectPath(name)}/raw?path=${encodeURIComponent(path)}`,
   file: (name: string, path: string) => `${projectPath(name)}/file?path=${encodeURIComponent(path)}`,
+  chatUpload: (name: string, file: string) => `${projectPath(name)}/chat-upload/${encodeURIComponent(file)}`,
 }
