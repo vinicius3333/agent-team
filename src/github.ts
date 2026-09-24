@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs"
 import { basename, join } from "node:path"
 import type { PipelineConfig } from "./config.ts"
 import { fastForward, type Workspace } from "./harness/workspace.ts"
-import type { Store } from "./store.ts"
+import type { Change, Store } from "./store.ts"
 import type { Task } from "./tasks.ts"
 
 // Everything here runs on the host, never in a container, so GitHub credentials stay out of agent reach.
@@ -23,7 +23,12 @@ const labels: [name: string, color: string, description: string][] = [
   ["phase:feature", "22c55e", "Feature task"],
   ["planning", "a855f7", "Planning artifact"],
   ["blocked", "ef4444", "Needs a human"],
+  ["change", "f59e0b", "Change request to a finished app"],
 ]
+
+export function changeTitle(change: Pick<Change, "request">): string {
+  return change.request.trim().split("\n")[0].slice(0, 100)
+}
 
 function run(command: string, args: string[], cwd: string, input?: string): string {
   return execFileSync(command, args, { cwd, input, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim()
@@ -158,6 +163,11 @@ export function createGitHub(context: GitHubContext) {
     return number
   }
 
+  function changeIssue(id: string): number | null {
+    const cached = store.meta(`github.change.${id}`)
+    return cached ? Number(cached) : null
+  }
+
   function taskBody(task: Task, epic: number | null): string {
     const dependencies = task.dependsOn.map((id) => {
       const issue = store.taskIssue(id)
@@ -210,7 +220,8 @@ export function createGitHub(context: GitHubContext) {
 
     syncTaskIssues(tasks: Task[]): void {
       if (!enabled || !ensureRepository()) return
-      const epic = ensureEpic()
+      const change = store.currentChange()
+      const epic = change ? changeIssue(change.id) : ensureEpic()
       const created: string[] = []
       for (const task of tasks) {
         if (store.taskIssue(task.id)) continue
@@ -252,10 +263,60 @@ export function createGitHub(context: GitHubContext) {
     runCompleted(deployUrl: string | null): void {
       if (enabled && deployUrl) attempt("set repository homepage", () => run("gh", ["repo", "edit", repo(), "--homepage", deployUrl], projectDir))
       const epic = store.meta("github.epic")
-      if (!enabled || !epic) return
+      if (!enabled || !epic || store.meta("github.epic.closed")) return
+      store.setMeta("github.epic.closed", "1")
       comment(Number(epic), ["All tasks are merged. The build is complete.", deployUrl ? `\nLive preview: ${deployUrl}` : ""].join(""))
       setBoardStatus(issueUrl(Number(epic)), "Done")
       attempt("close epic", () => run("gh", ["issue", "close", epic, "-R", repo()], projectDir))
+    },
+
+    // Pushes the change branch and opens the change's issue, which task issues link instead of the build epic.
+    changeOpened(change: Change): void {
+      if (!enabled || !ensureRepository()) return
+      attempt(`push ${change.branch}`, () => run("git", ["push", "-q", "origin", `${change.branch}:${change.branch}`], projectDir))
+      attempt("create the change label", () => run("gh", ["label", "create", "change", "--color", "f59e0b", "--description", "Change request to a finished app", "--force", "-R", repo()], projectDir))
+      const body = ["## Request", "", change.request.trim(), "", `Built on the branch \`${change.branch}\` and merged into main once QA passes.`].join("\n")
+      const number = createIssue(`Change ${change.id}: ${changeTitle(change)}`, body, ["agent-team", "change"])
+      if (number === null) return
+      store.setMeta(`github.change.${change.id}`, String(number))
+      addToBoard(issueUrl(number), "In Progress")
+    },
+
+    // Opens the one pull request from the change branch into main and merges it with a merge commit.
+    // Returns its URL, or null when GitHub is off or a step failed, so the caller merges locally.
+    mergeChange(change: Change, body: string): string | null {
+      if (!enabled || !ensureRepository()) return null
+      return attempt(`merge ${change.branch}`, () => {
+        run("git", ["push", "-q", "origin", `${change.branch}:${change.branch}`], projectDir)
+        const url = run("gh", ["pr", "create", "-R", repo(), "--base", "main", "--head", change.branch, "--title", `feat: ${changeTitle(change)}`, "--body-file", "-"], projectDir, body)
+        store.setChangePullRequest(change.id, url)
+        run("gh", ["pr", "merge", url, "-R", repo(), "--merge"], projectDir)
+        run("git", ["fetch", "-q", "origin", "main"], projectDir)
+        fastForward(projectDir, "origin/main")
+        store.log("github", `merged ${url}`)
+        return url
+      })
+    },
+
+    changeFinished(change: Change, summary: string): void {
+      const issue = changeIssue(change.id)
+      if (!enabled || !issue) return
+      comment(issue, summary)
+      setBoardStatus(issueUrl(issue), "Done")
+      attempt(`close #${issue}`, () => run("gh", ["issue", "close", String(issue), "-R", repo()], projectDir))
+    },
+
+    // Closes the change's open pull requests, including the one into main, and its issue.
+    changeAbandoned(change: Change): void {
+      if (!enabled || !hasOrigin()) return
+      const open = attempt("list change pull requests", () => JSON.parse(run("gh", ["pr", "list", "-R", repo(), "--base", change.branch, "--state", "open", "--json", "url"], projectDir)) as { url: string }[]) ?? []
+      const intoMain = attempt("find the change pull request", () => JSON.parse(run("gh", ["pr", "list", "-R", repo(), "--head", change.branch, "--state", "open", "--json", "url"], projectDir)) as { url: string }[]) ?? []
+      for (const { url } of [...open, ...intoMain]) attempt(`close ${url}`, () => run("gh", ["pr", "close", url, "-R", repo()], projectDir))
+      const issue = changeIssue(change.id)
+      if (issue) {
+        comment(issue, "The change was abandoned from the dashboard.")
+        attempt(`close #${issue}`, () => run("gh", ["issue", "close", String(issue), "-R", repo(), "--reason", "not planned"], projectDir))
+      }
     },
 
     taskIssue(task: Task): number | null {
