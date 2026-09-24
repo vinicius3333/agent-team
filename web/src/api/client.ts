@@ -1,4 +1,4 @@
-import type { Defaults, LeadActionState, RoleCandidate, Incident, IncidentDetail, NewProjectRequest, ProjectDetail, ProjectSummary, QaRound } from "@/api/types"
+import type { Defaults, LeadActionState, NotificationStatus, NotificationTestResult, RoleCandidate, Incident, IncidentDetail, NewProjectRequest, ProjectDetail, ProjectSummary, QaRound } from "@/api/types"
 
 export class ApiError extends Error {
   status: number
@@ -54,6 +54,7 @@ export const api = {
   file: (name: string, path: string) => getText(`${projectPath(name)}/file?path=${encodeURIComponent(path)}`),
   incidents: () => getJson<Incident[]>("/api/incidents"),
   incident: (project: string, id: string) => getJson<IncidentDetail>(`/api/incidents/${encodeURIComponent(project)}/${encodeURIComponent(id)}`),
+  notifications: () => getJson<NotificationStatus>("/api/notifications"),
   transcript: (name: string, file: string) => getText(`${projectPath(name)}/transcript/${encodeURIComponent(file)}`),
 
   createProject: (body: NewProjectRequest) => post<{ name: string }>("/api/projects", body),
@@ -65,6 +66,7 @@ export const api = {
   chat: (name: string, message: string) => post<{ accepted: boolean }>(`${projectPath(name)}/chat`, { message }),
   chatAction: (name: string, messageId: number, index: number, state: Exclude<LeadActionState, "proposed">) =>
     post<{ saved: boolean }>(`${projectPath(name)}/chat-action`, { messageId, index, state }),
+  testNotifications: (channel?: string) => post<NotificationTestResult[]>("/api/notifications/test", channel ? { channel } : {}),
   raiseBudget: (name: string) => post<{ runUsd: number; started: boolean }>(`${projectPath(name)}/raise-budget`, {}),
 }
 

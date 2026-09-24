@@ -330,3 +330,27 @@ export interface IncidentCall {
 export interface IncidentDetail extends Incident {
   calls: IncidentCall[]
 }
+
+export interface NotificationChannel {
+  name: string
+  type: "webhook" | "slack" | "ntfy" | "email"
+  target: string | null
+  events: string[]
+  projects: string[] | null
+  enabled: boolean
+  offReason: string | null
+  lastSuccessAt: string | null
+  lastError: { at: string; status: number | null; message: string } | null
+}
+
+export interface NotificationStatus {
+  configured: boolean
+  error: string | null
+  channels: NotificationChannel[]
+}
+
+export interface NotificationTestResult {
+  channel: string
+  ok: boolean
+  error: string | null
+}

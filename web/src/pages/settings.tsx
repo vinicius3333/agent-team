@@ -1,4 +1,5 @@
 import { useProjectList } from "@/api/projects-context"
+import { NotificationsCard } from "@/components/notifications-card"
 import { PageHeader } from "@/components/page-header"
 import { themeOptions } from "@/components/theme-toggle"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -27,6 +28,7 @@ export function SettingsPage() {
             </ToggleGroup>
           </CardContent>
         </Card>
+        <NotificationsCard />
         <Card>
           <CardHeader>
             <CardTitle>Server</CardTitle>
