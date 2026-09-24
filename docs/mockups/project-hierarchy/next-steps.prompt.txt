@@ -1,0 +1,18 @@
+Use case: ui-mockup. Generate ONE polished desktop UI prototype screenshot, exactly 1440x900 landscape, no browser chrome. The attached image is brand and style reference: agent-team violet/black faceted hexagon logo, Inter typography, rounded white cards with thin #e6e6ec borders, violet primary #7c3aed, light background #f7f7fa, ink text #0b0b10, muted text #62627a, success green #15803d, warning amber #b45309, destructive red #dc2626, Lucide line icons. Flat crisp production dashboard screenshot, precise readable English, restrained borders and very subtle shadows.
+
+Navigation: ONE single white left sidebar, 260px wide, full height, fine right divider. There is NO second navigation column and NO horizontal tab bar or phase bar anywhere in the page. At top of sidebar the hexagon logo and "agent-team" wordmark.
+At the top right of the sidebar, on the same row as the logo, a small ghost icon button with the Lucide "panel-left-close" icon and tooltip-free, used to collapse the sidebar.
+Sidebar section label "PROJECTS" in small muted caps, then a collapsible project tree:
+- "Dad Jokes" EXPANDED, chevron pointing down, small green dot meaning live. Under it, indented 16px, three phase groups, each a small muted caps label with a status icon:
+  - "BUILD" with small green check, collapsed, chevron right, muted.
+  - "LAUNCH" with small green check, collapsed, chevron right, muted.
+  - "OPERATE" expanded, chevron down, small violet dot. Under it, indented again with a thin vertical guide line, items with Lucide icons: "Overview", "Health", "Analytics", "Competitors", "Next steps" with small violet count badge "5", "Changes".
+- "Recipe Box" collapsed, chevron right, small violet dot meaning building.
+- "Invoice API" collapsed, chevron right, gray dot.
+Then a divider, then "Incidents" and "Settings" at the bottom of the sidebar. IMPORTANT: "System" (gear icon) is a direct child of the project "Dad Jokes", at the SAME indent level as BUILD, LAUNCH and OPERATE, listed right after the OPERATE group. It is NOT inside the OPERATE group.
+Main content starts right of the sidebar with 32px gutters. Breadcrumb "Dad Jokes / Operate / Next steps". Title "Dad Jokes" with green badge "Live".
+The sidebar item "Next steps" is selected with a pale violet rounded background and violet text and icon; no other item is highlighted.
+Content: heading "Next steps", muted subtitle "Backlog built by the lead from agent findings". Filter chips row: "All" (selected), "Monitoring", "PostHog", "Competitors".
+Main list card with five backlog rows. Each row: severity chip, title, one line muted evidence, and a small muted source label with robot icon ("Monitoring agent", "PostHog agent" or "Research agent"). Rows have NO buttons; only a right chevron. The selected row 2 has a pale violet background.
+Rows: 1) red "High" "Fix vote API errors" evidence "2.3% 5xx on POST /api/votes since deploy #14"; 2) amber "Medium" "Shorten signup to one step" evidence "Funnel: 62% drop at email confirmation, 1,012 sessions"; 3) amber "Medium" "Add daily joke digest email" evidence "2 of 3 tracked competitors ship it"; 4) gray "Low" "Remove share button or move it" evidence "0.4% usage over 30 days"; 5) gray "Low" "Add PostHog events for voting" evidence "Vote flow has no tracked events".
+On the right a 320px detail panel for row 2 expanded: title "Shorten signup to one step", a small funnel bar chart in violet with steps "Landing 100%", "Signup form 41%", "Email confirm 16%", "First vote 12%", section "Proposed change" with text "Let users vote before confirming email; confirm later.", and a violet button "Approve as change".
