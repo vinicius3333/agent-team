@@ -106,12 +106,22 @@ node src/cli.ts doctor ~/projects                         # watch every project 
 | architecture | Architect | `docs/architecture.md`, `docs/adr/*`, `contracts/openapi.yaml` |
 | branding | Illustrator, then Design reviewer | `design/branding/01-logo.png`, desktop screens `02-<screen>.png` and later, mobile screens `02-<screen>.mobile.png`, `design/branding/README.md` |
 | design | Designer, then Design reviewer | step 1: `design/tokens.css`, `design/logo.svg`, `design/logo-mark.svg`, `docs/design-system.md`; the orchestrator renders `design/favicon/`; step 2: `docs/design.md` |
+| marketing | Marketer, then Design reviewer | `marketing/copy.json`, `marketing/art/*`; the orchestrator renders `marketing/<piece>-<format>.png` and `marketing/manifest.json` |
 | plan | Planner | `tasks.json` |
 | build | Worker, then Reviewer; Design reviewer for UI tasks | code and tests, one or more atomic commits per task |
 | qa | QA | `.agent-team/qa/round-<n>/`: test output, screenshots, `report.json`, verdict; fix tasks `Q<round><n>` in `tasks.json` |
 | deploy | none | live preview URL |
 
 `branding.count` (default 4, 2 to 6) sets the number of branding images, logo included. `branding.mobile` (default `true`) adds a phone version of every desktop screen. Set `branding.enabled: false` to skip the phase. Older `pipeline.yaml` files with a `mockups:` key, and `mockups` in `autonomy.gates`, still work.
+
+### Marketing
+
+After the design phase, the `marketer` role (default `codex`) writes launch images for the product. For each piece it writes a headline, a subtitle, and a call to action in the language of `input.md`. Then it picks the image that best shows the problem the product solves:
+
+- **Stock photo:** searched on [Openverse](https://openverse.org) (no API key) and saved with its credit and license.
+- **Generated:** drawn with Codex image generation when no good photo exists.
+
+The images carry no text. The orchestrator renders the text, the logo, and the brand tokens over each image with Playwright, offline, in every format in `marketing.formats`: `og` (1200×630), `square` (1080×1080), `story` (1080×1920), and `x` (1600×900). The headline shrinks until it fits. The design reviewer checks the result, and the dashboard's **Marketing** tab shows every piece with download buttons. Add `marketing` to `autonomy.gates` to approve the pieces before the plan. Projects planned before this phase existed skip it.
 
 ### Design review and commits
 
