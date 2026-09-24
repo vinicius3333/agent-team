@@ -1,0 +1,49 @@
+# Copy to <runsDir>/notifications.yaml (next to doctor.yaml). Without that file, notifications are off.
+# ${NAME} is read from the environment of agent-team ui or agent-team doctor.
+# A channel whose variable is not set is turned off with one warning; the others keep working.
+# Inside { } flow maps, quote the value: password: "${SMTP_PASSWORD}".
+
+# Base for links in messages. The dashboard has no login, so use a tailnet address. null = no links.
+dashboardUrl: https://your-host.your-tailnet.ts.net:4400
+
+# true also sends pauses caused by a runner cooldown. The doctor resumes those on its own.
+cooldowns: false
+
+throttle:
+  # Informational messages per project per minute. Messages that need you are never throttled.
+  perProjectPerMinute: 6
+  # More messages than this for one project in one pass become one digest.
+  digestAfter: 3
+
+# Event names: gate, budget, qa_failed, paused, failed, stopped, finished, live, incident.
+# events defaults to all of them except stopped. projects defaults to all projects.
+channels:
+  # Phone push through ntfy (https://ntfy.sh or your own server). The topic works like a password: make it hard to guess.
+  - name: phone
+    type: ntfy
+    # server: https://ntfy.sh
+    topic: agent-team-${NTFY_TOPIC_SUFFIX}
+    # token: ${NTFY_TOKEN}          # for a protected topic
+    events: [gate, budget, qa_failed, paused, failed, live]
+
+  # Slack incoming webhook. The URL is a secret.
+  # - name: slack
+  #   type: slack
+  #   url: ${SLACK_WEBHOOK_URL}
+  #   projects: [crm-test]
+
+  # Any HTTP endpoint. The body is the message as JSON.
+  # With secret set, X-Agent-Team-Signature: sha256=<hex> holds an HMAC-SHA256 of the raw body.
+  # - name: hook
+  #   type: webhook
+  #   url: https://example.com/agent-team
+  #   headers: { X-Team: platform }
+  #   secret: ${WEBHOOK_SECRET}
+
+  # SMTP email. Needs: npm install nodemailer (in the agent-team folder).
+  # - name: mail
+  #   type: email
+  #   smtp: { host: smtp.example.com, port: 587, user: "${SMTP_USER}", password: "${SMTP_PASSWORD}" }
+  #   from: agent-team@example.com
+  #   to: [you@example.com]
+  #   events: [gate, budget, failed]

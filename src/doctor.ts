@@ -11,8 +11,10 @@ import { createHarness, type Harness } from "./harness/harness.ts"
 import { createWorkspace, removeWorkspace, type Workspace } from "./harness/workspace.ts"
 import { fingerprint, incidentCauses, incidentId, listIncidents, saveIncident, subjectOf, type Incident, type IncidentCause, type IncidentKind } from "./incidents.ts"
 import { extractJsonObject } from "./json.ts"
+import { cooldownPattern, incidentGaveUpText, incidentOpenedPrefix } from "./notify/events.ts"
+import { startNotificationLoop } from "./notify/index.ts"
 import { createExecutor, landTasksFile, runAgent, type PipelineContext, type RunStop } from "./pipeline.ts"
-import { cliPath, installDir as liveInstallDir, listProjects, openProjectStore, processAlive, retryTask, runAlive, runLogPath, startRun } from "./project.ts"
+import { cliPath, installDir as liveInstallDir, listProjects, openProjectStore, processAlive, retryTask, runAlive, runLogPath, startRun, withProjectStore } from "./project.ts"
 import { decideReplan } from "./replan.ts"
 import type { Store } from "./store.ts"
 import { loadTasks } from "./tasks.ts"
@@ -63,7 +65,6 @@ export type Detection =
   | { kind: "crash_resume"; fingerprint: string; reason: string }
   | { kind: "incident"; incidentKind: IncidentKind; fingerprint: string; reason: string }
 
-const cooldownPattern = /cooling down|no runner available|rate_limit/i
 const cooldownResumeKey = "doctor.cooldownResume"
 const crashResumeKey = "doctor.crashResume"
 // An agent call may run this long past its timeout before the run counts as stalled (container teardown, retries).
@@ -671,7 +672,7 @@ function incidentFor(projectDir: string, name: string, store: Store, detection: 
     "",
     block(keyLines),
   ].join("\n"))
-  store.log("doctor", `opened incident ${incident.id}: ${detection.reason.split("\n")[0].slice(0, 300)}`)
+  store.log("doctor", `${incidentOpenedPrefix} ${incident.id}: ${detection.reason.split("\n")[0].slice(0, 300)}`)
   return saveIncident(projectDir, incident)
 }
 
@@ -679,6 +680,7 @@ function giveUp(projectDir: string, incident: Incident, notifier: Notifier, why:
   incident.status = "gave_up"
   addAction(incident, "gave_up", why)
   saveIncident(projectDir, incident)
+  withProjectStore(projectDir, (store) => store.log("doctor", `incident ${incident.id}: ${incidentGaveUpText}: ${why}`))
   notifier.comment(incident.issueUrl, `The doctor gave up: ${why}. It does not act on this stop again. A person must look.`)
 }
 
@@ -870,6 +872,7 @@ export async function runDoctor(options: DoctorOptions & { once?: boolean }): Pr
     if (pid && pid !== process.pid && processAlive(pid)) throw new Error(`another doctor is running (pid ${pid})`)
   }
   writeFileSync(lockPath, String(process.pid))
+  const stopNotifications = options.once ? null : startNotificationLoop(runsDir)
   try {
     for (;;) {
       try {
@@ -883,6 +886,7 @@ export async function runDoctor(options: DoctorOptions & { once?: boolean }): Pr
       if (options.signal?.aborted) return
     }
   } finally {
+    stopNotifications?.()
     rmSync(lockPath, { force: true })
   }
 }

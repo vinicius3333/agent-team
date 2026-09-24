@@ -16,6 +16,7 @@ import { summarizeActivity } from "../activity.ts"
 import { liveAgentPrefix, type LiveAgent } from "../harness/harness.ts"
 import { reviewerMetrics, type ReviewRow } from "../reviews.ts"
 import { authenticate, clientAddress, createLoginLimiter, fromTrustedProxy, loadAuthConfig, passwordUser, sessionCookieName, signSession, verifyPassword, type AuthConfig } from "./auth.ts"
+import { notificationStatus, sendTest, startNotificationLoop, UnknownChannelError, type NotifyDeps } from "../notify/index.ts"
 
 const execFileAsync = promisify(execFile)
 const builtWebDir = fileURLToPath(new URL("../../web/dist/", import.meta.url))
@@ -644,6 +645,9 @@ export interface UiOptions {
   allowInsecureBind?: boolean
   now?: () => number
   failedLoginDelayMs?: number
+  // false keeps the notification loop off (tests); the loop still skips while another process holds the lock.
+  notifications?: boolean
+  notifyDeps?: Partial<NotifyDeps>
 }
 
 function sessionCookie(value: string, maxAgeSeconds: number, secure: boolean): string {
@@ -717,6 +721,16 @@ export function startUi(options: UiOptions) {
         return response.end()
       }
       return send(response, 404, { error: "not found" })
+    }
+    if (parts[0] === "api" && parts[1] === "notifications" && parts[2] === "test" && parts.length === 3) {
+      const { channel } = body
+      if (channel !== undefined && typeof channel !== "string") return send(response, 400, { error: "The channel field must be a channel name." })
+      try {
+        return send(response, 200, await sendTest(runsDir, channel ?? null, options.notifyDeps))
+      } catch (error) {
+        if (error instanceof UnknownChannelError) return send(response, 404, { error: error.message })
+        throw error
+      }
     }
     if (parts[0] !== "api" || parts[1] !== "projects") return send(response, 404, { error: "not found" })
 
@@ -797,6 +811,7 @@ export function startUi(options: UiOptions) {
       if (parts[0] !== "api") return serveStatic(response, webDist, url.pathname)
 
       if (parts[0] === "api" && parts[1] === "defaults" && parts.length === 2) return send(response, 200, { roles: defaultRoles() })
+      if (parts[0] === "api" && parts[1] === "notifications" && parts.length === 2) return send(response, 200, notificationStatus(runsDir, options.notifyDeps?.env))
       if (parts[0] === "api" && parts[1] === "incidents" && parts.length === 2) return send(response, 200, allIncidents(runsDir))
       if (parts[0] === "api" && parts[1] === "incidents" && parts.length === 4) {
         if (!knownProject(parts[2])) return send(response, 404, { error: "unknown project" })
@@ -908,6 +923,10 @@ export function startUi(options: UiOptions) {
       send(response, 500, { error: (error as Error).message })
     }
   })
+  if (options.notifications !== false) {
+    const stopNotifications = startNotificationLoop(runsDir, { deps: options.notifyDeps })
+    server.on("close", stopNotifications)
+  }
   server.listen(options.port, host, () => {
     console.log(`agent-team ui on http://${host}:${(server.address() as import("node:net").AddressInfo).port} watching ${runsDir}`)
   })

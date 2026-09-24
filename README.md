@@ -135,6 +135,7 @@ node src/cli.ts retry ~/projects/my-app T007              # retry a blocked task
 node src/cli.ts deploy ~/projects/my-app                  # redeploy the live preview
 node src/cli.ts undeploy ~/projects/my-app                # stop the live preview
 node src/cli.ts doctor ~/projects                         # watch every project and repair stopped runs
+node src/cli.ts notify-test ~/projects --channel phone    # send a test notification
 ```
 
 `init` creates the folder, runs `git init`, writes `input.md`, and copies `pipeline.example.yaml` to `pipeline.yaml`. Edit `pipeline.yaml` to choose models, gates, and budget.
@@ -336,6 +337,55 @@ journalctl --user -u agent-team-doctor -f
 ```
 
 The service needs `gh` logged in for the same user (`gh auth login`, `gh auth setup-git`), because it pushes branches and opens issues and pull requests.
+
+## Notifications
+
+agent-team can tell you when a run needs you, so you do not have to watch the dashboard. It sends to ntfy (phone push), Slack, a generic webhook, or email.
+
+### Set it up
+
+1. Copy [`notifications.example.yaml`](notifications.example.yaml) to `notifications.yaml` in the runs folder (next to `doctor.yaml`). One file covers all projects. Without the file, notifications are off.
+2. Put secrets in environment variables and refer to them as `${NAME}`. Quote the value when it sits inside `{ }`: `password: "${SMTP_PASSWORD}"`.
+3. Restart `agent-team ui` or the doctor so the process has the variables.
+4. Send a test: `node src/cli.ts notify-test ~/projects`, or open **Settings > Notifications** in the dashboard.
+
+### What you get
+
+| Notification | When | Needs you |
+|---|---|---|
+| `gate` | A phase is ready for review | yes |
+| `budget` | The run budget is spent | yes |
+| `qa_failed` | QA stopped after its failed rounds | yes |
+| `paused`, `failed` | The run paused or failed (not a runner cooldown the doctor resumes, unless `cooldowns: true`) | yes |
+| `incident` | The doctor opened an incident (info) or gave up on one (needs you) | on give-up |
+| `finished` | The run completed | no |
+| `live` | The app is live. The message never has the demo password. | no |
+| `stopped` | Ctrl+C, a dashboard stop, or a service restart. Off by default; add it to a channel's `events` to get it. | no |
+
+Each channel can limit `events` and `projects`. Links go to the dashboard page for the event, from `dashboardUrl`. The dashboard has no login, so the links only work on your tailnet.
+
+### How it works
+
+- The run never sends anything. A loop in `agent-team doctor` and in `agent-team ui` reads each project's event log every 15 seconds. A lock file (`.notify.lock`) lets only one of them send.
+- The first pass starts after the latest event, so turning notifications on does not replay old events. Events older than 24 hours are skipped.
+- The same stop is sent once per 6 hours. Informational messages are limited per project per minute (`throttle.perProjectPerMinute`). When more than `throttle.digestAfter` messages are due at once, you get one digest.
+- A failed send is retried after 5 and 30 seconds, then dropped. After 5 failures in a row the channel turns off until the process restarts or `notifications.yaml` changes. The settings page shows the last error.
+- The webhook body is the message as JSON. When `secret` is set, the `X-Agent-Team-Signature: sha256=<hex>` header holds an HMAC-SHA256 of the raw body.
+- Email needs `nodemailer`, which is not installed by default: run `npm install nodemailer` in the agent-team folder.
+
+### Secrets in the systemd service
+
+Add the variables to the service's `EnvironmentFile` (mode 600), not to the unit file:
+
+```sh
+# ~/.config/agent-team/doctor.env
+CLAUDE_CODE_OAUTH_TOKEN=...
+NTFY_TOPIC_SUFFIX=...
+NTFY_TOKEN=...
+SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
+```
+
+Secrets never go into `state.db`, the event log, the dashboard API, or git. The dashboard shows each channel's host only.
 
 ## Limits
 
