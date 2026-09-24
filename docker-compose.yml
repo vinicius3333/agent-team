@@ -11,9 +11,10 @@ x-agent-team: &agent-team
   pid: host
   environment:
     HOME: ${AGENT_TEAM_HOME:-/home/opc}
-  # Holds CLAUDE_CODE_OAUTH_TOKEN; kept on the host, never in the repository.
-  env_file:
-    - ${AGENT_TEAM_HOME:-/home/opc}/.config/agent-team/doctor.env
+  # Dokploy runs compose inside its own container, where host files are not visible, so env_file
+  # cannot point at the host. The token file is read at start from the mounted home instead; it
+  # holds CLAUDE_CODE_OAUTH_TOKEN and stays on the host, out of the repository and Dokploy.
+  entrypoint: ["sh", "-c", "set -a && . \"$$HOME/.config/agent-team/doctor.env\" && set +a && exec \"$$@\"", "agent-team"]
   volumes:
     - /var/run/docker.sock:/var/run/docker.sock
     - /tmp:/tmp
