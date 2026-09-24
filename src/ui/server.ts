@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process"
 import { existsSync, readdirSync, readFileSync, statSync, openSync, readSync, closeSync } from "node:fs"
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http"
-import { join, resolve, sep } from "node:path"
+import { basename, join, resolve, sep } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { promisify } from "node:util"
 import { parse as parseYaml } from "yaml"
@@ -33,6 +33,32 @@ function withDatabase<T>(projectDir: string, read: (db: DatabaseSync) => T, fall
     }
   }
   return fallback
+}
+
+const ignoredDirectories = new Set([".git", ".agent-team", "node_modules"])
+// SVG is left out on purpose: served from this origin it could run script.
+const rawImageTypes: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif" }
+const markdownMaxDepth = 4
+
+function listMarkdown(projectDir: string): string[] {
+  const found: string[] = []
+  const walk = (relative: string, depth: number) => {
+    if (depth > markdownMaxDepth) return
+    let entries: import("node:fs").Dirent[]
+    try {
+      entries = readdirSync(join(projectDir, relative), { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      if (ignoredDirectories.has(entry.name)) continue
+      const path = relative ? `${relative}/${entry.name}` : entry.name
+      if (entry.isDirectory()) walk(path, depth + 1)
+      else if (entry.isFile() && /\.md$/i.test(entry.name)) found.push(path)
+    }
+  }
+  walk("", 1)
+  return found.sort((a, b) => a.split("/").length - b.split("/").length || a.localeCompare(b))
 }
 
 function processAlive(pid: number): boolean {
@@ -156,6 +182,53 @@ async function githubInfo(projectDir: string, meta: Record<string, string>, enab
   }
 }
 
+const deployCache = new Map<string, { at: number; value: DeployInfo }>()
+const deployCacheMs = 10_000
+const tunnelUrlPattern = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/g
+
+interface DeployInfo {
+  url: string | null
+  status: "live" | "starting" | "stopped" | "missing"
+  appContainer: string
+  tunnelContainer: string
+  app: string
+  tunnel: string
+}
+
+async function containerState(name: string): Promise<string> {
+  return (await command(".", "docker", ["inspect", "-f", "{{.State.Status}}", name])).trim() || "missing"
+}
+
+// cloudflared logs to stderr, so both streams are read for the tunnel URL.
+async function tunnelLogs(name: string): Promise<string> {
+  try {
+    const { stdout, stderr } = await execFileAsync("docker", ["logs", "--tail", "400", name], { timeout: 5000, maxBuffer: 4 * 1024 * 1024 })
+    return `${stdout}${stderr}`
+  } catch (error) {
+    const failure = error as { stdout?: string; stderr?: string }
+    return `${failure.stdout ?? ""}${failure.stderr ?? ""}`
+  }
+}
+
+async function deployInfo(projectDir: string, metaUrl: string | null): Promise<DeployInfo> {
+  const cached = deployCache.get(projectDir)
+  if (cached && Date.now() - cached.at < deployCacheMs) return cached.value
+  const slug = basename(projectDir).toLowerCase().replace(/[^a-z0-9-]/g, "-")
+  const appContainer = `agent-team-app-${slug}`
+  const tunnelContainer = `agent-team-tunnel-${slug}`
+  const [app, tunnel] = await Promise.all([containerState(appContainer), containerState(tunnelContainer)])
+  const fromLogs = tunnel === "missing" ? null : ((await tunnelLogs(tunnelContainer)).match(tunnelUrlPattern)?.at(-1) ?? null)
+  const url = fromLogs ?? (metaUrl || null)
+  const status = app === "running" && tunnel === "running" ? (url ? "live" : "starting") : app === "missing" && tunnel === "missing" ? "missing" : "stopped"
+  const value: DeployInfo = { url: status === "missing" ? null : url, status, appContainer, tunnelContainer, app, tunnel }
+  deployCache.set(projectDir, { at: Date.now(), value })
+  return value
+}
+
+function metaValue(projectDir: string, key: string): string | null {
+  return withDatabase(projectDir, (db) => (all(db, "SELECT value FROM meta WHERE key = ?", key)[0]?.value as string | undefined) ?? null, null)
+}
+
 async function detail(runsDir: string, name: string) {
   const projectDir = join(runsDir, name)
   const taskDefinitions = new Map(readTasksFile(projectDir).map((task) => [task.id, task]))
@@ -197,11 +270,12 @@ async function detail(runsDir: string, name: string) {
   const config = readConfig(projectDir)
   const attempts = state.attempts.map(({ transcriptPath, ...attempt }: any) => ({ ...attempt, transcript: String(transcriptPath ?? "").split("/").pop() }))
   const { meta, ...stateWithoutMeta } = state
-  const [github, gitLog, worktrees, dockerPs] = await Promise.all([
+  const [github, gitLog, worktrees, dockerPs, deploy] = await Promise.all([
     githubInfo(projectDir, meta, Boolean(config?.publish.github.enabled)),
     command(projectDir, "git", ["log", "--oneline", "-30"]),
     command(projectDir, "git", ["worktree", "list"]),
     command(projectDir, "docker", ["ps", "--filter", "label=agent-team=1", "--format", "{{json .}}"]),
+    deployInfo(projectDir, meta["deploy.url"] ?? null),
   ])
   const containers = dockerPs
     .split("\n")
@@ -225,6 +299,7 @@ async function detail(runsDir: string, name: string) {
     gitLog: gitLog.split("\n").filter(Boolean),
     worktrees: worktrees.split("\n").filter(Boolean),
     containers,
+    deploy,
   }
 }
 
@@ -258,7 +333,9 @@ export function startUi(options: { runsDir: string; port: number }) {
 
       if (parts.length === 0) return send(response, 200, readFileSync(pagePath, "utf8"), "text/html")
       if (parts[0] === "api" && parts[1] === "projects" && parts.length === 2) {
-        return send(response, 200, projectDirs(runsDir).map((name) => summary(runsDir, name)))
+        const names = projectDirs(runsDir)
+        const deploys = await Promise.all(names.map((name) => deployInfo(join(runsDir, name), metaValue(join(runsDir, name), "deploy.url"))))
+        return send(response, 200, names.map((name, index) => ({ ...summary(runsDir, name), live: deploys[index].status === "live", liveUrl: deploys[index].url })))
       }
       if (parts[0] === "api" && parts[1] === "projects" && parts[2]) {
         const name = parts[2]
@@ -270,6 +347,18 @@ export function startUi(options: { runsDir: string; port: number }) {
           const path = join(projectDir, ".agent-team", "transcripts", parts[4])
           if (!existsSync(path)) return send(response, 404, { error: "not found" })
           return send(response, 200, readTail(path, transcriptMaxBytes), "text/plain")
+        }
+        if (parts[3] === "markdown" && parts.length === 4) return send(response, 200, listMarkdown(projectDir))
+        if (parts[3] === "raw" && parts.length === 4) {
+          const relative = url.searchParams.get("path") ?? ""
+          const path = resolve(projectDir, relative)
+          const extension = relative.split(".").pop()?.toLowerCase() ?? ""
+          const type = rawImageTypes[extension]
+          const hidden = relative.split(/[\\/]/).some((segment) => ignoredDirectories.has(segment))
+          if (!type || !path.startsWith(projectDir + sep) || hidden) return send(response, 400, { error: "path not allowed" })
+          if (!existsSync(path) || !statSync(path).isFile() || statSync(path).size > mockupMaxBytes) return send(response, 404, { error: "not found" })
+          response.writeHead(200, { "content-type": type, "cache-control": "no-store", "x-content-type-options": "nosniff" })
+          return response.end(readFileSync(path))
         }
         if (parts[3] === "mockups" && parts.length === 4) {
           const dir = join(projectDir, "design", "mockups")

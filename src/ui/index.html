@@ -148,6 +148,72 @@ tbody tr:last-child td { border-bottom: 0; }
 .mockups img { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; object-position: top; border-radius: 8px; border: 1px solid var(--border); background: var(--panel); }
 .mockups span { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 
+
+/* Live preview */
+.preview-button { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; padding: 8px 14px; border-radius: 9px; background: var(--accent); color: #fff; font-weight: 600; font-size: 13px; text-decoration: none; white-space: nowrap; }
+.preview-button:hover { filter: brightness(1.1); }
+.preview-button:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 2px; }
+.preview-button .dot { box-shadow: 0 0 0 2px rgba(255, 255, 255, .6); }
+.preview-button.wide { margin: 0; justify-content: center; }
+.project .globe { margin-left: auto; font-size: 13px; line-height: 1; }
+
+/* Markdown documents */
+.doc-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+.doc-toolbar select { flex: 1 1 200px; min-width: 0; max-width: 360px; background: var(--panel-2); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; font: inherit; font-size: 13px; }
+.toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.toggle button { border: 0; background: var(--panel-2); color: var(--muted); padding: 6px 10px; font-size: 12px; cursor: pointer; }
+.toggle button.selected { background: var(--accent); color: #fff; }
+.doc-actions { display: inline-flex; gap: 6px; margin-left: auto; }
+.artifact.rich { font-family: var(--font); font-size: 14px; white-space: normal; padding: 0; background: none; max-height: none; overflow: visible; }
+.doc { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 20px; align-items: start; }
+.doc.no-toc { grid-template-columns: minmax(0, 1fr); }
+.doc-toc { position: sticky; top: 8px; max-height: 70vh; overflow: auto; font-size: 12px; border-right: 1px solid var(--border); padding-right: 10px; }
+.doc-toc summary { cursor: pointer; color: var(--muted); font-weight: 600; margin-bottom: 6px; list-style: none; }
+.doc-toc ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.doc-toc button { background: none; border: 0; color: var(--muted); text-align: left; padding: 3px 6px; border-radius: 6px; cursor: pointer; width: 100%; font-size: 12px; }
+.doc-toc button:hover, .doc-toc button:focus-visible { color: var(--text); background: var(--panel-2); }
+.doc-toc .l3 { padding-left: 14px; }
+.doc-scroll { background: var(--panel-2); border-radius: 10px; padding: 18px 22px; max-height: 620px; overflow: auto; }
+.doc-source { font-family: var(--mono); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
+.md { max-width: 75ch; line-height: 1.65; color: var(--text); overflow-wrap: anywhere; }
+.md > :first-child { margin-top: 0; }
+.md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { line-height: 1.3; margin: 1.4em 0 .5em; scroll-margin-top: 12px; }
+.md h1 { font-size: 1.6em; } .md h2 { font-size: 1.3em; padding-bottom: .25em; border-bottom: 1px solid var(--border); } .md h3 { font-size: 1.1em; } .md h4, .md h5, .md h6 { font-size: 1em; color: var(--muted); }
+.md-anchor { opacity: 0; margin-left: 6px; border: 0; background: none; color: var(--accent-2); cursor: pointer; font: inherit; }
+.md-heading:hover .md-anchor, .md-anchor:focus-visible { opacity: 1; }
+.md p, .md ul, .md ol, .md blockquote, .md .md-table, .md .md-code { margin: 0 0 .9em; }
+.md ul, .md ol { padding-left: 1.4em; }
+.md li + li { margin-top: .2em; }
+.md li > ul, .md li > ol { margin: .25em 0 0; }
+.md li.task { list-style: none; margin-left: -1.3em; }
+.md-check { display: inline-grid; place-items: center; width: 15px; height: 15px; border: 1.5px solid var(--faint); border-radius: 4px; margin-right: 8px; font-size: 10px; vertical-align: -2px; }
+.md-check.done { background: var(--green); border-color: var(--green); color: #fff; }
+.md a, .md-link { color: var(--accent-2); text-decoration: underline; text-underline-offset: 2px; }
+.md-link { background: none; border: 0; padding: 0; font: inherit; cursor: pointer; }
+.md code { font-family: var(--mono); font-size: .88em; background: var(--bg); border: 1px solid var(--border); border-radius: 5px; padding: .08em .35em; }
+.md-code { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--bg); }
+.md-code-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; font-family: var(--mono); font-size: 11px; color: var(--muted); border-bottom: 1px solid var(--border); }
+.md-code pre { margin: 0; padding: 12px; overflow: auto; font-size: 12.5px; line-height: 1.5; }
+.md-code pre code { background: none; border: 0; padding: 0; font-size: inherit; }
+.md blockquote { border-left: 3px solid var(--accent); padding: .2em 0 .2em 1em; color: var(--muted); }
+.md hr { border: 0; border-top: 1px solid var(--border); margin: 1.5em 0; }
+.md img { max-width: 100%; border-radius: 8px; border: 1px solid var(--border); }
+.md-table { overflow-x: auto; }
+.md table { border-collapse: collapse; font-size: .92em; min-width: 50%; }
+.md th, .md td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; vertical-align: top; }
+.md th { background: var(--panel); font-weight: 600; }
+.bubble.md { white-space: normal; max-width: none; }
+.bubble.md p:last-child { margin-bottom: 0; }
+.card.reader { position: fixed; inset: 0; z-index: 30; margin: 0; border-radius: 0; overflow: auto; padding: 20px max(16px, calc((100vw - 1100px) / 2)); }
+.card.reader .doc-scroll { max-height: none; background: none; padding: 0; }
+.card.reader .md { font-size: 16px; }
+@media (max-width: 720px) {
+  .doc { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .doc-toc { position: static; max-height: none; border-right: 0; border-bottom: 1px solid var(--border); padding: 0 0 8px; }
+  .doc-scroll { padding: 14px; }
+  .doc-actions { margin-left: 0; }
+}
+
 .segmented { display: none; }
 
 /* Drawer */
@@ -303,11 +369,11 @@ details.collapsible[open] summary { margin-bottom: 8px; }
   <div class="drawer-body" id="drawer-body"></div>
 </aside>
 <script>
-const steps = ["spec", "architecture", "mockups", "design", "plan", "build"]
-const stepLabels = { spec: "Spec", architecture: "Architecture", mockups: "Mockups", design: "Design", plan: "Plan", build: "Build" }
+const steps = ["spec", "architecture", "mockups", "design", "plan", "build", "deploy"]
+const stepLabels = { spec: "Spec", architecture: "Architecture", mockups: "Mockups", design: "Design", plan: "Plan", build: "Build", deploy: "Deploy" }
 const columns = [["pending", "Pending"], ["running", "Running"], ["merged", "Merged"], ["blocked", "Blocked"]]
 const artifacts = ["input.md", "docs/spec.md", "docs/architecture.md", "mockups", "docs/design.md", "tasks.json"]
-const state = { projects: [], selected: null, detail: null, stream: null, artifact: "input.md", logPinned: true, section: "tasks", transcript: null, drawerTab: "timeline", panel: null }
+const state = { projects: [], selected: null, detail: null, stream: null, artifact: "input.md", logPinned: true, section: "tasks", transcript: null, drawerTab: "timeline", panel: null, docMode: "rendered", reader: false, markdownFiles: [], docCache: {} }
 const phaseRoles = { spec: "pm", architecture: "architect", mockups: "illustrator", design: "designer", plan: "planner" }
 const phaseOutputs = { spec: ["docs/spec.md"], architecture: ["docs/architecture.md", "docs/adr/", "contracts/openapi.yaml"], mockups: ["design/mockups/*.png", "design/mockups/README.md"], design: ["docs/design.md", "design/tokens.json"], plan: ["tasks.json"], build: ["code and tests, one merge per task"] }
 const phaseArtifacts = { spec: "docs/spec.md", architecture: "docs/architecture.md", mockups: "mockups", design: "docs/design.md", plan: "tasks.json" }
@@ -340,7 +406,7 @@ async function loadProjects() {
   document.getElementById("projects").innerHTML = state.projects.map((p) => {
     const status = projectStatus(p)
     const sub = p.current ? `${p.current}` : status.replace("_", " ")
-    return `<button class="project ${p.name === state.selected ? "selected" : ""}" data-name="${escape(p.name)}"><span class="dot ${status}"></span><span class="name">${escape(p.name)}<div class="sub">${escape(sub)}</div></span></button>`
+    return `<button class="project ${p.name === state.selected ? "selected" : ""}" data-name="${escape(p.name)}"><span class="dot ${status}"></span><span class="name">${escape(p.name)}<div class="sub">${escape(sub)}</div></span>${p.live ? `<span class="globe" title="Live preview${p.liveUrl ? `: ${escape(p.liveUrl)}` : ""}" aria-label="Live">🌐</span>` : ""}</button>`
   }).join("") || `<div class="empty">No projects in the runs directory.</div>`
   const switcher = document.getElementById("switcher")
   switcher.innerHTML = state.projects.map((p) => `<option value="${escape(p.name)}" ${p.name === state.selected ? "selected" : ""}>${escape(p.name)}</option>`).join("")
@@ -355,7 +421,7 @@ async function loadProjects() {
 function parseHash() {
   const [project = "", ...pairs] = location.hash.slice(1).split("&")
   const params = Object.fromEntries(pairs.map((pair) => pair.split("=").map(decodeURIComponent)))
-  const kind = ["task", "phase", "runner", "container"].find((key) => params[key])
+  const kind = ["task", "phase", "runner", "container", "doc"].find((key) => params[key])
   return { project: decodeURIComponent(project), panel: kind ? { kind, id: params[kind] } : null }
 }
 
@@ -400,6 +466,23 @@ function countTasks(tasks) {
   return counts
 }
 
+// The deploy phase row wins when the orchestrator writes one; otherwise it is derived from the containers and deploy events.
+function deployState(detail) {
+  const row = detail.phases.find((p) => p.name === "deploy")?.status
+  const deploy = detail.deploy
+  const lastEvent = detail.events.filter((e) => e.type === "deploy").at(-1)
+  if (row) {
+    const sub = row === "approved" ? (deploy?.status === "live" ? "live" : "deployed") : row === "running" ? "starting" : row === "skipped" ? "skipped" : row === "failed" ? "failed" : ""
+    return { status: row, sub }
+  }
+  if (deploy?.status === "live") return { status: "approved", sub: "live" }
+  if (lastEvent && /^failed/.test(lastEvent.message)) return { status: "failed", sub: "failed" }
+  if (lastEvent && /^skipped/.test(lastEvent.message)) return { status: "skipped", sub: "skipped" }
+  if (deploy?.status === "starting" || (lastEvent && /^starting/.test(lastEvent.message))) return { status: "running", sub: "starting" }
+  if (deploy?.status === "stopped") return { status: "pending", sub: "stopped" }
+  return { status: "pending", sub: "" }
+}
+
 function stepperHtml(detail) {
   const byName = Object.fromEntries(detail.phases.map((p) => [p.name, p.status]))
   const skipped = skippedPhases(detail)
@@ -411,6 +494,8 @@ function stepperHtml(detail) {
     if (step === "build") {
       status = !total ? "pending" : counts.merged === total ? "done" : counts.blocked ? "failed" : counts.running || detail.phases.every((p) => p.status === "approved") ? "running" : "pending"
       if (total) sub = `${counts.merged}/${total} tasks`
+    } else if (step === "deploy") {
+      ({ status, sub } = deployState(detail))
     } else if (skipped.has(step)) { status = "skipped"; sub = "skipped" }
     else if (status === "awaiting_approval") sub = "needs approval"
     else if (status === "running") sub = "working"
@@ -472,9 +557,26 @@ function gitHtml(detail) {
 }
 
 function artifactsHtml(previous) {
-  return `<section class="card" data-section="files"><h2>Artifacts</h2>
+  const extra = state.markdownFiles.filter((file) => !artifacts.includes(file))
+  const isMarkdown = /\.md$/i.test(state.artifact)
+  const option = (file) => `<option value="${escape(file)}" ${file === state.artifact ? "selected" : ""}>${escape(file)}</option>`
+  return `<section class="card ${state.reader ? "reader" : ""}" data-section="files" id="docs-card" ${state.reader ? 'role="dialog" aria-modal="true" aria-label="Document reader"' : ""}><h2>Documents</h2>
     <div class="tabs" role="tablist">${artifacts.map((a) => `<button class="tab ${a === state.artifact ? "selected" : ""}" data-artifact="${a}" role="tab" aria-selected="${a === state.artifact}">${a === "mockups" ? "Mockups" : a.split("/").pop()}</button>`).join("")}</div>
-    <div class="artifact" id="artifact">${previous || "Loading…"}</div></section>`
+    <div class="doc-toolbar">
+      <select id="doc-picker" aria-label="Open a file">${artifacts.map(option).join("")}${extra.length ? `<optgroup label="All Markdown files">${extra.map(option).join("")}</optgroup>` : ""}</select>
+      ${isMarkdown ? `<div class="toggle" role="group" aria-label="View mode"><button data-doc-mode="rendered" class="${state.docMode === "rendered" ? "selected" : ""}" aria-pressed="${state.docMode === "rendered"}">Rendered</button><button data-doc-mode="source" class="${state.docMode === "source" ? "selected" : ""}" aria-pressed="${state.docMode === "source"}">Source</button></div>` : ""}
+      <span class="doc-actions">${isMarkdown ? `<button class="small-button" data-open-doc-panel="${escape(state.artifact)}">Open in panel</button>` : ""}<button class="small-button" data-doc-reader aria-pressed="${state.reader}">${state.reader ? "Close reader" : "Expand"}</button></span>
+    </div>
+    <div class="artifact ${state.artifact === "mockups" || (isMarkdown && state.docMode === "rendered") ? "rich" : ""}" id="artifact">${previous || "Loading…"}</div></section>`
+}
+
+function markdownDocument(text, path, options = {}) {
+  const { html, headings } = markdown.render(text, { project: state.selected, path })
+  const toc = headings.filter((h) => h.level <= 3)
+  const tocHtml = toc.length > 2 && !options.compact
+    ? `<nav class="doc-toc" aria-label="Table of contents"><details open><summary>Contents</summary><ul>${toc.map((h) => `<li><button class="l${h.level}" data-md-anchor="${h.id}">${escape(h.text)}</button></li>`).join("")}</ul></details></nav>`
+    : ""
+  return `<div class="doc ${tocHtml ? "" : "no-toc"}">${tocHtml}<div class="doc-scroll"><article class="md">${html || '<p class="muted">Empty document.</p>'}</article></div></div>`
 }
 
 function headerHtml(detail) {
@@ -485,7 +587,8 @@ function headerHtml(detail) {
   return `<div class="header"><h1>${escape(detail.name)}</h1>
     <span class="pill ${detail.active ? "live" : "idle"}">${detail.active ? "● LIVE" : "IDLE"}</span>
     <span class="meta">${elapsed ? `<span>Elapsed ${elapsed}</span>` : ""}<span class="chip" title="Reported by Claude; Codex reports no cost">Cost $${cost.toFixed(2)}</span>
-    ${detail.current ? `<span class="chip desktop-only">Now: ${escape(detail.current)}</span>` : ""}</span></div>`
+    ${detail.current ? `<span class="chip desktop-only">Now: ${escape(detail.current)}</span>` : ""}</span>
+    ${detail.deploy?.url ? `<a class="preview-button" href="${escape(detail.deploy.url)}" target="_blank" rel="noopener noreferrer" title="${escape(detail.deploy.url)}"><span class="dot ${detail.deploy.status === "live" ? "merged" : "blocked"}" aria-hidden="true"></span>Open live preview ↗</a>` : ""}</div>`
 }
 
 function segmentedHtml() {
@@ -498,6 +601,7 @@ function render() {
   const log = document.getElementById("log")
   if (log) state.logPinned = log.scrollHeight - log.scrollTop - log.clientHeight < 40
   const previousArtifact = document.getElementById("artifact")?.innerHTML ?? ""
+  const docScroll = { card: document.getElementById("docs-card")?.scrollTop ?? 0, body: document.querySelector("#artifact .doc-scroll")?.scrollTop ?? 0, toc: document.querySelector("#artifact .doc-toc")?.scrollTop ?? 0 }
   document.getElementById("switcher-live").innerHTML = detail.active ? `<span class="pill live">● LIVE</span>` : ""
   document.getElementById("content").innerHTML = `<div style="display:flex;flex-direction:column;gap:16px">
     ${headerHtml(detail)}
@@ -510,18 +614,75 @@ function render() {
   document.querySelectorAll("[data-section]").forEach((el) => el.classList.toggle("visible", el.dataset.section === state.section))
   const newLog = document.getElementById("log")
   if (newLog && state.logPinned) newLog.scrollTop = newLog.scrollHeight
+  const card = document.getElementById("docs-card")
+  if (card) card.scrollTop = docScroll.card
+  const bodyScroll = document.querySelector("#artifact .doc-scroll")
+  if (bodyScroll) bodyScroll.scrollTop = docScroll.body
+  const tocScroll = document.querySelector("#artifact .doc-toc")
+  if (tocScroll) tocScroll.scrollTop = docScroll.toc
   if (!previousArtifact) loadArtifact()
   if (state.panel) renderDetails()
 }
 
 async function loadArtifact() {
   if (!state.selected) return
+  const project = state.selected
+  loadMarkdownList(project)
   if (state.artifact === "mockups") return loadMockups()
-  const response = await fetch(`api/projects/${encodeURIComponent(state.selected)}/file?path=${encodeURIComponent(state.artifact)}`)
-  const text = response.ok ? await response.text() : `Not written yet (${state.artifact})`
+  const path = state.artifact
+  const response = await fetch(`api/projects/${encodeURIComponent(project)}/file?path=${encodeURIComponent(path)}`)
+  const text = response.ok ? await response.text() : null
+  if (text !== null) state.docCache[path] = text
   const el = document.getElementById("artifact")
-  if (!el) return
-  el.innerHTML = state.artifact.endsWith(".json") ? escape(prettyJson(text)) : escape(text).replace(/^(#{1,6} .*)$/gm, '<span class="h">$1</span>')
+  if (!el || project !== state.selected || path !== state.artifact) return
+  const rich = /\.md$/i.test(path) && state.docMode === "rendered" && text !== null
+  el.classList.toggle("rich", rich)
+  if (text === null) el.innerHTML = `<span class="muted">Not written yet (${escape(path)})</span>`
+  else if (path.endsWith(".json")) el.innerHTML = escape(prettyJson(text))
+  else el.innerHTML = rich ? markdownDocument(text, path) : `<pre class="doc-source">${escape(text)}</pre>`
+  if (rich && path.startsWith("design/mockups/")) appendMockupGallery(el.querySelector(".md"), project)
+}
+
+// The mockups README lists file names; show the images it describes under the text.
+async function appendMockupGallery(article, project) {
+  if (!article) return
+  const base = `api/projects/${encodeURIComponent(project)}/mockups`
+  const images = await fetch(base).then((r) => (r.ok ? r.json() : [])).catch(() => [])
+  if (!images.length || !article.isConnected) return
+  article.insertAdjacentHTML("beforeend", `<h2>Images</h2><div class="mockups">${images.map((image) => `<a href="${base}/${encodeURIComponent(image)}" target="_blank" rel="noopener"><img src="${base}/${encodeURIComponent(image)}" alt="Mockup ${escape(image)}" loading="lazy"><span>${escape(image)}</span></a>`).join("")}</div>`)
+}
+
+async function loadMarkdownList(project) {
+  const files = await fetch(`api/projects/${encodeURIComponent(project)}/markdown`).then((r) => (r.ok ? r.json() : [])).catch(() => [])
+  if (project !== state.selected || JSON.stringify(files) === JSON.stringify(state.markdownFiles)) return
+  state.markdownFiles = files
+  const picker = document.getElementById("doc-picker")
+  if (picker && document.activeElement !== picker) {
+    const extra = files.filter((file) => !artifacts.includes(file))
+    const option = (file) => `<option value="${escape(file)}" ${file === state.artifact ? "selected" : ""}>${escape(file)}</option>`
+    picker.innerHTML = artifacts.map(option).join("") + (extra.length ? `<optgroup label="All Markdown files">${extra.map(option).join("")}</optgroup>` : "")
+  }
+}
+
+function showDocument(path) {
+  state.artifact = path
+  state.section = "files"
+  closeDetails()
+  render()
+  document.getElementById("artifact").innerHTML = "Loading…"
+  loadArtifact()
+  document.getElementById("docs-card")?.scrollIntoView({ behavior: "smooth", block: "start" })
+}
+
+function docPanel(detail, path) {
+  const text = state.docCache[path]
+  if (text === undefined) {
+    fetch(`api/projects/${encodeURIComponent(state.selected)}/file?path=${encodeURIComponent(path)}`)
+      .then((r) => (r.ok ? r.text() : ""))
+      .then((body) => { state.docCache[path] = body; if (state.panel?.kind === "doc" && state.panel.id === path) renderDetails() })
+    return { title: path.split("/").pop(), sub: path, body: `<p class="muted">Loading…</p>` }
+  }
+  return { title: path.split("/").pop(), sub: path, body: `<div class="section-actions"><button class="small-button" data-show-doc="${escape(path)}">Open in documents</button></div>${markdownDocument(text, path, { compact: true })}` }
 }
 
 async function loadMockups() {
@@ -533,6 +694,163 @@ async function loadMockups() {
     ? `<div class="mockups">${images.map((image) => `<a href="${base}/${encodeURIComponent(image)}" target="_blank" rel="noopener"><img src="${base}/${encodeURIComponent(image)}" alt="Mockup ${escape(image)}" loading="lazy"><span>${escape(image)}</span></a>`).join("")}</div>`
     : "No mockups yet (design/mockups/)"
 }
+
+// Markdown: a small renderer that escapes everything first and only emits tags it builds itself.
+const markdown = (() => {
+  const imagePattern = /\.(png|jpe?g|webp|gif)$/i
+  const safeScheme = (url) => !/^[a-z][a-z0-9+.-]*:/i.test(url) || /^(https?|mailto):/i.test(url)
+
+  function resolvePath(base, relative) {
+    const parts = (base ? base.split("/").slice(0, -1) : []).concat(relative.split("/"))
+    const out = []
+    for (const part of parts) {
+      if (!part || part === ".") continue
+      if (part === "..") out.pop()
+      else out.push(part)
+    }
+    return out.join("/")
+  }
+
+  function slugify(text, used) {
+    const base = text.toLowerCase().replace(/<[^>]*>/g, "").replace(/&[a-z#0-9]+;/g, "").replace(/[^\w\s-]/g, "").trim().replace(/\s+/g, "-") || "section"
+    let slug = base
+    for (let n = 2; used.has(slug); n++) slug = `${base}-${n}`
+    used.add(slug)
+    return slug
+  }
+
+  function inline(text, options) {
+    const codes = []
+    let html = escape(text).replace(/`([^`]+)`/g, (_, code) => `\u0000${codes.push(code) - 1}\u0000`)
+    html = html.replace(/!\[([^\]]*)\]\(((?:[^()\s]|\([^()\s]*\))+)(?:\s+&quot;[^&]*&quot;)?\)/g, (all, alt, url) => {
+      const raw = url.replace(/&amp;/g, "&")
+      if (!safeScheme(raw)) return alt
+      const src = /^https?:/i.test(raw) ? url : options.project && imagePattern.test(raw) ? `api/projects/${encodeURIComponent(options.project)}/raw?path=${encodeURIComponent(resolvePath(options.path, raw))}` : null
+      return src ? `<img src="${src}" alt="${alt}" loading="lazy">` : alt
+    })
+    html = html.replace(/\[([^\]]+)\]\(((?:[^()\s]|\([^()\s]*\))+)(?:\s+&quot;[^&]*&quot;)?\)/g, (all, label, url) => {
+      const raw = url.replace(/&amp;/g, "&")
+      if (!safeScheme(raw)) return label
+      if (raw.startsWith("#")) return `<button type="button" class="md-link" data-md-anchor="${escape(raw.slice(1).toLowerCase())}">${label}</button>`
+      if (/^(https?|mailto):/i.test(raw)) return `<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`
+      const target = resolvePath(options.path, raw.split("#")[0])
+      if (/\.md$/i.test(target)) return `<button type="button" class="md-link" data-open-md="${escape(target)}">${label}</button>`
+      return options.project ? `<a href="api/projects/${encodeURIComponent(options.project)}/file?path=${encodeURIComponent(target)}" target="_blank" rel="noopener">${label}</a>` : label
+    })
+    // Autolinks and emphasis only touch text between the tags built above, never attribute values.
+    let insideLink = false
+    html = html.split(/(<[^>]+>)/).map((part) => {
+      if (part.startsWith("<")) {
+        if (/^<a\b/.test(part)) insideLink = true
+        if (part === "</a>") insideLink = false
+        return part
+      }
+      const linked = insideLink ? part : part.replace(/(^|[\s(])(https?:\/\/[^\s<]+[^\s<.,;:!?)])/g, '$1<a href="$2" target="_blank" rel="noopener noreferrer">$2</a>')
+      return linked
+        .replace(/\*\*([^*]+)\*\*|__([^_]+)__/g, (_, a, b) => `<strong>${a ?? b}</strong>`)
+        .replace(/(^|[^\w*])\*([^*\s][^*]*)\*(?!\w)/g, "$1<em>$2</em>")
+        .replace(/(^|[^\w])_([^_\s][^_]*)_(?!\w)/g, "$1<em>$2</em>")
+        .replace(/~~([^~]+)~~/g, "<del>$1</del>")
+    }).join("")
+    // Code spans were captured from already-escaped text, so they are restored as is.
+    return html.replace(/\u0000(\d+)\u0000/g, (_, index) => `<code>${codes[Number(index)]}</code>`)
+  }
+
+  const listItemPattern = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/
+  const tableSeparator = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/
+  const splitRow = (line) => line.trim().replace(/^\|/, "").replace(/\|$/, "").split(/(?<!\\)\|/).map((cell) => cell.trim().replace(/\\\|/g, "|"))
+
+  function list(lines, options) {
+    const items = []
+    const baseIndent = listItemPattern.exec(lines[0])[1].length
+    for (const line of lines) {
+      const match = listItemPattern.exec(line)
+      if (match && match[1].length <= baseIndent + 1) items.push({ marker: match[2], lines: [match[3]] })
+      else items.at(-1)?.lines.push(line.slice(Math.min(baseIndent + 2, line.search(/\S|$/))))
+    }
+    const ordered = /\d/.test(items[0].marker)
+    const start = ordered ? Number.parseInt(items[0].marker, 10) : 1
+    const body = items.map((item) => {
+      const [first, ...rest] = item.lines
+      const task = /^\[([ xX])\]\s+(.*)$/.exec(first)
+      const lead = task ? `<span class="md-check ${task[1] === " " ? "" : "done"}" aria-hidden="true">${task[1] === " " ? "" : "✓"}</span>${inline(task[2], options)}` : inline(first, options)
+      const nested = rest.join("\n").trim() ? blocks(rest.join("\n"), options) : ""
+      return `<li${task ? ' class="task"' : ""}>${lead}${nested}</li>`
+    }).join("")
+    return ordered ? `<ol${start !== 1 ? ` start="${start}"` : ""}>${body}</ol>` : `<ul>${body}</ul>`
+  }
+
+  function blocks(source, options) {
+    const lines = source.replace(/\r\n?/g, "\n").split("\n")
+    const out = []
+    let i = 0
+    while (i < lines.length) {
+      const line = lines[i]
+      if (!line.trim()) { i++; continue }
+      const fence = /^\s*(```|~~~)\s*([\w+#.-]*)/.exec(line)
+      if (fence) {
+        const code = []
+        for (i++; i < lines.length && !lines[i].trim().startsWith(fence[1]); i++) code.push(lines[i])
+        i++
+        const text = code.join("\n")
+        out.push(`<div class="md-code"><div class="md-code-head"><span>${escape(fence[2] || "text")}</span><button type="button" class="small-button" data-copy="${escape(text)}">Copy</button></div><pre><code>${escape(text)}</code></pre></div>`)
+        continue
+      }
+      const heading = /^(#{1,6})\s+(.*?)\s*#*\s*$/.exec(line)
+      if (heading) {
+        const level = heading[1].length
+        const html = inline(heading[2], options)
+        const id = slugify(html, options.used)
+        options.headings.push({ level, id, text: heading[2].replace(/[`*_]/g, "") })
+        out.push(`<h${level} class="md-heading" data-md-id="${id}">${html}<button type="button" class="md-anchor" data-md-anchor="${id}" aria-label="Link to this section">#</button></h${level}>`)
+        i++
+        continue
+      }
+      if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) { out.push("<hr>"); i++; continue }
+      if (/^\s*>/.test(line)) {
+        const quote = []
+        for (; i < lines.length && /^\s*>/.test(lines[i]); i++) quote.push(lines[i].replace(/^\s*>\s?/, ""))
+        out.push(`<blockquote>${blocks(quote.join("\n"), options)}</blockquote>`)
+        continue
+      }
+      if (line.includes("|") && tableSeparator.test(lines[i + 1] ?? "")) {
+        const head = splitRow(line)
+        const align = splitRow(lines[i + 1]).map((cell) => (cell.startsWith(":") && cell.endsWith(":") ? "center" : cell.endsWith(":") ? "right" : ""))
+        const rows = []
+        for (i += 2; i < lines.length && lines[i].includes("|") && lines[i].trim(); i++) rows.push(splitRow(lines[i]))
+        const cell = (tag, text, index) => `<${tag}${align[index] ? ` style="text-align:${align[index]}"` : ""}>${inline(text ?? "", options)}</${tag}>`
+        out.push(`<div class="md-table"><table><thead><tr>${head.map((h, index) => cell("th", h, index)).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${head.map((_, index) => cell("td", row[index], index)).join("")}</tr>`).join("")}</tbody></table></div>`)
+        continue
+      }
+      if (listItemPattern.test(line)) {
+        const items = []
+        const [, baseIndent, baseMarker] = listItemPattern.exec(line)
+        const ordered = /\d/.test(baseMarker)
+        for (; i < lines.length; i++) {
+          const current = lines[i]
+          const item = listItemPattern.exec(current)
+          if (item && item[1].length <= baseIndent.length && /\d/.test(item[2]) !== ordered) break
+          if (item || (current.trim() && /^\s{2,}/.test(current))) items.push(current)
+          else if (!current.trim() && (listItemPattern.test(lines[i + 1] ?? "") || /^\s{2,}\S/.test(lines[i + 1] ?? ""))) items.push("")
+          else break
+        }
+        out.push(list(items, options))
+        continue
+      }
+      const paragraph = []
+      for (; i < lines.length && lines[i].trim() && !/^\s*(#{1,6}\s|```|~~~|>)/.test(lines[i]) && !listItemPattern.test(lines[i]) && !(lines[i].includes("|") && tableSeparator.test(lines[i + 1] ?? "")); i++) paragraph.push(lines[i])
+      out.push(`<p>${paragraph.map((part, index) => inline(part.trim(), options) + (index < paragraph.length - 1 ? (/ {2,}$/.test(part) ? "<br>" : " ") : "")).join("")}</p>`)
+    }
+    return out.join("")
+  }
+
+  return {
+    render(source, options = {}) {
+      const context = { project: options.project ?? null, path: options.path ?? "", used: new Set(), headings: [] }
+      return { html: blocks(String(source ?? ""), context), headings: context.headings }
+    },
+  }
+})()
 
 function prettyJson(text) {
   try { return JSON.stringify(JSON.parse(text), null, 2) } catch { return text }
@@ -672,7 +990,34 @@ function taskPanel(detail, id) {
   }
 }
 
+function liveUrlHtml(deploy) {
+  if (!deploy?.url) return `<span class="muted">none</span>`
+  return `<div class="verify"><a href="${escape(deploy.url)}" target="_blank" rel="noopener noreferrer" class="mono">${escape(deploy.url)}</a><button class="small-button" data-copy="${escape(deploy.url)}">Copy</button></div>`
+}
+
+function deployPanel(detail) {
+  const deploy = detail.deploy ?? {}
+  const { status, sub } = deployState(detail)
+  const events = detail.events.filter((e) => e.type === "deploy")
+  return {
+    title: "Deploy",
+    sub: sub || status,
+    body: [
+      deploy.url ? `<a class="preview-button wide" href="${escape(deploy.url)}" target="_blank" rel="noopener noreferrer">Open live preview ↗</a>` : "",
+      kv([
+        ["Status", statusBadge(status === "approved" ? "done" : status).replace(">done<", `>${escape(sub || "deployed")}<`)],
+        ["URL", liveUrlHtml(deploy)],
+        ["App container", deploy.appContainer ? `<span class="mono">${escape(deploy.appContainer)}</span> · ${escape(deploy.app ?? "missing")}` : ""],
+        ["Tunnel", deploy.tunnelContainer ? `<span class="mono">${escape(deploy.tunnelContainer)}</span> · ${escape(deploy.tunnel ?? "missing")}` : ""],
+      ]),
+      `<p class="muted" style="font-size:12px;margin:0">Quick tunnel URLs change when the tunnel container restarts. Redeploy with <code>agent-team deploy &lt;projectDir&gt;</code>.</p>`,
+      section("Deploy events", eventsList(events)),
+    ].join(""),
+  }
+}
+
 function phasePanel(detail, phase) {
+  if (phase === "deploy") return deployPanel(detail)
   const byName = Object.fromEntries(detail.phases.map((p) => [p.name, p]))
   if (phase === "build") {
     const counts = countTasks(detail.tasks)
@@ -684,6 +1029,7 @@ function phasePanel(detail, phase) {
           ["Pending", counts.pending], ["Running", counts.running], ["Merged", counts.merged], ["Blocked", counts.blocked],
           ["Worker", candidate(detail.config?.roles?.worker)], ["Reviewer", candidate(detail.config?.roles?.reviewer)],
           ["Max attempts", maxRetriesOf(detail)],
+          ["Live preview", liveUrlHtml(detail.deploy)],
         ]),
         section("Tasks", detail.tasks.length ? `<div class="calls">${detail.tasks.map((t) => `<button class="call" data-open-task="${escape(t.id)}"><span class="what">${escape(t.id)}</span><span>${escape(t.title)}</span><span>${statusBadge(t.status)}</span></button>`).join("")}</div>` : `<div class="empty">No plan yet.</div>`),
       ].join(""),
@@ -770,7 +1116,7 @@ function renderDetails() {
   const detail = state.detail
   const panel = state.panel
   if (!detail || !panel) return
-  const builders = { task: taskPanel, phase: phasePanel, event: eventPanel, runner: runnerPanel, container: containerPanel }
+  const builders = { task: taskPanel, phase: phasePanel, event: eventPanel, runner: runnerPanel, container: containerPanel, doc: docPanel }
   const content = builders[panel.kind]?.(detail, panel.id)
   if (!content) return
   const body = document.getElementById("details-body")
@@ -839,7 +1185,7 @@ function renderDrawer() {
   body.innerHTML = `<div class="timeline">${events.map((e) => {
     if (e.kind === "message") return verdictHtml(e.text)
       ? `<div class="event review"><span class="event-label">Reviewer verdict</span>${verdictHtml(e.text)}</div>`
-      : `<div class="event"><span class="event-label">Agent</span><div class="bubble">${escape(e.text)}</div></div>`
+      : `<div class="event"><span class="event-label">Agent</span><div class="bubble md">${markdown.render(e.text).html}</div></div>`
     if (e.kind === "command") return `<div class="event"><div class="command"><div class="command-head"><code>${escape(clean(e.command))}</code><span class="badge ${e.exitCode === 0 ? "pass" : "fail"}">exit ${escape(e.exitCode ?? "?")}</span></div>
       ${e.output ? `<details><summary>Output (${e.output.split("\n").length} lines)</summary><pre>${escape(e.output.slice(-6000))}</pre></details>` : ""}</div></div>`
     if (e.kind === "files") return `<div class="event">${e.changes.map((c) => `<div class="file-row"><span class="file-kind ${escape(c.kind)}">${c.kind === "add" ? "A" : c.kind === "delete" ? "D" : "M"}</span><span class="path">${escape(String(c.path).replace(/^\/workspace\//, ""))}</span></div>`).join("")}</div>`
@@ -854,6 +1200,28 @@ document.addEventListener("click", (event) => {
   const target = event.target
   const project = target.closest(".project")
   if (project) return select(project.dataset.name)
+  const anchor = target.closest("[data-md-anchor]")
+  if (anchor) {
+    const scope = anchor.closest(".doc, .md, .details-body, .drawer-body") ?? document
+    const heading = [...scope.querySelectorAll("[data-md-id]")].find((el) => el.dataset.mdId === anchor.dataset.mdAnchor) ?? document.querySelector(`[data-md-id="${CSS.escape(anchor.dataset.mdAnchor)}"]`)
+    heading?.scrollIntoView({ behavior: "smooth", block: "start" })
+    return
+  }
+  const openMd = target.closest("[data-open-md]")
+  if (openMd) return showDocument(openMd.dataset.openMd)
+  const showDoc = target.closest("[data-show-doc]")
+  if (showDoc) return showDocument(showDoc.dataset.showDoc)
+  const docPanelButton = target.closest("[data-open-doc-panel]")
+  if (docPanelButton) return openDetails({ kind: "doc", id: docPanelButton.dataset.openDocPanel })
+  const docMode = target.closest("[data-doc-mode]")
+  if (docMode) {
+    state.docMode = docMode.dataset.docMode
+    const previous = document.getElementById("artifact")
+    render()
+    if (previous) document.getElementById("artifact").innerHTML = "Loading…"
+    return loadArtifact()
+  }
+  if (target.closest("[data-doc-reader]")) return toggleReader()
   const openTask = target.closest("[data-open-task]")
   if (openTask) return openDetails({ kind: "task", id: openTask.dataset.openTask })
   const openPhase = target.closest("[data-open-phase]")
@@ -883,7 +1251,7 @@ document.addEventListener("click", (event) => {
   const container = target.closest("[data-container]")
   if (container) return openDetails({ kind: "container", id: container.dataset.container })
   const tab = target.closest("[data-artifact]")
-  if (tab) { state.artifact = tab.dataset.artifact; document.querySelectorAll("[data-artifact]").forEach((b) => { b.classList.toggle("selected", b === tab); b.setAttribute("aria-selected", b === tab) }); return loadArtifact() }
+  if (tab) { state.artifact = tab.dataset.artifact; document.getElementById("artifact").innerHTML = "Loading…"; render(); return loadArtifact() }
   const segment = target.closest("[data-segment]")
   if (segment) { state.section = segment.dataset.segment; return render() }
   const drawerTab = target.closest("[data-drawer-tab]")
@@ -892,7 +1260,7 @@ document.addEventListener("click", (event) => {
   if (target.id === "details-scrim" || target.closest("#details-close")) return closeDetails()
 })
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") { if (!closeDrawer()) closeDetails(); return }
+  if (event.key === "Escape") { if (closeDrawer()) return; if (document.getElementById("details").classList.contains("open")) { closeDetails(); return } if (state.reader) toggleReader(false); return }
   if (event.key === "Tab") {
     const dialog = topDialog()
     if (!dialog) return
@@ -921,6 +1289,20 @@ window.addEventListener("hashchange", () => {
   if (fromHash.panel && (fromHash.panel.kind !== state.panel?.kind || fromHash.panel.id !== state.panel?.id)) openDetails(fromHash.panel)
 })
 document.getElementById("switcher").addEventListener("change", (event) => select(event.target.value))
+document.addEventListener("change", (event) => {
+  if (event.target.id !== "doc-picker") return
+  state.artifact = event.target.value
+  document.getElementById("artifact").innerHTML = "Loading…"
+  render()
+  loadArtifact()
+})
+
+function toggleReader(force) {
+  state.reader = force ?? !state.reader
+  document.body.style.overflow = state.reader ? "hidden" : ""
+  render()
+  if (state.reader) document.querySelector("[data-doc-reader]")?.focus()
+}
 
 loadProjects()
 setInterval(loadProjects, 5000)
