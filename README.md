@@ -1,8 +1,13 @@
-# agent-team
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/brand/logo/horizontal-dark.svg">
+  <img alt="agent-team" src="docs/brand/logo/horizontal-light.svg" width="320">
+</picture>
 
-A self-hosted orchestrator that turns a plain-text product brief into a working web app or API. A team of AI agents writes the spec, architecture, design, and task plan. Scoped worker agents then build the app one task at a time, and a reviewer from a different model vendor checks each task.
+A self-hosted orchestrator that turns a plain-text product brief into a working web app or API. A team of AI agents writes the spec, architecture, mockups, design, and task plan. Scoped worker agents then build the app one task at a time, and a reviewer checks each task.
 
-Planning roles default to Claude. Workers default to Codex. Any role can use any supported runner.
+![A team of agents passing work around the agent-team hexagon](docs/brand/assets/readme-hero.png)
+
+All roles default to Claude. The illustrator uses Codex, because it generates the mockup images. Any role can use any supported runner.
 
 ## Requirements
 
