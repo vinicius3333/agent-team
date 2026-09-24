@@ -23,6 +23,7 @@ export interface RoleConfig extends Candidate {
 export interface HarnessConfig {
   isolation: "none" | "docker"
   docker: { cpus: number; memory: string; pidsLimit: number }
+  network: { allowlist: boolean; extraDomains: string[] }
   transientRetries: number
   backoffMs: number
   cooldownMs: number
@@ -54,6 +55,10 @@ export function loadConfig(path: string): PipelineConfig {
         cpus: raw.harness?.docker?.cpus ?? 2,
         memory: raw.harness?.docker?.memory ?? "4g",
         pidsLimit: raw.harness?.docker?.pidsLimit ?? 512,
+      },
+      network: {
+        allowlist: raw.harness?.network?.allowlist ?? true,
+        extraDomains: raw.harness?.network?.extraDomains ?? [],
       },
       transientRetries: raw.harness?.transientRetries ?? 2,
       backoffMs: raw.harness?.backoffMs ?? 15_000,

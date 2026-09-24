@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process"
 import { createHash } from "node:crypto"
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -42,30 +42,55 @@ export async function cleanupOrphans(): Promise<void> {
   if (ids.length) await docker(["rm", "-f", ...ids]).catch(() => {})
 }
 
-function copyCredentials(credentials: CredentialName[]): { dir: string; mounts: string[] } {
+interface RotatingFile {
+  source: string
+  copy: string
+  originalContent: string
+}
+
+// OAuth CLIs rotate refresh tokens. A token refreshed inside a container must be written back to the host,
+// or the host's copy is invalidated and the next run fails to authenticate.
+function copyCredentials(credentials: CredentialName[]): { dir: string; mounts: string[]; env: string[]; rotating: RotatingFile[] } {
   const dir = mkdtempSync(join(tmpdir(), "agent-team-creds-"))
   chmodSync(dir, 0o700)
   const home = homedir()
   const mounts: string[] = []
+  const env: string[] = []
+  const rotating: RotatingFile[] = []
   const copyInto = (target: string, files: string[]) => {
     const targetDir = join(dir, target)
     mkdirSync(targetDir, { recursive: true, mode: 0o700 })
     for (const file of files) {
       const source = join(home, target, file)
-      if (existsSync(source)) copyFileSync(source, join(targetDir, file))
+      if (!existsSync(source)) continue
+      const copy = join(targetDir, file)
+      copyFileSync(source, copy)
+      rotating.push({ source, copy, originalContent: readFileSync(source, "utf8") })
     }
     mounts.push("-v", `${targetDir}:/home/agent/${target}`)
   }
   if (credentials.includes("claude")) {
-    copyInto(".claude", [".credentials.json"])
+    // A long-lived token from `claude setup-token` does not rotate; pass it by name so it never appears in argv.
+    if (process.env.CLAUDE_CODE_OAUTH_TOKEN) env.push("-e", "CLAUDE_CODE_OAUTH_TOKEN")
+    else copyInto(".claude", [".credentials.json"])
     const claudeConfig = join(home, ".claude.json")
     if (existsSync(claudeConfig)) {
       copyFileSync(claudeConfig, join(dir, "claude.json"))
       mounts.push("-v", `${join(dir, "claude.json")}:/home/agent/.claude.json`)
     }
   }
-  if (credentials.includes("codex")) copyInto(".codex", ["auth.json", "config.toml"])
-  return { dir, mounts }
+  // Only auth.json: the host config.toml carries MCP servers the egress proxy would block.
+  if (credentials.includes("codex")) copyInto(".codex", ["auth.json"])
+  return { dir, mounts, env, rotating }
+}
+
+function writeBackRotatedTokens(rotating: RotatingFile[]): void {
+  for (const file of rotating) {
+    if (!existsSync(file.copy)) continue
+    const current = readFileSync(file.copy, "utf8")
+    const hostUnchanged = readFileSync(file.source, "utf8") === file.originalContent
+    if (current !== file.originalContent && hostUnchanged) writeFileSync(file.source, current, { mode: 0o600 })
+  }
 }
 
 // Files the agent writes are owned by uid 1000 on the host; the host user must be uid 1000 (opc on the VPS) to manage them.
@@ -77,8 +102,10 @@ export function createDockerExecutor(options: {
   credentials: CredentialName[]
   // Host paths mounted read-only at the same path, e.g. the main repo's .git that a worktree's .git file points to.
   readOnlyPaths?: string[]
+  // Joins this network and routes traffic through the proxy; absent = Docker's default network.
+  network?: { name: string; proxyUrl: string }
 }): Executor {
-  const { dir: credentialsDir, mounts } = copyCredentials(options.credentials)
+  const { dir: credentialsDir, mounts, env: credentialEnv, rotating } = copyCredentials(options.credentials)
   let execCount = 0
 
   return {
@@ -101,11 +128,13 @@ export function createDockerExecutor(options: {
         "--tmpfs", "/tmp:exec",
         "--tmpfs", "/home/agent:uid=1000,gid=1000,exec",
         ...mounts,
+        ...credentialEnv,
         ...(options.readOnlyPaths ?? []).flatMap((path) => ["-v", `${path}:${path}:ro`]),
         "-v", `${options.hostDir}:/workspace`,
         "-w", "/workspace",
         "--user", containerUser,
         ...envArgs,
+        ...networkArgs(options.network),
         options.image,
         spec.command,
         ...spec.args,
@@ -120,7 +149,14 @@ export function createDockerExecutor(options: {
         .split("\n")
         .filter(Boolean)
       if (ids.length) await docker(["rm", "-f", ...ids]).catch(() => {})
+      writeBackRotatedTokens(rotating)
       rmSync(credentialsDir, { recursive: true, force: true })
     },
   }
+}
+
+function networkArgs(network: { name: string; proxyUrl: string } | undefined): string[] {
+  if (!network) return []
+  const proxyEnv = ["HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy"].flatMap((key) => ["-e", `${key}=${network.proxyUrl}`])
+  return ["--network", network.name, ...proxyEnv, "-e", "NO_PROXY=localhost,127.0.0.1", "-e", "no_proxy=localhost,127.0.0.1"]
 }

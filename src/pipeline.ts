@@ -4,6 +4,7 @@ import type { Candidate, PipelineConfig, PlanningPhase, Role } from "./config.ts
 import { changedFiles, stagedDiff } from "./git.ts"
 import { createDockerExecutor, ensureImage } from "./harness/docker.ts"
 import { hostExecutor, type Executor } from "./harness/executor.ts"
+import { defaultAllowlist, ensureEgressProxy } from "./harness/network.ts"
 import type { Harness, HarnessOutcome } from "./harness/harness.ts"
 import { createWorkspace, detectSetupCommand, mergeWorkspace, removeWorkspace } from "./harness/workspace.ts"
 import type { Store } from "./store.ts"
@@ -259,9 +260,13 @@ function isInfrastructureFailure(outcome: HarnessOutcome): boolean {
   return outcome.failureClass !== null && outcome.failureClass !== "agent_failure"
 }
 
+let egressProxy: ReturnType<typeof ensureEgressProxy> | null = null
+
 async function createExecutor(context: PipelineContext, hostDir: string, name: string): Promise<Executor> {
   const { config, projectDir } = context
   if (config.harness.isolation === "none") return hostExecutor(hostDir)
+  const { allowlist, extraDomains } = config.harness.network
+  if (allowlist) egressProxy ??= ensureEgressProxy([...defaultAllowlist, ...extraDomains])
   const credentials = [...new Set(Object.values(config.roles).flatMap((role) => [role.runner, ...role.fallbacks.map((fallback) => fallback.runner)]))]
   return createDockerExecutor({
     hostDir,
@@ -270,6 +275,7 @@ async function createExecutor(context: PipelineContext, hostDir: string, name: s
     limits: config.harness.docker,
     credentials,
     readOnlyPaths: hostDir === projectDir ? [] : [join(projectDir, ".git")],
+    network: allowlist ? await egressProxy! : undefined,
   })
 }
 

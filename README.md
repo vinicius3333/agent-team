@@ -74,6 +74,8 @@ The harness runs every agent call. It isolates each attempt, retries infrastruct
 | --- | --- |
 | Workspace | Each task attempt gets a fresh git worktree on branch `agent/<task>-<attempt>`, created from `main`. A failed attempt is thrown away and never touches `main`. A passing attempt is rebased on `main` and merged fast-forward. |
 | Sandbox | With `harness.isolation: docker`, each agent call and verify command runs in its own container: read-only root, only the worktree writable, all capabilities dropped, CPU, memory, and process limits. The CLIs get copies of their auth files, never the real directories. |
+| Network | Agent containers join an internal Docker network with no route out. Their only exit is the `agent-team-proxy` container (tinyproxy), which allows HTTPS to an allowlist: Claude, OpenAI, npm, PyPI, GitHub, plus `harness.network.extraDomains`. |
+| Credentials | Containers get copies of `~/.claude/.credentials.json` and `~/.codex/auth.json`. Tokens refreshed inside a container are written back to the host. If `CLAUDE_CODE_OAUTH_TOKEN` is set (from `claude setup-token`), it is passed by name instead. |
 | Setup | Each fresh worktree installs dependencies first (`npm ci`, `pnpm`, or `yarn`, detected from the lockfile). |
 | Failure classes | `rate_limit`, `auth`, `unavailable`, `missing_binary`, `timeout`, `aborted`, `agent_failure`. Only runner output (stderr, error events) is classified, never the agent's own work. |
 | Retry | `unavailable` retries the same model with exponential backoff (`transientRetries`, `backoffMs`). |
@@ -87,14 +89,14 @@ Commands: `agent-team reset-cooldowns <projectDir>` clears runner cooldowns afte
 ## Limits
 
 - Tasks still run one at a time.
-- Containers use Docker's default network, with no allowlist yet.
+- Node's built-in `fetch` ignores `HTTPS_PROXY`, so app code that calls outside hosts with raw `fetch` fails inside the sandbox.
 - With `isolation: none`, agents run with full access to the machine user. Use that only on a disposable VPS.
 
 ## Roadmap
 
 1. CLI MVP: sequential pipeline, both runners (this release)
 2. Harness: worktrees, Docker sandbox, retries, fallbacks (done); parallel task scheduler
-3. Network allowlist and scope guard hooks
+3. Scope guard hooks inside the agent (network allowlist done)
 4. Web control UI and Telegram gate approvals
 5. Preview deploy per run
 

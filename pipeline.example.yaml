@@ -30,6 +30,9 @@ stackHints:            # optional; empty = architect chooses
 harness:
   isolation: docker    # docker | none. none runs agents directly on the host
   docker: { cpus: 2, memory: 4g, pidsLimit: 512 }
+  network:
+    allowlist: true    # agents reach the internet only through an egress proxy with a domain allowlist
+    extraDomains: []   # e.g. ["api.stripe.com"]; defaults cover Claude, OpenAI, npm, PyPI, GitHub
   transientRetries: 2  # retries on the same runner for network or overload errors
   backoffMs: 15000     # doubles on each retry
   cooldownMs: 900000   # runner rest after a rate limit (x4 after an auth error)
