@@ -389,7 +389,7 @@ function changedSince(worktree: string, base: string): string[] {
 
 // ---------- Code fix ----------
 
-type CodeFixResult = { kind: "rejected"; reason: string } | { kind: "landed"; prUrl: string | null; branch: string; files: string[] }
+type CodeFixResult = { kind: "rejected"; reason: string } | { kind: "landed"; prUrl: string | null; branch: string; files: string[]; hotfixError: string | null }
 
 export function commitTitle(summary: string): string {
   const firstSentence = summary.trim().split(/(?<=[.!?])\s|\n/)[0].replace(/[.!?]+$/, "") || "repair an orchestrator bug"
@@ -468,8 +468,14 @@ async function landCodeFix(options: {
   } catch (error) {
     return { kind: "rejected", reason: `the branch ${worktree.branch} is pushed, but gh pr create failed: ${errorText(error).slice(0, 500)}` }
   }
-  copyHotfix(worktree.path, deps.installDir, files)
-  return { kind: "landed", prUrl, branch: worktree.branch, files }
+  // A read-only install (a container image) cannot take the hotfix. The pull request still carries the fix, so the incident goes on.
+  let hotfixError: string | null = null
+  try {
+    copyHotfix(worktree.path, deps.installDir, files)
+  } catch (error) {
+    hotfixError = errorText(error).slice(0, 500)
+  }
+  return { kind: "landed", prUrl, branch: worktree.branch, files, hotfixError }
 }
 
 export function copyHotfix(from: string, to: string, files: string[]): void {
@@ -756,6 +762,7 @@ async function treat(options: Candidate & { runsDir: string; config: DoctorConfi
   let worktree: Workspace | null = null
   let executor: Executor | null = null
   const notifier = createNotifier(deps, repo, sourceDir, store)
+  let attemptStarted = false
   try {
     if (incident.attempts >= config.maxAttempts || incident.costUsd >= config.maxUsdPerIncident) {
       giveUp(projectDir, incident, notifier, `the limit is reached (${incident.attempts} attempts, $${incident.costUsd.toFixed(2)})`)
@@ -763,6 +770,7 @@ async function treat(options: Candidate & { runsDir: string; config: DoctorConfi
     }
     const attempt = incident.attempts + 1
     incident.attempts = attempt
+    attemptStarted = true
     incident.status = "diagnosing"
     saveIncident(projectDir, incident)
     store.log("doctor", `incident ${incident.id}: attempt ${attempt} of ${config.maxAttempts}`)
@@ -786,6 +794,7 @@ async function treat(options: Candidate & { runsDir: string; config: DoctorConfi
     const outcome = await runAgent(context, executor, "doctor", subject, doctorTools, taskPrompt(incident, name, attempt), { writablePaths: writableRoots(worktree.path) })
     incident.costUsd += outcome.result.costUsd ?? 0
     incident.tokens = (incident.tokens ?? 0) + (outcome.result.tokens ?? 0)
+    if (signal.aborted) return
     if (outcome.result.status !== "done") {
       addAction(incident, "agent_failed", `${outcome.failureClass ?? outcome.result.status}: ${outcome.result.summary.slice(0, 500)}`)
       return
@@ -822,8 +831,13 @@ async function treat(options: Candidate & { runsDir: string; config: DoctorConfi
       }
       incident.branch = fix.branch
       incident.prUrl = fix.prUrl
-      addAction(incident, "pull_request", `${fix.prUrl ?? fix.branch}; hotfix copied: ${fix.files.join(", ")}`)
-      notifier.comment(incident.issueUrl, `Opened ${fix.prUrl} and copied the fix into the live install.`)
+      if (fix.hotfixError) {
+        addAction(incident, "pull_request", `${fix.prUrl ?? fix.branch}; hotfix not copied, the fix goes live when the pull request is merged and deployed: ${fix.hotfixError}`)
+        notifier.comment(incident.issueUrl, `Opened ${fix.prUrl}. The live install is read-only, so the fix goes live when this pull request is merged and deployed.`)
+      } else {
+        addAction(incident, "pull_request", `${fix.prUrl ?? fix.branch}; hotfix copied: ${fix.files.join(", ")}`)
+        notifier.comment(incident.issueUrl, `Opened ${fix.prUrl} and copied the fix into the live install.`)
+      }
     }
 
     for (const action of report.projectActions) {
@@ -855,6 +869,11 @@ async function treat(options: Candidate & { runsDir: string; config: DoctorConfi
     if (executor) await executor.dispose()
     if (worktree) cleanupWorktree(sourceDir, worktree)
     if (incident.status === "diagnosing") incident.status = "open"
+    // The doctor itself stopped (a redeploy, a restart), so this attempt says nothing about the incident.
+    if (signal.aborted && attemptStarted && incident.status === "open") {
+      incident.attempts -= 1
+      addAction(incident, "interrupted", "the doctor stopped during this attempt, so it does not count toward the limit")
+    }
     saveIncident(projectDir, incident)
     if (incident.status === "open" && (incident.attempts >= config.maxAttempts || incident.costUsd >= config.maxUsdPerIncident)) {
       giveUp(projectDir, incident, notifier, `the limit is reached (${incident.attempts} attempts, $${incident.costUsd.toFixed(2)})`)

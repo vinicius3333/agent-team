@@ -474,3 +474,45 @@ test("the dashboard lists incidents, shows one with its transcripts, and flags t
   const projects = await (await fetch(`${base}/api/projects`)).json()
   assert.equal(projects[0].incident?.id, incident.id)
 })
+
+test("a read-only install keeps the pull request and still retries the task and resumes", async () => {
+  const { runsDir, projectDir, installDir } = setup()
+  const store = openProjectStore(projectDir)
+  stop(store, "failed", blockedReason)
+  store.close()
+  const readOnlyInstall = join(installDir, "not-a-folder")
+  writeFileSync(readOnlyInstall, "")
+  const { deps, started } = stubDeps(readOnlyInstall, [
+    (_job, workdir) => {
+      writeFileSync(join(workdir, "src", "json.ts"), "export const version = 2\n")
+      writeFileSync(join(workdir, "test", "json.test.ts"), "// regression test\n")
+      return { summary: report({ projectActions: [{ action: "retry", taskId: "T005" }], codeFix: true, summary: "Fix the parser." }) }
+    },
+  ])
+  await checkOnce({ runsDir, deps })
+  const [incident] = listIncidents(projectDir)
+  assert.equal(incident.status, "fixed", JSON.stringify(incident.actions))
+  assert.equal(incident.prUrl, "https://github.com/owner/agent-team/pull/99")
+  assert.match(incident.actions.find((action) => action.action === "pull_request")?.detail ?? "", /hotfix not copied/)
+  assert.ok(incident.actions.some((action) => action.action.startsWith("retry")), "the project actions still run")
+  assert.deepEqual(started, [projectDir])
+})
+
+test("an attempt cut short by the doctor stopping does not count toward the limit", async () => {
+  const { runsDir, projectDir, installDir } = setup({ doctorYaml: "maxAttempts: 1\n" })
+  const store = openProjectStore(projectDir)
+  stop(store, "failed", blockedReason)
+  store.close()
+  const controller = new AbortController()
+  const { deps } = stubDeps(installDir, [
+    () => {
+      controller.abort()
+      return { summary: "" }
+    },
+  ])
+  await checkOnce({ runsDir, deps, signal: controller.signal })
+  const [incident] = listIncidents(projectDir)
+  assert.equal(incident.status, "open", JSON.stringify(incident.actions))
+  assert.equal(incident.attempts, 0)
+  assert.ok(incident.actions.some((action) => action.action === "interrupted"))
+})
