@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url"
 import { parseDocument, type Document } from "yaml"
 import { loadConfig, normalizePhaseName, planningPhases, roles, runnerNames, type Candidate, type PipelineConfig, type PlanningPhase, type Role, type RunnerName } from "./config.ts"
 import { appendFeedback, archiveFeedback } from "./feedback.ts"
-import { commitAll, commitOf, commitPaths, createBranch, initRepository } from "./git.ts"
+import { commitAll, commitOf, commitPaths, createBranch, fileAtRef, initRepository } from "./git.ts"
 import { changeTitle, createGitHub } from "./github.ts"
 import { commitAndRebase, createWorkspace, fastForward, removeWorkspace } from "./harness/workspace.ts"
 import { changeOpenedPrefix } from "./notify/events.ts"
@@ -295,10 +295,7 @@ export function abandonChange(projectDir: string, store: Store, id: string | und
   if (!change) throw new ProjectError(404, `unknown change "${id}"`)
   if (change.status !== "open") throw new ProjectError(409, `Change ${change.id} is ${change.status}, not open.`)
   if (processAlive(Number(store.meta("run.pid")))) throw new ProjectError(409, "A run is in progress. Stop it first.")
-  const mainTaskIds = new Set(readTaskIds(projectDir))
-  for (const task of store.tasks()) {
-    if (!mainTaskIds.has(task.id)) store.removeTask(task.id)
-  }
+  for (const taskId of changeTaskIds(projectDir, change)) store.removeTask(taskId)
   store.restorePhases()
   store.finishChange(change.id, "abandoned")
   store.setMeta("run.stop", "")
@@ -307,10 +304,10 @@ export function abandonChange(projectDir: string, store: Store, id: string | und
   createGitHub({ projectDir, config, store }).changeAbandoned(change)
 }
 
-function readTaskIds(projectDir: string): string[] {
-  const path = join(projectDir, "tasks.json")
-  if (!existsSync(path)) return []
-  return (JSON.parse(readFileSync(path, "utf8")) as { id: string }[]).map((task) => task.id)
+// The change's plan and QA fix tasks carry its id on the change branch.
+function changeTaskIds(projectDir: string, change: Change): string[] {
+  const tasks = JSON.parse(fileAtRef(projectDir, change.branch, "tasks.json") ?? "[]") as { id: string; change?: string }[]
+  return tasks.filter((task) => task.change === change.id).map((task) => task.id)
 }
 
 export function processAlive(pid: number): boolean {

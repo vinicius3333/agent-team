@@ -322,9 +322,6 @@ export function openStore(path: string) {
         db.prepare("INSERT INTO phases (name, status, updated_at) VALUES (?, ?, ?) ON CONFLICT(name) DO UPDATE SET status = excluded.status, updated_at = excluded.updated_at").run(row.name, row.status, row.updatedAt)
       }
     },
-    changeCosts(): { changeId: string; usd: number }[] {
-      return db.prepare("SELECT change_id AS changeId, ROUND(SUM(COALESCE(cost_usd, 0)), 4) AS usd FROM attempts WHERE change_id IS NOT NULL GROUP BY change_id").all() as { changeId: string; usd: number }[]
-    },
     deleteMeta(key: string) {
       db.prepare("DELETE FROM meta WHERE key = ?").run(key)
     },
