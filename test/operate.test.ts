@@ -6,6 +6,9 @@ import { after, test } from "node:test"
 import { loadConfig } from "../src/config.ts"
 import { healthSummary, percentile, probe, probeProject } from "../src/operate/health.ts"
 import { fetchPosthogData, posthogMetrics, PosthogError } from "../src/operate/posthog.ts"
+import { dueAgents, parseInsightReply, runInsightAgent } from "../src/operate/agents.ts"
+import { createProject, withProjectStore } from "../src/project.ts"
+import { toClaudeTools } from "../src/runners/claude.ts"
 import { openStore } from "../src/store.ts"
 
 const scratch = mkdtempSync(join(tmpdir(), "agent-team-operate-"))
@@ -222,4 +225,85 @@ test("fetchPosthogData fails with the HTTP status or a missing key", async () =>
     fetchPosthogData({ projectDir, config: posthogConfig, env: { TEST_POSTHOG_KEY: "secret" }, fetch: stubFetch(() => new Response("bad key", { status: 401 })) }),
     (error: unknown) => error instanceof PosthogError && error.status === 401 && /HTTP 401: bad key/.test(error.message),
   )
+})
+
+const insightReply = (body: object) => `Looked at the data.\n\n\`\`\`json\n${JSON.stringify(body)}\n\`\`\``
+const validFinding = (title: string) => ({ severity: "medium", title, evidence: "62% drop", proposal: "Shorten signup." })
+
+test("parseInsightReply keeps 5 valid findings and reports dropped ones", () => {
+  const reply = parseInsightReply(
+    insightReply({
+      summary: " Signup leaks. ",
+      findings: [validFinding("a"), { severity: "urgent", title: "b", evidence: "e", proposal: "p" }, { severity: "low", title: "c" }, validFinding("d"), validFinding("e"), validFinding("f"), validFinding("g"), validFinding("h")],
+    }),
+  )
+  assert.equal(reply.summary, "Signup leaks.")
+  assert.deepEqual(reply.findings.map((finding) => finding.title), ["a", "d", "e", "f", "g"])
+  assert.deepEqual(reply.dropped, ["finding 2 has no valid severity", "finding 3 has no valid evidence, proposal", "finding 8 is over the limit of 5: h"])
+  assert.throws(() => parseInsightReply(insightReply({ findings: [] })), /no summary/)
+})
+
+test("dueAgents runs agents past their schedule only on live projects", () => {
+  const projectDir = join(scratch, "due")
+  createProject(projectDir, "Dad jokes")
+  const config = loadConfig(join(projectDir, "pipeline.yaml"))
+  withProjectStore(projectDir, (store) => {
+    const now = Date.now()
+    assert.deepEqual(dueAgents(store, config, now), [])
+    store.setMeta("deploy.url", "https://app.example")
+    store.setPhase("deploy", "approved")
+    assert.deepEqual(dueAgents(store, config, now), ["monitoring", "analytics", "research"])
+    store.finishInsightRun(store.startInsightRun("monitoring"), "done", "ok", 0)
+    store.startInsightRun("research")
+    assert.deepEqual(dueAgents(store, config, now), ["analytics"])
+    assert.deepEqual(dueAgents(store, config, now + 25 * hour), ["monitoring", "analytics"])
+    assert.deepEqual(dueAgents(store, { ...config, operate: { ...config.operate, schedule: { monitoring: 0, analytics: 0, research: 0 } } }, now + 25 * hour), [])
+    assert.deepEqual(dueAgents(store, { ...config, operate: { ...config.operate, enabled: false } }, now), [])
+    store.setMeta("run.pid", String(process.pid))
+    assert.deepEqual(dueAgents(store, config, now), [])
+  })
+})
+
+test("runInsightAgent gathers monitoring data, stores findings, and writes the report", async () => {
+  const projectDir = join(scratch, "insight")
+  createProject(projectDir, "Dad jokes")
+  withProjectStore(projectDir, (store) => store.addHealthCheck({ ok: false, statusCode: 500, latencyMs: 40, error: "HTTP 500" }))
+  let prompt = ""
+  const outcome = await runInsightAgent({
+    projectDir,
+    agent: "monitoring",
+    logs: () => "Error: vote insert failed",
+    runAgent: async (request, runner) => {
+      prompt = request.taskPrompt
+      assert.equal(request.role, "monitor")
+      assert.equal(runner, "claude")
+      assert.equal(request.budgetUsd, 1)
+      assert.deepEqual(request.allowedTools, ["read"])
+      return { status: "done", summary: insightReply({ summary: "Votes fail.", findings: [{ ...validFinding("Fix vote API errors"), severity: "high" }, { title: "broken" }] }), costUsd: 0.2, tokens: 10, durationMs: 5, exitCode: 0, diagnostics: "" }
+    },
+  })
+  assert.match(prompt, /vote insert failed/)
+  assert.match(prompt, /HTTP 500/)
+  assert.equal(outcome.status, "done")
+  assert.deepEqual(outcome.findings.map((finding) => [finding.source, finding.title]), [["monitoring", "Fix vote API errors"]])
+  assert.match(readFileSync(join(projectDir, "docs", "operate", "monitoring.md"), "utf8"), /Fix vote API errors/)
+  withProjectStore(projectDir, (store) => {
+    assert.equal(store.lastInsightRun("monitoring")?.status, "done")
+    assert.equal(store.lastInsightRun("monitoring")?.findings, 1)
+    assert.equal(store.recentAttempts("insight-monitoring", 1)[0].role, "monitor")
+    assert.ok(store.recentEvents(5).some((event) => /dropped finding 2/.test(event.message)))
+  })
+})
+
+test("runInsightAgent without PostHog fails and asks to set it up", async () => {
+  const projectDir = join(scratch, "no-posthog")
+  createProject(projectDir, "Dad jokes")
+  const outcome = await runInsightAgent({ projectDir, agent: "analytics", runAgent: async () => assert.fail("no agent call without data") })
+  assert.equal(outcome.status, "failed")
+  assert.equal(outcome.summary, "posthog not configured")
+  assert.deepEqual(outcome.findings.map((finding) => [finding.severity, finding.title]), [["low", "Set up PostHog analytics"]])
+})
+
+test("the Claude runner maps web tools for the research agent", () => {
+  assert.deepEqual(toClaudeTools(["read", "web_search", "web_fetch"]), ["Read", "Glob", "Grep", "WebSearch", "WebFetch"])
 })

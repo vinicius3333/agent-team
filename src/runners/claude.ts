@@ -4,6 +4,8 @@ const toolNames: Record<string, string[]> = {
   read: ["Read", "Glob", "Grep"],
   edit: ["Edit"],
   write: ["Write"],
+  web_search: ["WebSearch"],
+  web_fetch: ["WebFetch"],
 }
 
 const editTools = new Set(["edit", "write"])
