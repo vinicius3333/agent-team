@@ -7,6 +7,7 @@ import { hostExecutor, type Executor } from "./harness/executor.ts"
 import { defaultAllowlist, ensureEgressProxy } from "./harness/network.ts"
 import type { Harness, HarnessOutcome } from "./harness/harness.ts"
 import { commitAndRebase, createWorkspace, detectSetupCommand, fastForwardMain, removeWorkspace } from "./harness/workspace.ts"
+import { deployProject } from "./deploy.ts"
 import type { GitHub } from "./github.ts"
 import type { Store } from "./store.ts"
 import { filesOutsideScope, loadTasks, type Task } from "./tasks.ts"
@@ -197,7 +198,8 @@ async function runTasks(context: PipelineContext): Promise<RunOutcome> {
     if (outcome !== "completed") return outcome
   }
   store.log("run", "all tasks merged")
-  context.github.runCompleted()
+  const url = context.config.deploy.enabled ? await deployProject(projectDir, store) : null
+  context.github.runCompleted(url)
   return "completed"
 }
 

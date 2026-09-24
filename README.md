@@ -66,6 +66,16 @@ Role prompts live in `prompts/`. Edit them to tune behavior.
 
 State lives in `<projectDir>/.agent-team/`: `state.db` (SQLite) and agent transcripts.
 
+## Live preview
+
+With `deploy.enabled: true`, the orchestrator runs the finished app from `main` in a container and exposes it through a Cloudflare quick tunnel. You get a random public URL such as `https://welding-apps-symphony-registrar.trycloudflare.com`, with no account, domain, or open port.
+
+- How to start the app: `deploy.json` from the architect (`install`, `start`, `port`), else `npm start`, else a static `index.html`.
+- The URL goes to the logs, `status`, the dashboard, the GitHub epic, and the repository homepage.
+- `agent-team deploy <projectDir>` redeploys; `agent-team undeploy <projectDir>` stops it.
+- Quick tunnels have no uptime guarantee, and the URL changes if the tunnel container restarts. For a stable address, use a named Cloudflare tunnel with your own domain.
+- Anyone with the URL can reach the app. Do not deploy apps that hold real data.
+
 ## GitHub
 
 Set `publish.github.enabled: true` to run the whole process in the open on GitHub:

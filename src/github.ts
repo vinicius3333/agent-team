@@ -247,10 +247,11 @@ export function createGitHub(context: GitHubContext) {
       setBoardStatus(issueUrl(issue), "Done")
     },
 
-    runCompleted(): void {
+    runCompleted(deployUrl: string | null): void {
+      if (enabled && deployUrl) attempt("set repository homepage", () => run("gh", ["repo", "edit", repo(), "--homepage", deployUrl], projectDir))
       const epic = store.meta("github.epic")
       if (!enabled || !epic) return
-      comment(Number(epic), "All tasks are merged. The build is complete.")
+      comment(Number(epic), ["All tasks are merged. The build is complete.", deployUrl ? `\nLive preview: ${deployUrl}` : ""].join(""))
       setBoardStatus(issueUrl(Number(epic)), "Done")
       attempt("close epic", () => run("gh", ["issue", "close", epic, "-R", repo()], projectDir))
     },

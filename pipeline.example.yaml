@@ -10,6 +10,9 @@ mockups:
   enabled: true        # the illustrator generates UI mockup images before the design phase
   count: 3
 
+deploy:
+  enabled: true        # after the build, run the app in a container and expose it at a random https://*.trycloudflare.com URL
+
 publish:
   github:
     enabled: false     # repo, issues per task, a pull request per phase and task, and a Projects board

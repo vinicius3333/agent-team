@@ -5,6 +5,7 @@ import { parseArgs } from "node:util"
 import { loadConfig, planningPhases, type PlanningPhase } from "./config.ts"
 import { commitAll, initRepository } from "./git.ts"
 import { cleanupOrphans } from "./harness/docker.ts"
+import { currentTunnelUrl, deployProject, undeployProject } from "./deploy.ts"
 import { createGitHub } from "./github.ts"
 import { createHarness } from "./harness/harness.ts"
 import { removeAllWorkspaces } from "./harness/workspace.ts"
@@ -19,6 +20,8 @@ const usage = `Usage:
   agent-team approve <projectDir> <phase>
   agent-team retry <projectDir> <taskId>
   agent-team reset-cooldowns <projectDir>
+  agent-team deploy <projectDir>
+  agent-team undeploy <projectDir>
   agent-team ui <runsDir> [--port 4400]`
 
 function stateDir(projectDir: string): string {
@@ -60,7 +63,8 @@ async function run(projectDir: string): Promise<void> {
   if (config.harness.isolation === "docker") await cleanupOrphans()
   const harness = createHarness({ config: config.harness, store, signal: controller.signal })
   const github = createGitHub({ projectDir, config, store })
-  const outcome = await runPipeline({ projectDir, config, store, harness, github, signal: controller.signal })
+  store.setMeta("run.pid", String(process.pid))
+  const outcome = await runPipeline({ projectDir, config, store, harness, github, signal: controller.signal }).finally(() => store.setMeta("run.pid", ""))
   store.log("run", `finished: ${outcome}`)
   process.exitCode = outcome === "failed" ? 1 : outcome === "paused" ? 75 : 0
 }
@@ -78,6 +82,8 @@ function status(projectDir: string): void {
       console.log(`  ${task.id.padEnd(6)} ${task.status.padEnd(8)} attempts=${task.attempts}${failure}`)
     }
   }
+  const liveUrl = currentTunnelUrl(projectDir)
+  if (liveUrl) console.log(`Live preview: ${liveUrl}`)
   const cooling = store.runnerHealth().filter((entry) => entry.until > Date.now())
   if (cooling.length) {
     console.log("Runners cooling down")
@@ -104,6 +110,12 @@ function retry(projectDir: string, taskId: string | undefined): void {
   const store = openProjectStore(projectDir)
   store.resetTask(taskId)
   store.log("task", `${taskId} reset for retry`)
+}
+
+async function deploy(projectDir: string): Promise<void> {
+  const store = openProjectStore(projectDir)
+  const url = await deployProject(projectDir, store)
+  if (!url) process.exitCode = 1
 }
 
 function resetCooldowns(projectDir: string): void {
@@ -134,6 +146,10 @@ async function main(): Promise<void> {
       return retry(projectDir, extra)
     case "reset-cooldowns":
       return resetCooldowns(projectDir)
+    case "deploy":
+      return deploy(projectDir)
+    case "undeploy":
+      return undeployProject(projectDir, openProjectStore(projectDir))
     case "ui":
       startUi({ runsDir: projectDir, port: Number(values.port ?? 4400) })
       return

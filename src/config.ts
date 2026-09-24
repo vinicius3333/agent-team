@@ -39,6 +39,7 @@ export interface PipelineConfig {
   autonomy: { gates: PlanningPhase[] }
   mockups: { enabled: boolean; count: number }
   publish: PublishConfig
+  deploy: { enabled: boolean }
   budget: { perTaskUsd: number }
   roles: Record<Role, RoleConfig>
   stackHints: { prefer: string[]; avoid: string[] }
@@ -52,6 +53,7 @@ export function loadConfig(path: string): PipelineConfig {
     target: raw.target ?? "web",
     autonomy: { gates: raw.autonomy?.gates ?? [] },
     mockups: { enabled: raw.mockups?.enabled ?? true, count: raw.mockups?.count ?? 3 },
+    deploy: { enabled: raw.deploy?.enabled ?? false },
     publish: {
       github: {
         enabled: raw.publish?.github?.enabled ?? false,

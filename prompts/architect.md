@@ -36,3 +36,15 @@ Write these files:
 - Respect the stack hints. If you must go against one, explain why in an ADR.
 - Do not write application code. Do not change `docs/spec.md`.
 - Write in plain English: short sentences, active voice, common words.
+
+## Deploy manifest
+
+If the project has something to run (a web app or an API), also write `deploy.json` at the repository root:
+
+```json
+{ "install": "npm ci", "start": "npm start", "port": 3000 }
+```
+
+- `start` must serve the production app, listen on `0.0.0.0`, and read the port from the `PORT` environment variable.
+- `install` may include a build step, for example `npm ci && npm run build`.
+- The planner must make sure a task implements these commands.
