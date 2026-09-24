@@ -74,7 +74,7 @@ function TopEventsCard({ events }: { events: OperateSnapshot["topEvents"] }) {
       <CardContent>
         {events.length ? (
           <ul className="divide-y text-sm">
-            {events.map((event) => (
+            {[...events].sort((a, b) => b.count - a.count).map((event) => (
               <li key={event.event} className="flex items-center justify-between gap-4 py-2">
                 <span className="min-w-0 truncate font-mono text-xs" title={event.event}>
                   {event.event}
