@@ -7,7 +7,8 @@ import { loadConfig } from "../src/config.ts"
 import { healthSummary, percentile, probe, probeProject } from "../src/operate/health.ts"
 import { fetchPosthogData, posthogMetrics, PosthogError } from "../src/operate/posthog.ts"
 import { dueAgents, parseInsightReply, runInsightAgent } from "../src/operate/agents.ts"
-import { createProject, withProjectStore } from "../src/project.ts"
+import { approveFinding, dismissFinding } from "../src/operate/findings.ts"
+import { createProject, ProjectError, withProjectStore } from "../src/project.ts"
 import { toClaudeTools } from "../src/runners/claude.ts"
 import { openStore } from "../src/store.ts"
 
@@ -306,4 +307,43 @@ test("runInsightAgent without PostHog fails and asks to set it up", async () => 
 
 test("the Claude runner maps web tools for the research agent", () => {
   assert.deepEqual(toClaudeTools(["read", "web_search", "web_fetch"]), ["Read", "Glob", "Grep", "WebSearch", "WebFetch"])
+})
+
+// A finished first build: every phase approved and the one task merged, so openChange accepts a request.
+function finishedProject(name: string): string {
+  const projectDir = join(scratch, name)
+  createProject(projectDir, "Dad jokes")
+  withProjectStore(projectDir, (store) => {
+    for (const phase of ["spec", "architecture", "branding", "design", "marketing", "plan", "qa", "deploy"]) store.setPhase(phase, "approved")
+    store.syncTasks(["T001"])
+    store.updateTask("T001", "merged")
+  })
+  return projectDir
+}
+
+const rejectsWith = (status: number, pattern: RegExp) => (error: unknown) => error instanceof ProjectError && error.status === status && pattern.test(error.message)
+
+test("approveFinding opens a change from the finding and refuses like openChange", () => {
+  const projectDir = finishedProject("approve")
+  withProjectStore(projectDir, (store) => {
+    const { id } = store.addFinding({ source: "analytics", severity: "medium", title: "Shorten signup to one step", evidence: "62% drop at email confirmation", proposal: "Let users vote before confirming email." })
+    const other = store.addFinding({ ...finding, title: "Another" }).id
+    assert.throws(() => approveFinding(projectDir, store, 999), rejectsWith(404, /unknown finding/))
+
+    store.setMeta("run.pid", String(process.pid))
+    assert.throws(() => approveFinding(projectDir, store, id), rejectsWith(409, /run is in progress/))
+    assert.equal(store.finding(id)?.status, "open")
+    store.setMeta("run.pid", "")
+
+    const change = approveFinding(projectDir, store, id)
+    assert.equal(change.request, "Shorten signup to one step\n\nLet users vote before confirming email.\n\nWhy: 62% drop at email confirmation")
+    assert.deepEqual([store.finding(id)?.status, store.finding(id)?.changeId], ["approved", change.id])
+    assert.throws(() => approveFinding(projectDir, store, id), rejectsWith(409, /already approved/))
+    assert.throws(() => approveFinding(projectDir, store, other), rejectsWith(409, /still open/))
+    assert.equal(store.finding(other)?.status, "open")
+
+    dismissFinding(store, other)
+    assert.equal(store.finding(other)?.status, "dismissed")
+    assert.throws(() => dismissFinding(store, other), rejectsWith(409, /already dismissed/))
+  })
 })
