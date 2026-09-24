@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import type { Candidate, PipelineConfig, PlanningPhase, Role } from "./config.ts"
-import { changedFiles, commitAll, stagedDiff } from "./git.ts"
+import { changedFiles, stagedDiff } from "./git.ts"
 import { createDockerExecutor, ensureImage } from "./harness/docker.ts"
 import { hostExecutor, type Executor } from "./harness/executor.ts"
 import type { Harness, HarnessOutcome } from "./harness/harness.ts"
@@ -91,38 +91,53 @@ async function runPlanningPhase(context: PipelineContext, phase: PlanningPhase):
 
   const definition = phaseDefinitions[phase]
   store.setPhase(phase, "running")
-  const executor = await createExecutor(context, projectDir, `phase-${phase}`)
-  try {
-    let previousError: string | null = null
-    for (let attempt = 1; attempt <= phaseAttempts; attempt++) {
-      store.log("phase", `${phase}: attempt ${attempt} with ${definition.role}`)
-      const outcome = await runAgent(context, executor, definition.role, `phase-${phase}-${attempt}`, planningTools, phasePrompt(context, definition, previousError))
-      if (isInfrastructureFailure(outcome)) {
-        store.setPhase(phase, "pending")
-        store.log("phase", `${phase}: paused (${outcome.failureClass}): ${outcome.result.summary.slice(0, 300)}`)
-        return "paused"
-      }
-      try {
-        if (outcome.result.status !== "done") throw new Error(`agent ${outcome.result.status}: ${outcome.result.summary}`)
-        definition.validate(projectDir)
-      } catch (error) {
-        previousError = (error as Error).message
-        store.log("phase", `${phase}: output rejected: ${previousError}`)
-        continue
-      }
-      commitAll(projectDir, `docs(${phase}): add ${phase} artifacts`)
-      if (config.autonomy.gates.includes(phase)) {
-        store.setPhase(phase, "awaiting_approval")
-        store.log("gate", `phase "${phase}" is ready for review: agent-team approve ${projectDir} ${phase}`)
-        return "awaiting_approval"
-      }
-      store.setPhase(phase, "approved")
-      return "completed"
+  let previousError: string | null = null
+  for (let attempt = 1; attempt <= phaseAttempts; attempt++) {
+    store.log("phase", `${phase}: attempt ${attempt} with ${definition.role}`)
+    const result = await attemptPhase(context, phase, definition, attempt, previousError)
+    if (result.kind === "infrastructure") {
+      store.setPhase(phase, "pending")
+      store.log("phase", `${phase}: paused: ${result.reason.slice(0, 300)}`)
+      return "paused"
     }
-    store.setPhase(phase, "failed")
-    return "failed"
+    if (result.kind === "failed" || result.kind === "blocked") {
+      previousError = result.reason
+      store.log("phase", `${phase}: output rejected: ${previousError}`)
+      continue
+    }
+    if (config.autonomy.gates.includes(phase)) {
+      store.setPhase(phase, "awaiting_approval")
+      store.log("gate", `phase "${phase}" is ready for review: agent-team approve ${projectDir} ${phase}`)
+      return "awaiting_approval"
+    }
+    store.setPhase(phase, "approved")
+    return "completed"
+  }
+  store.setPhase(phase, "failed")
+  return "failed"
+}
+
+// Planning agents also work in a throwaway worktree, so they never see the orchestrator state or write to main's .git.
+async function attemptPhase(context: PipelineContext, phase: PlanningPhase, definition: PhaseDefinition, attempt: number, previousError: string | null): Promise<AttemptResult> {
+  const { projectDir } = context
+  const workspace = createWorkspace(projectDir, `phase-${phase}-${attempt}`)
+  const executor = await createExecutor(context, workspace.path, `phase-${phase}-${attempt}`)
+  try {
+    const outcome = await runAgent(context, executor, definition.role, `phase-${phase}-${attempt}`, planningTools, phasePrompt(context, definition, previousError))
+    if (isInfrastructureFailure(outcome)) return { kind: "infrastructure", reason: `${outcome.failureClass}: ${outcome.result.summary}` }
+    if (outcome.result.status !== "done") return { kind: "failed", reason: `agent ${outcome.result.status}: ${outcome.result.summary}` }
+    try {
+      definition.validate(workspace.path)
+    } catch (error) {
+      return { kind: "failed", reason: (error as Error).message }
+    }
+    mergeWorkspace(projectDir, workspace, `docs(${phase}): add ${phase} artifacts`)
+    return { kind: "passed" }
+  } catch (error) {
+    return { kind: "infrastructure", reason: (error as Error).message }
   } finally {
     await executor.dispose()
+    removeWorkspace(projectDir, workspace)
   }
 }
 
