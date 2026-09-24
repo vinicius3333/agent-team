@@ -2,6 +2,8 @@ import type { RunStop } from "../pipeline.ts"
 
 // The pipeline logs these exact phrases, and the notifier matches on them.
 export const gateReadyText = "is ready for review"
+// Logged when a task stops for a person: a replan into shared files, an escalation, or a task budget approval.
+export const humanDecisionText = "needs a human decision"
 export const budgetReachedPrefix = "run budget reached"
 export const qaStoppedPrefix = "stopped after"
 export const interruptPrefix = "interrupt received"
@@ -31,6 +33,7 @@ export interface Notification {
   severity: Severity
   reason: string
   phase?: string
+  taskId?: string
   liveUrl?: string
   incidentId?: string
   changeId?: string
@@ -43,6 +46,7 @@ export interface MappingContext {
 }
 
 const gatePattern = new RegExp(`^phase "([a-z]+)" ${gateReadyText}`)
+const humanDecisionPattern = new RegExp(`^(\\S+) ${humanDecisionText}`)
 const livePattern = /^live at (\S+?)(?:;|$)/
 const incidentOpenedPattern = new RegExp(`^${incidentOpenedPrefix} (\\S+): (.*)`, "s")
 const changePattern = new RegExp(`^(?:${changeOpenedPrefix} (C\\d+)|${changeMergedPrefix} (C\\d+)|change (C\\d+) ${changeWaitingText})`)
@@ -52,7 +56,9 @@ export function notificationFor(event: ProjectEvent, stop: RunStop | null, conte
   const { type, message } = event
   if (type === "gate") {
     const phase = gatePattern.exec(message)?.[1]
-    return phase ? { kind: "gate", severity: "action", reason: message, phase } : null
+    if (phase) return { kind: "gate", severity: "action", reason: message, phase }
+    const taskId = humanDecisionPattern.exec(message)?.[1]
+    return taskId ? { kind: "gate", severity: "action", reason: message, taskId } : null
   }
   if (type === "budget" && message.startsWith(budgetReachedPrefix)) return { kind: "budget", severity: "action", reason: message }
   if (type === "qa" && message.startsWith(qaStoppedPrefix)) return { kind: "qa_failed", severity: "action", reason: message }

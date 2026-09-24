@@ -36,6 +36,7 @@ interface TranscriptLine {
   usage?: { input_tokens?: number; output_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number }
   error?: { message?: string }
   result?: unknown
+  errors?: unknown[]
   num_turns?: number
   total_cost_usd?: number
   duration_ms?: number
@@ -45,6 +46,13 @@ interface TranscriptLine {
 function claudeTokens(usage: TranscriptLine["usage"]): number | undefined {
   if (!usage) return undefined
   return (usage.input_tokens ?? 0) + (usage.output_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0)
+}
+
+// Limit errors such as error_max_budget_usd carry their message in `errors`, not `result`.
+function errorText(line: TranscriptLine, result: string): string {
+  if (result.trim()) return result
+  const errors = (line.errors ?? []).map(String).join("\n").trim()
+  return errors || line.subtype || "unknown error"
 }
 
 export function parseTranscript(text: string): TranscriptEntry[] {
@@ -127,7 +135,7 @@ function claudeEntries(lines: TranscriptLine[]): TranscriptEntry[] {
     } else if (line.type === "result" || "result" in line) {
       entries.push({ kind: "meta", stats: { turns: line.num_turns, tokens: claudeTokens(line.usage), cost: line.total_cost_usd, duration: line.duration_ms, error: line.is_error } })
       const text = String(line.result ?? "")
-      if (line.is_error) entries.push({ kind: "error", text })
+      if (line.is_error) entries.push({ kind: "error", text: errorText(line, text) })
       else if (text.trim() && text !== lastMessage) entries.push({ kind: "message", text })
     }
   }

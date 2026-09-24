@@ -85,6 +85,7 @@ export interface PipelineConfig {
   template: TemplatePin | null
   allowSameVendorReview: boolean
   harness: HarnessConfig
+  lead: LeadConfig
   operate: OperateConfig
 }
 
@@ -92,6 +93,18 @@ export interface TemplatePin {
   name: string
   version: number
 }
+
+export const leadActionKinds = ["retry", "resume", "approve", "request_changes", "raise_budget", "add_task", "edit_task"] as const
+export type LeadActionKind = (typeof leadActionKinds)[number]
+
+// What the project lead may suggest in the chat, and which of those apply without a click.
+export interface LeadConfig {
+  actions: LeadActionKind[]
+  autoApply: LeadActionKind[]
+  chatBudgetUsd: number
+}
+
+export const defaultLeadConfig: LeadConfig = { actions: [...leadActionKinds], autoApply: [], chatBudgetUsd: 2 }
 
 export const marketingFormats = {
   og: { width: 1200, height: 630 },
@@ -146,6 +159,11 @@ export function loadConfig(path: string): PipelineConfig {
       backoffMs: raw.harness?.backoffMs ?? 15_000,
       cooldownMs: raw.harness?.cooldownMs ?? 15 * 60_000,
       agentTimeoutMs: raw.harness?.agentTimeoutMs ?? 30 * 60_000,
+    },
+    lead: {
+      actions: raw.lead?.actions ?? defaultLeadConfig.actions,
+      autoApply: raw.lead?.autoApply ?? defaultLeadConfig.autoApply,
+      chatBudgetUsd: raw.lead?.chatBudgetUsd ?? defaultLeadConfig.chatBudgetUsd,
     },
     operate: normalizeOperate(raw.operate),
   }
@@ -267,6 +285,12 @@ function validateConfig(config: PipelineConfig, projectDir: string): void {
   if (!Number.isInteger(config.qa.maxRounds) || config.qa.maxRounds < 1) errors.push("qa.maxRounds must be a whole number of 1 or more")
   if (!Number.isInteger(config.parallelTasks) || config.parallelTasks < 1) errors.push("parallelTasks must be a whole number of 1 or more")
   if (!(config.budget.runUsd > 0)) errors.push("budget.runUsd must be a number above 0")
+  for (const field of ["actions", "autoApply"] as const) {
+    const kinds = config.lead[field]
+    if (!Array.isArray(kinds) || !kinds.every((kind) => (leadActionKinds as readonly string[]).includes(kind))) errors.push(`lead.${field} must list only ${leadActionKinds.join(", ")}`)
+  }
+  if (Array.isArray(config.lead.autoApply) && config.lead.autoApply.some((kind) => !config.lead.actions.includes(kind))) errors.push("lead.autoApply may only list kinds that lead.actions allows")
+  if (!(config.lead.chatBudgetUsd > 0 && config.lead.chatBudgetUsd <= 20)) errors.push("lead.chatBudgetUsd must be above 0 and at most 20")
   if (!["web", "api", "web+api"].includes(config.target)) errors.push(`target must be web, api, or web+api`)
   if (config.autonomy.changeMerge !== "auto" && config.autonomy.changeMerge !== "manual") errors.push("autonomy.changeMerge must be auto or manual")
   for (const gate of config.autonomy.gates) {

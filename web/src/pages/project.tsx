@@ -35,7 +35,7 @@ import { StatCards } from "@/components/project/stat-cards"
 import { StopBanner } from "@/components/project/stop-banner"
 import { PipelineStepper } from "@/components/project/stepper"
 import { runnerCooldown, SystemTab } from "@/components/project/system-tab"
-import { RetryButton, TasksCard } from "@/components/project/tasks-card"
+import { TaskAction, TasksCard } from "@/components/project/tasks-card"
 import { TranscriptSheet } from "@/components/project/transcript-sheet"
 import { StatusBadge } from "@/components/status-badge"
 import { Button } from "@/components/ui/button"
@@ -82,9 +82,11 @@ function HumanNeededBanner({ detail }: { detail: ProjectDetail }) {
           {task.id} needs your decision
         </p>
         <p className="text-sm whitespace-pre-wrap break-words text-muted-foreground">{task.needsHuman}</p>
-        <p className="mt-1 text-sm text-muted-foreground">Edit tasks.json if you agree with the change, then retry the task.</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {task.budgetStopUsd ? "Approve more budget to let the worker continue from its saved work." : "Edit tasks.json if you agree with the change, then retry the task."}
+        </p>
       </div>
-      <RetryButton task={task} size="default" />
+      <TaskAction task={task} size="default" />
     </Card>
   )
 }
@@ -121,6 +123,7 @@ function ProjectViewContent({ phase, view, detail, stream, document, selectDocum
           <PipelineStepper />
           <ChangeRequestCard />
           <LiveAgentsCard />
+          <BudgetCard />
           <StatCards />
           <EventsCard stream={stream} />
         </>

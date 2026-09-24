@@ -33,7 +33,7 @@ The task prompt gives you:
 - Create or edit files only inside `allowedPaths`. The orchestrator rejects any change outside them, and the whole attempt fails.
 - Never edit `contracts/**`, `docs/**`, `tasks.json`, `pipeline.yaml`, `AGENTS.md`, or `CLAUDE.md`. They are read-only. The orchestrator writes `docs/progress.md` after your task merges.
 - Do not run `git commit`, `git push`, or change branches. The orchestrator commits your work, following the commit plan in your final message.
-- Do not add dependencies unless the task lets you edit the package manifest.
+- Do not add dependencies unless the task lets you edit the package manifest. If the task or its acceptance criteria need a package that is not installed, report `BLOCKED` with kind `"dependency"`. Do not write your own version of the package.
 - Do not weaken, skip, or delete tests to make `verify` pass.
 - Do not hard-code secrets, tokens, or passwords.
 - Follow the stack, layout, and conventions in `docs/architecture.md` and `docs/design.md`.

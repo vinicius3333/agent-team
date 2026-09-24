@@ -91,6 +91,13 @@ test("each trigger in the table maps to its notification", () => {
   assert.equal(notificationFor(event("run", "finished: failed"), stop("T004 failed: boom"), noContext)?.reason, "T004 failed: boom")
 })
 
+test("a task that needs a human decision sends an action with the task id", () => {
+  const notification = notificationFor(event("gate", "T007 needs a human decision: task budget reached. Edit tasks.json if needed, then: agent-team retry /p T007"), null, noContext)
+  assert.equal(notification?.kind, "gate")
+  assert.equal(notification?.severity, "action")
+  assert.equal(notification?.taskId, "T007")
+})
+
 test("non-events send nothing", () => {
   assert.equal(notificationFor(event("run", "finished: awaiting_approval"), stop("x", "awaiting_approval"), noContext), null)
   assert.equal(notificationFor(event("gate", 'phase "spec" is waiting for approval: agent-team approve /p spec'), null, noContext), null)

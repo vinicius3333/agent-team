@@ -1,0 +1,180 @@
+{
+  "resultId": "20260924T191512Z-65f3683-baseline",
+  "gitSha": "65f3683",
+  "dirty": true,
+  "label": "baseline",
+  "tier": "smoke",
+  "configHash": "8f697822c14c1399",
+  "config": {
+    "roles": {
+      "pm": {
+        "runner": "claude",
+        "model": "opus"
+      },
+      "architect": {
+        "runner": "claude",
+        "model": "opus"
+      },
+      "illustrator": {
+        "runner": "codex",
+        "model": "gpt-6-astra"
+      },
+      "designer": {
+        "runner": "claude",
+        "model": "sonnet"
+      },
+      "marketer": {
+        "runner": "codex",
+        "model": "gpt-6-astra"
+      },
+      "planner": {
+        "runner": "claude",
+        "model": "opus"
+      },
+      "worker": {
+        "runner": "claude",
+        "model": "sonnet",
+        "maxRetries": 3,
+        "fallbacks": []
+      },
+      "reviewer": {
+        "runner": "claude",
+        "model": "opus",
+        "fallbacks": []
+      },
+      "design-reviewer": {
+        "runner": "claude",
+        "model": "opus"
+      },
+      "qa": {
+        "runner": "claude",
+        "model": "opus"
+      },
+      "lead": {
+        "runner": "claude",
+        "model": "opus"
+      }
+    },
+    "harness": {
+      "isolation": "docker",
+      "docker": {
+        "cpus": 2,
+        "memory": "4g",
+        "pidsLimit": 512
+      },
+      "network": {
+        "allowlist": true,
+        "extraDomains": []
+      },
+      "transientRetries": 2,
+      "backoffMs": 15000,
+      "cooldownMs": 900000,
+      "agentTimeoutMs": 1800000
+    }
+  },
+  "runnerVersions": {
+    "claude": "2.1.282 (Claude Code)",
+    "codex": "codex-cli 0.155.1"
+  },
+  "aborted": null,
+  "briefs": [
+    {
+      "id": "landing-page",
+      "briefHash": "f92c2067aafd712e",
+      "outcome": "failed",
+      "stop": {
+        "outcome": "failed",
+        "kind": "other",
+        "reason": "T002 blocked after 3 attempts: reviewer rejected the change.\nReasons: src/lib/utils.ts does not implement cn() with clsx + tailwind-merge as the acceptance criterion requires; it is a hand-rolled substitute, and neither package is in package.json.; The hand-rolled merge puts every ring-* class in one group, so cn() drops focus-visible:ring-2 when focus-visible:ring-ring comes later. Button and Input end up with a ring colour but no ring width, so keyboard focus is invisible (accessibility defect). The same grouping wrongly treats text-center/text-left as conflicting with text colours such as text-primary.\nFixes: Add clsx and tailwind-merge to package.json dependencies (the orchestrator must widen allowedPaths to package.json and package-lock.json, or move this into a foundation fix), then replace src/lib/utils.ts with the standard shadcn helper: `import { clsx, type ClassValue } from \"clsx\"; import { twMerge } from \"tailwind-merge\"; export function cn(...inputs: ClassValue[]) { return twMerge(clsx(inputs)); }`.; In src/lib/utils.test.ts, add a test that `cn(\"focus-visible:ring-2 focus-visible:ring-ring\")` keeps both classes and that `cn(\"text-center text-primary\")` keeps both, and add a test in src/components/ui/controls.test.tsx that the rendered Button and Input carry `focus-visible:ring-2`.",
+        "at": "2026-09-24T19:48:24.412Z"
+      },
+      "phases": {
+        "spec": "approved",
+        "architecture": "approved",
+        "branding": "approved",
+        "design": "approved",
+        "marketing": "approved",
+        "plan": "approved"
+      },
+      "tasks": {
+        "total": 11,
+        "merged": 4,
+        "blocked": 1,
+        "replans": 0
+      },
+      "attempts": {
+        "total": 22,
+        "byRole": {
+          "architect": 1,
+          "design-reviewer": 2,
+          "designer": 3,
+          "planner": 1,
+          "pm": 1,
+          "reviewer": 7,
+          "worker": 7
+        },
+        "fallbacks": 0
+      },
+      "reviews": {
+        "total": 7,
+        "fail": 3
+      },
+      "qa": {
+        "rounds": 0,
+        "verdict": null,
+        "fixTasks": 0
+      },
+      "costUsd": 10.1481,
+      "unreportedCalls": 0,
+      "tokens": 14411606,
+      "wallMs": 1991374
+    },
+    {
+      "id": "notes-api",
+      "briefHash": "496f315c1f35dd1a",
+      "outcome": "completed",
+      "stop": null,
+      "phases": {
+        "spec": "approved",
+        "architecture": "approved",
+        "branding": "approved",
+        "design": "approved",
+        "marketing": "approved",
+        "plan": "approved",
+        "qa": "approved",
+        "deploy": "approved"
+      },
+      "tasks": {
+        "total": 9,
+        "merged": 9,
+        "blocked": 0,
+        "replans": 0
+      },
+      "attempts": {
+        "total": 22,
+        "byRole": {
+          "architect": 1,
+          "planner": 1,
+          "pm": 1,
+          "qa": 1,
+          "reviewer": 9,
+          "worker": 9
+        },
+        "fallbacks": 0
+      },
+      "reviews": {
+        "total": 9,
+        "fail": 0
+      },
+      "qa": {
+        "rounds": 1,
+        "verdict": "pass",
+        "fixTasks": 0
+      },
+      "costUsd": 5.7995,
+      "unreportedCalls": 0,
+      "tokens": 4281629,
+      "wallMs": 505341
+    }
+  ]
+}

@@ -20,8 +20,10 @@ export function toClaudeTools(allowedTools: string[], writablePaths?: string[]):
 }
 
 // `./` anchors the rule to the working directory; a leading `/` would mean the settings file's directory.
+// Rules are globs, so literal brackets such as Next.js `[groupId]` folders must be escaped or they match nothing.
 function relativeRule(path: string): string {
-  return path.startsWith("./") || path.startsWith("/") ? path : `./${path}`
+  const escaped = path.replace(/[[\]]/g, "\\$&")
+  return escaped.startsWith("./") || escaped.startsWith("/") ? escaped : `./${escaped}`
 }
 
 // Claude reports cache reads and writes apart from input_tokens.
@@ -40,6 +42,14 @@ export function claudeResult(stdout: string): Record<string, any> {
     } catch {}
   }
   throw new Error("no result event in the Claude output")
+}
+
+// Limit errors such as error_max_budget_usd carry their message in `errors`, not `result`.
+export function claudeErrorText(output: Record<string, any>): string {
+  const result = String(output.result ?? "").trim()
+  if (result) return result
+  const errors = Array.isArray(output.errors) ? output.errors.map(String).join("\n").trim() : ""
+  return errors || String(output.subtype ?? "unknown Claude error")
 }
 
 export const claudeRunner: AgentRunner = {
@@ -78,7 +88,7 @@ export const claudeRunner: AgentRunner = {
         tokens: claudeTokens(output.usage),
         ...base,
         // A Claude error result is the CLI's own message (auth, limits), not the agent's work.
-        diagnostics: output.is_error ? `${String(output.result ?? "")}\n${base.diagnostics}` : base.diagnostics,
+        diagnostics: output.is_error ? `${claudeErrorText(output)}\n${base.diagnostics}` : base.diagnostics,
       }
     } catch {
       return {

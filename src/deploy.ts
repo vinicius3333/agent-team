@@ -123,7 +123,8 @@ export function startAppContainer(options: { name: string; dir: string; plan: De
     "--memory", "512m", "--cpus", "1", "--pids-limit", "256",
     "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
     "--user", "1000:1000",
-    "-e", "HOME=/tmp", "-e", `PORT=${plan.port}`, "-e", "HOST=0.0.0.0", "-e", "NODE_ENV=production",
+    // NODE_ENV=production makes npm skip devDependencies, but the install step usually builds with them (tsc, vite).
+    "-e", "HOME=/tmp", "-e", `PORT=${plan.port}`, "-e", "HOST=0.0.0.0", "-e", "NODE_ENV=production", "-e", "NPM_CONFIG_INCLUDE=dev",
     ...Object.entries(options.env ?? {}).flatMap(([key, value]) => ["-e", `${key}=${value}`]),
     "-v", `${dir}:/app`, "-w", "/app",
     appImage, "sh", "-c", command,
