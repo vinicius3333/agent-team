@@ -2,7 +2,8 @@ import { readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { parseDocument } from "yaml"
 import { leadActionKinds, loadConfig, type LeadConfig } from "./config.ts"
-import { commitPaths } from "./git.ts"
+import { commitPaths, fileAtRef } from "./git.ts"
+import { commitAndRebase, createWorkspace, fastForward, removeWorkspace } from "./harness/workspace.ts"
 import { approvePhase, ProjectError, raiseRunBudget, requestChanges, retryTask } from "./project.ts"
 import type { LeadAction, Store, TaskChanges, TaskDraft } from "./store.ts"
 import { orderTasks, validateTasks, type Task } from "./tasks.ts"
@@ -40,23 +41,40 @@ function tasksPath(projectDir: string): string {
   return join(projectDir, "tasks.json")
 }
 
-function readTasks(projectDir: string): Task[] {
+// During an open change, main keeps the tasks from before it and the change branch holds the live ones,
+// so lead edits read and land there.
+function readTasks(projectDir: string, store: Store): Task[] {
+  const change = store.currentChange()
   try {
-    return JSON.parse(readFileSync(tasksPath(projectDir), "utf8")) as Task[]
+    const text = change ? fileAtRef(projectDir, change.branch, "tasks.json") : readFileSync(tasksPath(projectDir), "utf8")
+    return JSON.parse(text ?? "") as Task[]
   } catch {
     throw new ProjectError(409, "tasks.json is missing or not valid JSON. Wait until the plan phase is done.")
   }
 }
 
-// Validates before writing, so a bad draft never lands on main; a running build reloads tasks.json when it changes.
-function writeTasks(projectDir: string, tasks: Task[], message: string): void {
+// Validates before writing, so a bad draft never lands; a running build reloads tasks.json when it changes.
+function writeTasks(projectDir: string, store: Store, tasks: Task[], message: string): void {
   try {
     orderTasks(validateTasks(tasks))
   } catch (error) {
     throw new ProjectError(400, (error as Error).message)
   }
-  writeFileSync(tasksPath(projectDir), `${JSON.stringify(tasks, null, 2)}\n`)
-  commitPaths(projectDir, ["tasks.json"], message)
+  const text = `${JSON.stringify(tasks, null, 2)}\n`
+  const change = store.currentChange()
+  if (!change) {
+    writeFileSync(tasksPath(projectDir), text)
+    commitPaths(projectDir, ["tasks.json"], message)
+    return
+  }
+  const workspace = createWorkspace(projectDir, `lead-${change.id}`, change.branch)
+  try {
+    writeFileSync(join(workspace.path, "tasks.json"), text)
+    commitAndRebase(workspace, message)
+    fastForward(projectDir, workspace.branch, change.branch)
+  } finally {
+    removeWorkspace(projectDir, workspace)
+  }
 }
 
 // Lead tasks get L-prefixed ids so they are easy to tell apart from planned (T) and QA (Q) tasks.
@@ -66,8 +84,9 @@ export function nextLeadTaskId(tasks: Task[]): string {
 }
 
 export function addTask(projectDir: string, store: Store, draft: TaskDraft): string {
-  const tasks = readTasks(projectDir)
+  const tasks = readTasks(projectDir, store)
   const id = nextLeadTaskId(tasks)
+  const change = store.currentChange()
   const verify = draft.verify.trim() || tasks.at(-1)?.verify || ""
   const task: Task = {
     id,
@@ -80,21 +99,22 @@ export function addTask(projectDir: string, store: Store, draft: TaskDraft): str
     acceptance: draft.acceptance,
     verify,
     ...(draft.ui ? { ui: true } : {}),
+    ...(change ? { change: change.id } : {}),
   }
-  writeTasks(projectDir, [...tasks, task], `chore(plan): add ${id} from the project lead`)
+  writeTasks(projectDir, store, [...tasks, task], `chore(plan): add ${id} from the project lead`)
   store.log("task", `${id} added by the project lead: ${draft.title}`)
   return id
 }
 
 export function editTask(projectDir: string, store: Store, taskId: string, changes: TaskChanges): void {
-  const tasks = readTasks(projectDir)
+  const tasks = readTasks(projectDir, store)
   const index = tasks.findIndex((task) => task.id === taskId)
   if (index === -1) throw new ProjectError(404, `unknown task "${taskId}"`)
   const status = store.task(taskId)?.status ?? "pending"
   if (status === "merged") throw new ProjectError(409, `${taskId} is already merged. Add a new task instead.`)
   if (status === "running") throw new ProjectError(409, `${taskId} is running. Change it after the attempt ends.`)
   tasks[index] = { ...tasks[index], ...changes }
-  writeTasks(projectDir, tasks, `chore(plan): change ${taskId} from the project lead`)
+  writeTasks(projectDir, store, tasks, `chore(plan): change ${taskId} from the project lead`)
   if (status === "blocked") store.resetTask(taskId)
   store.log("task", `${taskId} changed by the project lead: ${Object.keys(changes).join(", ")}`)
 }
