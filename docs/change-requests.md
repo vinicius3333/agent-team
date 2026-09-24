@@ -164,3 +164,28 @@ In `test/change.test.ts`, with the stub harness from `test/task-loop.test.ts`:
 4. Should `spec` and `plan` gates default to on for changes, even when the first build ran without gates? A change to a live app may deserve review by default.
 5. Should the pm be allowed to refuse a change that contradicts the spec (and say why), or always write a delta?
 6. `docs/spec.md` edited in place (B1) makes the delta and the full spec two sources of truth. Is keeping only deltas, and giving agents all deltas in order, better?
+
+## Decisions
+
+The implementation resolved the open questions and a few gaps with the safest simple choice.
+
+| Question | Decision |
+|---|---|
+| 1. Integration branch or per-task PRs to `main` | Integration branch (D1). `main` and the live app stay stable, and the change lands as one reviewable merge. |
+| 2. Queue several changes | No. One open change at a time; the API answers `409` while one is open. |
+| 3. Zero-downtime redeploy (E2) | Not done. The preview URL already changes on every deploy, so `deployProject` keeps replacing the container. A failed deploy after the merge stops the run as today, and `agent-team run` retries it from `main`. |
+| 4. Gates on by default for changes | No. Changes use `autonomy.gates` like the first build. `autonomy.changeMerge: manual` is the review switch for the final merge. |
+| 5. May the pm refuse a change | No. The pm always writes a delta and lists contradictions under `## Open questions`, where a gate on `spec` shows them. |
+| 6. Deltas only, or edit `docs/spec.md` in place | Both, as specified: the full documents always describe the current app, and the deltas record each change. |
+
+Other choices:
+
+- **Change mode in prompts.** The phase task prompt starts with `Change mode: change request <id>`, and each prompt file has a `## Change mode` section. This replaces the `{{change}}` variable, because unset variables stay in the prompt as literal text.
+- **Planner output.** The planner writes the new tasks to `docs/changes/<id>/tasks.json` (`[]` for no code). The orchestrator appends them to `tasks.json` in the same phase commit. The plan is rejected when `tasks.json` itself was edited, a new id already exists or does not continue after the highest `T` id, or a feature task owns a shared foundation file.
+- **QA round numbers.** `openChange` keeps `qa.round`. QA fix ids are `Q<round><nn>`, so restarting the count would reuse ids like `Q101` from the first build. Round folders still go to `.agent-team/qa/<id>/round-<n>/`, and the dashboard shows the newest change's rounds.
+- **`docs/changes/` in `protectedPrefixes`.** Not added: `docs/` is already protected, so the extra prefix would change nothing.
+- **Human edits at a gate during a change.** Approve and Request changes do not commit edits from the project folder while a change is open, because that folder is `main` and `main` must not move. Use the feedback box instead.
+- **Manual merge.** With `changeMerge: manual`, the run stops before it opens the final pull request. **Approve merge** on the dashboard (`POST .../changes/<id>/merge`) records the approval and starts the run, which opens and merges the pull request.
+- **Abandon.** It removes the task rows marked with the change id on the change branch (plan and QA fix tasks), restores the phase rows archived when the change opened, and keeps the branch.
+- **Change finished.** The change is marked `merged` and `change.current` is cleared at the final merge, so the redeploy and any deploy fix run from `main`.
+- **Notifications.** A new `change` kind: opened and merged are info; waiting for a merge approval or a conflict fix needs you.
