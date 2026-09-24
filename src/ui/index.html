@@ -190,6 +190,44 @@ tbody tr:last-child td { border-bottom: 0; }
 .stat-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .raw { font-family: var(--mono); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
 
+/* Details panel */
+.details-scrim { z-index: 17; }
+.drawer.details { z-index: 18; width: min(520px, 100vw); }
+.details-body { display: flex; flex-direction: column; gap: 18px; }
+.section-title { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin: 0 0 8px; }
+.kv { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 6px 12px; font-size: 13px; margin: 0; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; overflow-wrap: anywhere; }
+.path-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.path-list code { font-family: var(--mono); font-size: 12px; padding: 2px 7px; border-radius: 6px; background: var(--panel-2); border: 1px solid var(--border); overflow-wrap: anywhere; }
+.checklist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.checklist li { display: flex; gap: 8px; align-items: flex-start; }
+.checklist .box { width: 16px; height: 16px; border-radius: 4px; border: 1.5px solid var(--border-2); flex: none; margin-top: 2px; display: grid; place-items: center; font-size: 11px; color: #0a0b0f; }
+.checklist .box.checked { background: var(--green); border-color: var(--green); }
+.verify { display: flex; align-items: center; gap: 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-family: var(--mono); font-size: 12px; }
+.verify code { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.small-button { border: 1px solid var(--border); background: var(--panel-2); border-radius: 6px; padding: 3px 9px; cursor: pointer; font-size: 12px; white-space: nowrap; }
+.small-button:hover { border-color: var(--border-2); }
+.link-button { border: 0; background: none; padding: 0; color: var(--accent-2); cursor: pointer; font: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.links { display: flex; flex-wrap: wrap; gap: 8px; }
+.links a { color: var(--accent-2); font-size: 13px; text-decoration: none; border: 1px solid var(--border); border-radius: 8px; padding: 5px 10px; background: var(--panel-2); display: inline-flex; gap: 6px; align-items: center; }
+.links a:hover { border-color: var(--accent); }
+.calls { display: flex; flex-direction: column; gap: 6px; }
+.call { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 10px; align-items: center; width: 100%; text-align: left; border: 1px solid var(--border); background: var(--panel-2); border-radius: 8px; padding: 8px 10px; cursor: pointer; font-size: 12px; }
+.call:hover { border-color: var(--border-2); }
+.call .what { font-weight: 600; font-size: 13px; }
+.call .detail { grid-column: 2 / -1; color: var(--muted); font-family: var(--mono); overflow-wrap: anywhere; }
+.attempt-group { font-size: 12px; color: var(--faint); margin: 6px 0 2px; }
+details.collapsible summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+details.collapsible[open] summary { margin-bottom: 8px; }
+.step { background: none; border: 0; padding: 0; cursor: pointer; text-align: left; font: inherit; color: inherit; }
+.step:hover .step-label { color: var(--text); }
+.log-row { cursor: pointer; }
+.health-row { cursor: pointer; width: 100%; text-align: left; font: inherit; color: inherit; }
+.health-row:hover { border-color: var(--border-2); }
+.list li[data-container] { cursor: pointer; }
+.list li[data-container]:hover { color: var(--text); }
+
 @media (max-width: 1180px) {
   .grid-main, .grid-bottom { grid-template-columns: minmax(0, 1fr); }
 }
@@ -224,6 +262,8 @@ tbody tr:last-child td { border-bottom: 0; }
   .log-row { grid-template-columns: 58px minmax(0, 1fr); }
   .log-row .tag { grid-column: 2; justify-self: start; }
   .log-row .log-msg { grid-column: 1 / -1; }
+  .drawer, .drawer.details { width: 100vw; border-left: 0; }
+  .kv { grid-template-columns: 100px minmax(0, 1fr); }
 }
 @media (min-width: 721px) { .mobile-only { display: none !important; } }
 </style>
@@ -242,8 +282,16 @@ tbody tr:last-child td { border-bottom: 0; }
     <div id="content"><p class="muted">Loading projects…</p></div>
   </main>
 </div>
+<div class="scrim details-scrim" id="details-scrim"></div>
+<aside class="drawer details" id="details" aria-hidden="true" aria-labelledby="details-title" aria-modal="true" role="dialog">
+  <div class="drawer-head">
+    <div style="min-width:0"><h3 id="details-title"></h3><div class="sub" id="details-sub"></div></div>
+    <button class="icon-button" id="details-close" aria-label="Close details">×</button>
+  </div>
+  <div class="drawer-body details-body" id="details-body"></div>
+</aside>
 <div class="scrim" id="scrim"></div>
-<aside class="drawer" id="drawer" aria-hidden="true" aria-labelledby="drawer-title" role="dialog">
+<aside class="drawer" id="drawer" aria-hidden="true" aria-labelledby="drawer-title" aria-modal="true" role="dialog">
   <div class="drawer-head">
     <div style="min-width:0"><h3 id="drawer-title"></h3><div class="sub" id="drawer-sub"></div></div>
     <button class="icon-button" id="drawer-close" aria-label="Close transcript">×</button>
@@ -259,7 +307,10 @@ const steps = ["spec", "architecture", "mockups", "design", "plan", "build"]
 const stepLabels = { spec: "Spec", architecture: "Architecture", mockups: "Mockups", design: "Design", plan: "Plan", build: "Build" }
 const columns = [["pending", "Pending"], ["running", "Running"], ["merged", "Merged"], ["blocked", "Blocked"]]
 const artifacts = ["input.md", "docs/spec.md", "docs/architecture.md", "mockups", "docs/design.md", "tasks.json"]
-const state = { projects: [], selected: null, detail: null, stream: null, artifact: "input.md", openTasks: new Set(), logPinned: true, section: "tasks", transcript: null, drawerTab: "timeline" }
+const state = { projects: [], selected: null, detail: null, stream: null, artifact: "input.md", logPinned: true, section: "tasks", transcript: null, drawerTab: "timeline", panel: null }
+const phaseRoles = { spec: "pm", architecture: "architect", mockups: "illustrator", design: "designer", plan: "planner" }
+const phaseOutputs = { spec: ["docs/spec.md"], architecture: ["docs/architecture.md", "docs/adr/", "contracts/openapi.yaml"], mockups: ["design/mockups/*.png", "design/mockups/README.md"], design: ["docs/design.md", "design/tokens.json"], plan: ["tasks.json"], build: ["code and tests, one merge per task"] }
+const phaseArtifacts = { spec: "docs/spec.md", architecture: "docs/architecture.md", mockups: "mockups", design: "docs/design.md", plan: "tasks.json" }
 
 const escape = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c])
 const time = (iso) => { const d = new Date(iso); return isNaN(d) ? "" : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }) }
@@ -294,25 +345,44 @@ async function loadProjects() {
   const switcher = document.getElementById("switcher")
   switcher.innerHTML = state.projects.map((p) => `<option value="${escape(p.name)}" ${p.name === state.selected ? "selected" : ""}>${escape(p.name)}</option>`).join("")
   if (!state.selected && state.projects.length) {
-    const fromHash = decodeURIComponent(location.hash.slice(1))
-    const initial = state.projects.find((p) => p.name === fromHash) ?? state.projects.find((p) => p.active) ?? state.projects[0]
-    select(initial.name)
+    const fromHash = parseHash()
+    const initial = state.projects.find((p) => p.name === fromHash.project) ?? state.projects.find((p) => p.active) ?? state.projects[0]
+    if (initial.name === fromHash.project && fromHash.panel) state.panel = fromHash.panel
+    select(initial.name, { keepPanel: true })
   }
 }
 
-function select(name) {
+function parseHash() {
+  const [project = "", ...pairs] = location.hash.slice(1).split("&")
+  const params = Object.fromEntries(pairs.map((pair) => pair.split("=").map(decodeURIComponent)))
+  const kind = ["task", "phase", "runner", "container"].find((key) => params[key])
+  return { project: decodeURIComponent(project), panel: kind ? { kind, id: params[kind] } : null }
+}
+
+function writeHash() {
+  if (!state.selected) return
+  const panel = state.panel && state.panel.kind !== "event" ? `&${state.panel.kind}=${encodeURIComponent(state.panel.id)}` : ""
+  history.replaceState(null, "", `#${encodeURIComponent(state.selected)}${panel}`)
+}
+
+function select(name, options = {}) {
   if (state.selected === name && state.stream) return
   state.selected = name
   state.detail = null
   state.logPinned = true
-  state.openTasks.clear()
-  history.replaceState(null, "", `#${encodeURIComponent(name)}`)
+  if (!options.keepPanel) closeDetails()
+  writeHash()
   document.querySelectorAll(".project").forEach((el) => el.classList.toggle("selected", el.dataset.name === name))
   document.getElementById("switcher").value = name
   document.getElementById("content").innerHTML = `<p class="muted">Loading ${escape(name)}…</p>`
   state.stream?.close()
   state.stream = new EventSource(`api/stream/${encodeURIComponent(name)}`)
-  state.stream.onmessage = (event) => { state.detail = JSON.parse(event.data); render() }
+  state.stream.onmessage = (event) => {
+    const first = !state.detail
+    state.detail = JSON.parse(event.data)
+    render()
+    if (first && state.panel && !document.getElementById("details").classList.contains("open")) openDetails(state.panel)
+  }
 }
 
 function skippedPhases(detail) {
@@ -346,29 +416,29 @@ function stepperHtml(detail) {
     else if (status === "running") sub = "working"
     const icon = status === "approved" || status === "done" ? "✓" : status === "failed" ? "!" : status === "running" ? "" : status === "skipped" ? "–" : index + 1
     const last = index === steps.length - 1
-    return `<div class="step ${status}"><div class="step-row"><span class="step-icon" aria-hidden="true">${icon}</span>${last ? "" : `<span class="step-line"></span>`}</div><span class="step-label">${stepLabels[step]}</span>${sub ? `<span class="step-sub">${escape(sub)}</span>` : ""}</div>`
+    return `<button class="step ${status}" data-phase="${step}" aria-label="${stepLabels[step]}: ${escape(sub || status)}. Show details"><div class="step-row"><span class="step-icon" aria-hidden="true">${icon}</span>${last ? "" : `<span class="step-line"></span>`}</div><span class="step-label">${stepLabels[step]}</span>${sub ? `<span class="step-sub">${escape(sub)}</span>` : ""}</button>`
   }).join("")}</section>`
 }
 
 function boardHtml(detail) {
   const counts = countTasks(detail.tasks)
-  const maxRetries = 3
+  const maxRetries = maxRetriesOf(detail)
   return `<section class="card" data-section="tasks"><h2>Tasks <span class="count">${detail.tasks.length} total</span></h2>
     ${detail.tasks.length ? `<div class="board">${columns.map(([key, label]) => {
       const tasks = detail.tasks.filter((t) => (t.status in counts ? t.status : "pending") === key)
       return `<div class="column"><div class="column-head"><span class="dot ${key}"></span>${label}<span class="n">${tasks.length}</span></div>
-        ${tasks.map((t) => `<button class="task ${key}" data-task="${escape(t.id)}" aria-expanded="${state.openTasks.has(t.id)}">
+        ${tasks.map((t) => `<button class="task ${key}" data-task="${escape(t.id)}" aria-label="${escape(t.id)} ${escape(t.title)}. Show details">
           <div class="task-top"><span class="id-chip">${escape(t.id)}</span><span class="dot ${key}"></span></div>
           <div class="task-title">${escape(t.title)}</div>
           <div class="task-foot">${t.phase ? `<span>${escape(t.phase)}</span>` : ""}${t.attempts ? `<span class="badge ${t.status === "blocked" ? "blocked" : ""}">${t.attempts}/${maxRetries}</span>` : ""}${t.dependsOn?.length ? `<span class="muted">after ${escape(t.dependsOn.join(", "))}</span>` : ""}</div>
-          ${t.lastFailure && state.openTasks.has(t.id) ? `<div class="failure">${escape(t.lastFailure)}</div>` : t.lastFailure ? `<div class="muted" style="font-size:11px">Last attempt failed · tap to see why</div>` : ""}
+          ${t.lastFailure ? `<div class="muted" style="font-size:11px">Last attempt failed · open for details</div>` : ""}
         </button>`).join("") || `<div class="empty">Nothing here</div>`}</div>`
     }).join("")}</div>` : `<div class="empty">Tasks appear after the plan phase writes tasks.json.</div>`}</section>`
 }
 
 function logHtml(detail) {
   return `<section class="card" data-section="activity"><h2>Live activity <span class="count">${detail.events.length}</span></h2>
-    <div class="log" id="log">${detail.events.map((e) => `<div class="log-row"><span class="log-time">${time(e.at)}</span><span class="tag ${escape(e.type)}">${escape(e.type)}</span><span class="log-msg">${escape(e.message)}</span></div>`).join("") || `<div class="empty">No activity yet.</div>`}</div></section>`
+    <div class="log" id="log">${detail.events.map((e) => `<div class="log-row" data-event="${escape(e.id)}" tabindex="0" role="button" aria-label="Event details"><span class="log-time">${time(e.at)}</span><span class="tag ${escape(e.type)}">${escape(e.type)}</span><span class="log-msg">${escape(e.message)}</span></div>`).join("") || `<div class="empty">No activity yet.</div>`}</div></section>`
 }
 
 function attemptsHtml(detail) {
@@ -388,10 +458,10 @@ function healthHtml(detail) {
   const runners = [...new Set(["claude", "codex", ...detail.attempts.map((a) => a.runner)])]
   return `<section class="card" data-section="agents"><h2>Runner health</h2>
     ${runners.map((r) => cooling[r]
-      ? `<div class="health-row"><span class="dot awaiting_approval"></span><span class="mono">${escape(r)}</span><span class="badge warn">${escape(cooling[r].reason)}</span><span class="when">until ${time(new Date(cooling[r].until).toISOString())}</span></div>`
-      : `<div class="health-row"><span class="dot ok"></span><span class="mono">${escape(r)}: healthy</span></div>`).join("")}
+      ? `<button class="health-row" data-runner="${escape(r)}"><span class="dot awaiting_approval"></span><span class="mono">${escape(r)}</span><span class="badge warn">${escape(cooling[r].reason)}</span><span class="when">until ${time(new Date(cooling[r].until).toISOString())}</span></button>`
+      : `<button class="health-row" data-runner="${escape(r)}"><span class="dot ok"></span><span class="mono">${escape(r)}: healthy</span></button>`).join("")}
     <h2 style="margin-top:16px">Containers <span class="count">${detail.containers.length}</span></h2>
-    ${detail.containers.length ? `<ul class="list">${detail.containers.map((c) => `<li><span class="dot running" style="display:inline-block;margin-right:6px"></span>${escape(c.name)} · ${escape(c.runningFor)}</li>`).join("")}</ul>` : `<div class="empty">No agent containers running.</div>`}
+    ${detail.containers.length ? `<ul class="list">${detail.containers.map((c) => `<li data-container="${escape(c.name)}" tabindex="0" role="button"><span class="dot running" style="display:inline-block;margin-right:6px"></span>${escape(c.name)} · ${escape(c.runningFor)}</li>`).join("")}</ul>` : `<div class="empty">No agent containers running.</div>`}
     <h2 style="margin-top:16px">Worktrees <span class="count">${Math.max(0, detail.worktrees.length - 1)}</span></h2>
     <ul class="list">${detail.worktrees.map((w) => `<li>${escape(w)}</li>`).join("")}</ul></section>`
 }
@@ -441,6 +511,7 @@ function render() {
   const newLog = document.getElementById("log")
   if (newLog && state.logPinned) newLog.scrollTop = newLog.scrollHeight
   if (!previousArtifact) loadArtifact()
+  if (state.panel) renderDetails()
 }
 
 async function loadArtifact() {
@@ -477,6 +548,7 @@ async function openTranscript(row) {
   document.getElementById("drawer").classList.add("open")
   document.getElementById("drawer").setAttribute("aria-hidden", "false")
   document.getElementById("scrim").classList.add("open")
+  state.lastFocus = document.activeElement
   document.getElementById("drawer-close").focus()
   const response = await fetch(`api/projects/${encodeURIComponent(state.selected)}/transcript/${encodeURIComponent(file)}`)
   state.transcript = response.ok ? await response.text() : "Transcript not found."
@@ -484,9 +556,241 @@ async function openTranscript(row) {
 }
 
 function closeDrawer() {
-  document.getElementById("drawer").classList.remove("open")
-  document.getElementById("drawer").setAttribute("aria-hidden", "true")
+  const drawer = document.getElementById("drawer")
+  if (!drawer.classList.contains("open")) return false
+  drawer.classList.remove("open")
+  drawer.setAttribute("aria-hidden", "true")
   document.getElementById("scrim").classList.remove("open")
+  state.lastFocus?.focus?.()
+  return true
+}
+
+function maxRetriesOf(detail) {
+  return detail.config?.roles?.worker?.maxRetries ?? 3
+}
+
+function openDetails(panel) {
+  state.panel = panel
+  writeHash()
+  const details = document.getElementById("details")
+  const wasOpen = details.classList.contains("open")
+  if (!wasOpen) state.detailsFocus = document.activeElement
+  details.classList.add("open")
+  details.setAttribute("aria-hidden", "false")
+  document.getElementById("details-scrim").classList.add("open")
+  document.getElementById("details-body").scrollTop = 0
+  renderDetails()
+  if (!wasOpen) document.getElementById("details-close").focus()
+}
+
+function closeDetails() {
+  const details = document.getElementById("details")
+  const wasOpen = details.classList.contains("open")
+  state.panel = null
+  details.classList.remove("open")
+  details.setAttribute("aria-hidden", "true")
+  document.getElementById("details-scrim").classList.remove("open")
+  writeHash()
+  if (wasOpen) state.detailsFocus?.focus?.()
+  return wasOpen
+}
+
+const kv = (rows) => `<dl class="kv">${rows.filter(([, v]) => v !== null && v !== undefined && v !== "").map(([k, v]) => `<dt>${escape(k)}</dt><dd>${v}</dd>`).join("")}</dl>`
+const section = (title, body) => `<section><h4 class="section-title">${escape(title)}</h4>${body}</section>`
+const paths = (list) => list?.length ? `<div class="path-list">${list.map((p) => `<code>${escape(p)}</code>`).join("")}</div>` : `<span class="muted">none</span>`
+const statusBadge = (status) => `<span class="badge ${escape(status)}"><span class="dot ${status === "done" ? "ok" : escape(status)}"></span>${escape(String(status).replace("_", " "))}</span>`
+const candidate = (role) => role ? `<span class="mono">${escape(role.runner)} ${escape(role.model)}</span>${role.fallbacks?.length ? ` <span class="muted">→ ${role.fallbacks.map((f) => `${escape(f.runner)} ${escape(f.model)}`).join(" → ")}</span>` : ""}` : `<span class="muted">not configured</span>`
+
+function callButton(attempt, label) {
+  return `<button class="call" data-transcript="${escape(attempt.transcript)}" data-subject="${escape(attempt.subject)}" data-role="${escape(attempt.role)}" data-runner="${escape(attempt.runner)}" data-model="${escape(attempt.model)}" aria-label="Open transcript ${escape(attempt.subject)}">
+    <span class="what">${escape(label ?? attempt.role)}</span><span class="mono muted">${escape(attempt.runner)} ${escape(attempt.model)}</span><span>${statusBadge(attempt.status)}</span>
+    <span class="detail">${duration(attempt.durationMs)}${attempt.failureClass ? ` · ${escape(attempt.failureClass)}` : ""}${attempt.costUsd ? ` · $${attempt.costUsd.toFixed(3)}` : ""} · ${time(attempt.createdAt)}</span></button>`
+}
+
+function commandButton(file, subject, label) {
+  return `<button class="call" data-transcript="${escape(file)}" data-subject="${escape(subject)}" data-role="${escape(label)}" data-runner="host" data-model="sh" aria-label="Open ${escape(label)} output">
+    <span class="what">${escape(label)}</span><span class="mono muted">${escape(file)}</span><span></span></button>`
+}
+
+function eventsList(events) {
+  return events.length ? `<div class="log">${events.slice(-40).map((e) => `<div class="log-row" data-event="${escape(e.id)}" tabindex="0" role="button"><span class="log-time">${time(e.at)}</span><span class="tag ${escape(e.type)}">${escape(e.type)}</span><span class="log-msg">${escape(e.message)}</span></div>`).join("")}</div>` : `<div class="empty">No related events.</div>`
+}
+
+function pullRequestFor(detail, prefix) {
+  return detail.github?.pullRequests?.find((pr) => pr.title.startsWith(prefix)) ?? null
+}
+
+function githubLinks(detail, issueNumber, pr) {
+  const repo = detail.github?.repoUrl
+  const links = []
+  if (repo && issueNumber) links.push(`<a href="${escape(repo)}/issues/${issueNumber}" target="_blank" rel="noopener">Issue #${issueNumber}</a>`)
+  if (pr) links.push(`<a href="${escape(pr.url)}" target="_blank" rel="noopener">PR #${pr.number} · ${escape(pr.state?.toLowerCase() ?? "")}</a>`)
+  return links.length ? `<div class="links">${links.join("")}</div>` : null
+}
+
+function taskPanel(detail, id) {
+  const task = detail.tasks.find((t) => t.id === id)
+  if (!task) return { title: id, sub: "Task not found", body: `<p class="muted">This task is not in the current plan.</p>` }
+  const maxRetries = maxRetriesOf(detail)
+  const calls = detail.attempts.filter((a) => a.subject.startsWith(`${id}-`)).slice().reverse()
+  const attemptNumbers = [...new Set(calls.map((a) => Number(/-(\d+)$/.exec(a.subject)?.[1] ?? 0)))].sort((a, b) => a - b)
+  const timeline = attemptNumbers.map((n) => {
+    const group = calls.filter((a) => a.subject.endsWith(`-${n}`))
+    const worker = group.filter((a) => a.role === "worker")
+    const review = group.filter((a) => a.role === "reviewer")
+    return `<div class="attempt-group">Attempt ${n}</div>
+      ${commandButton(`${id}-${n}-setup.log`, `${id}-${n}`, "setup")}
+      ${worker.map((a) => callButton(a, "worker")).join("")}
+      ${worker.some((a) => a.status === "done") ? commandButton(`${id}-${n}-verify.log`, `${id}-${n}`, "verify") : ""}
+      ${review.map((a) => callButton(a, "review")).join("")}`
+  }).join("")
+  const pattern = new RegExp(`\\b${id}\\b`)
+  const related = detail.events.filter((e) => pattern.test(e.message))
+  const merged = task.status === "merged"
+  const links = githubLinks(detail, task.issueNumber, pullRequestFor(detail, `feat(${id})`))
+  return {
+    title: `${task.id} · ${task.title}`,
+    sub: `${task.phase ?? "task"}${task.story ? ` · ${task.story}` : ""}`,
+    body: [
+      kv([
+        ["Status", statusBadge(task.status)],
+        ["Phase", escape(task.phase ?? "—")],
+        ["Story", escape(task.story ?? "")],
+        ["Attempts", `${task.attempts} / ${maxRetries}`],
+        ["Depends on", task.dependsOn?.length ? task.dependsOn.map((d) => `<button class="link-button" data-open-task="${escape(d)}">${escape(d)}</button>`).join(", ") : `<span class="muted">nothing</span>`],
+        ["Worker", candidate(detail.config?.roles?.worker)],
+        ["Reviewer", candidate(detail.config?.roles?.reviewer)],
+      ]),
+      links ? section("GitHub", links) : "",
+      task.acceptance?.length ? section("Acceptance criteria", `<ul class="checklist">${task.acceptance.map((c) => `<li><span class="box ${merged ? "checked" : ""}" aria-hidden="true">${merged ? "✓" : ""}</span><span>${escape(c)}</span></li>`).join("")}</ul>`) : "",
+      task.verify ? section("Verify", `<div class="verify"><code>${escape(task.verify)}</code><button class="small-button" data-copy="${escape(task.verify)}">Copy</button></div>`) : "",
+      section("Scope", kv([["Allowed paths", paths(task.allowedPaths)], ["Reads", paths(task.readPaths)]])),
+      task.lastFailure ? section("Last failure", `<details class="collapsible" ${task.status === "blocked" ? "open" : ""}><summary>${escape(task.lastFailure.split("\n")[0].slice(0, 120))}</summary><div class="failure">${escape(task.lastFailure)}</div></details>`) : "",
+      section("Agent calls", timeline ? `<div class="calls">${timeline}</div>` : `<div class="empty">No agent calls yet.</div>`),
+      section("Related activity", eventsList(related)),
+    ].join(""),
+  }
+}
+
+function phasePanel(detail, phase) {
+  const byName = Object.fromEntries(detail.phases.map((p) => [p.name, p]))
+  if (phase === "build") {
+    const counts = countTasks(detail.tasks)
+    return {
+      title: "Build",
+      sub: `${counts.merged}/${detail.tasks.length} tasks merged`,
+      body: [
+        kv([
+          ["Pending", counts.pending], ["Running", counts.running], ["Merged", counts.merged], ["Blocked", counts.blocked],
+          ["Worker", candidate(detail.config?.roles?.worker)], ["Reviewer", candidate(detail.config?.roles?.reviewer)],
+          ["Max attempts", maxRetriesOf(detail)],
+        ]),
+        section("Tasks", detail.tasks.length ? `<div class="calls">${detail.tasks.map((t) => `<button class="call" data-open-task="${escape(t.id)}"><span class="what">${escape(t.id)}</span><span>${escape(t.title)}</span><span>${statusBadge(t.status)}</span></button>`).join("")}</div>` : `<div class="empty">No plan yet.</div>`),
+      ].join(""),
+    }
+  }
+  const role = phaseRoles[phase]
+  const status = skippedPhases(detail).has(phase) ? "skipped" : byName[phase]?.status ?? "pending"
+  const calls = detail.attempts.filter((a) => a.subject.startsWith(`phase-${phase}-`)).slice().reverse()
+  const related = detail.events.filter((e) => new RegExp(`\\b${phase}\\b`).test(e.message) && (e.type === "phase" || e.type === "gate" || e.type === "github"))
+  const links = githubLinks(detail, null, pullRequestFor(detail, `docs(${phase})`))
+  return {
+    title: stepLabels[phase],
+    sub: `${role} agent`,
+    body: [
+      kv([
+        ["Status", statusBadge(status)],
+        ["Role", escape(role)],
+        ["Model", candidate(detail.config?.roles?.[role])],
+        ["Gate", detail.config?.gates?.includes(phase) ? "human approval required" : "none"],
+        ["Updated", byName[phase]?.updatedAt ? `${escape(new Date(byName[phase].updatedAt).toLocaleString())}` : ""],
+      ]),
+      section("Outputs", `${paths(phaseOutputs[phase])}<div style="margin-top:10px"><button class="small-button" data-open-artifact="${escape(phaseArtifacts[phase])}">Open ${escape(phaseArtifacts[phase] === "mockups" ? "mockups gallery" : phaseArtifacts[phase])}</button></div>`),
+      links ? section("GitHub", links) : "",
+      section("Agent calls", calls.length ? `<div class="calls">${calls.map((a) => callButton(a, `attempt ${/-(\d+)$/.exec(a.subject)?.[1] ?? ""}`)).join("")}</div>` : `<div class="empty">No agent calls yet.</div>`),
+      section("Related activity", eventsList(related)),
+    ].join(""),
+  }
+}
+
+function eventPanel(detail, id) {
+  const event = detail.events.find((e) => String(e.id) === String(id))
+  if (!event) return { title: "Event", sub: "", body: `<p class="muted">This event is no longer in the recent log.</p>` }
+  const taskIds = [...new Set(event.message.match(/\bT\d+\b/g) ?? [])].filter((t) => detail.tasks.some((task) => task.id === t))
+  const phases = steps.filter((step) => step !== "build" && new RegExp(`\\b${step}\\b`).test(event.message))
+  const openers = [
+    ...taskIds.map((t) => `<button class="small-button" data-open-task="${escape(t)}">Open task ${escape(t)}</button>`),
+    ...phases.map((ph) => `<button class="small-button" data-open-phase="${escape(ph)}">Open phase ${escape(stepLabels[ph])}</button>`),
+  ]
+  return {
+    title: `${event.type} event`,
+    sub: new Date(event.at).toLocaleString(),
+    body: [
+      kv([["Time", escape(new Date(event.at).toLocaleString())], ["Type", `<span class="tag ${escape(event.type)}">${escape(event.type)}</span>`]]),
+      section("Message", `<div class="bubble">${escape(event.message)}</div>`),
+      openers.length ? section("Related", `<div class="links">${openers.join("")}</div>`) : "",
+    ].join(""),
+  }
+}
+
+function runnerPanel(detail, runner) {
+  const cooldown = detail.cooldowns.find((c) => c.runner === runner)
+  const cooling = cooldown && cooldown.until > Date.now()
+  const calls = detail.attempts.filter((a) => a.runner === runner)
+  const failures = calls.filter((a) => a.failureClass)
+  const roles = Object.entries(detail.config?.roles ?? {}).filter(([, r]) => r.runner === runner || r.fallbacks?.some((f) => f.runner === runner)).map(([name, r]) => `${name}${r.runner === runner ? "" : " (fallback)"}`)
+  return {
+    title: runner,
+    sub: cooling ? "cooling down" : "healthy",
+    body: [
+      kv([
+        ["Health", cooling ? statusBadge("awaiting_approval").replace("awaiting approval", "cooling down") : statusBadge("done").replace(">done<", ">healthy<")],
+        ["Cooldown until", cooling ? escape(new Date(cooldown.until).toLocaleString()) : ""],
+        ["Reason", cooling ? escape(cooldown.reason) : ""],
+        ["Used by", roles.length ? escape(roles.join(", ")) : ""],
+        ["Calls", `${calls.length} recent · ${failures.length} with a failure class`],
+      ]),
+      section("Recent calls", calls.length ? `<div class="calls">${calls.slice(0, 25).map((a) => callButton(a, `${a.role} · ${a.subject}`)).join("")}</div>` : `<div class="empty">No calls yet.</div>`),
+    ].join(""),
+  }
+}
+
+function containerPanel(detail, name) {
+  const container = detail.containers.find((c) => c.name === name)
+  return {
+    title: name,
+    sub: "agent container",
+    body: container
+      ? kv([["Name", `<span class="mono">${escape(container.name)}</span>`], ["Status", escape(container.status)], ["Running for", escape(container.runningFor)]])
+      : `<p class="muted">This container has stopped.</p>`,
+  }
+}
+
+function renderDetails() {
+  const detail = state.detail
+  const panel = state.panel
+  if (!detail || !panel) return
+  const builders = { task: taskPanel, phase: phasePanel, event: eventPanel, runner: runnerPanel, container: containerPanel }
+  const content = builders[panel.kind]?.(detail, panel.id)
+  if (!content) return
+  const body = document.getElementById("details-body")
+  const scroll = body.scrollTop
+  const openDetails = [...body.querySelectorAll("details")].map((d) => d.open)
+  document.getElementById("details-title").textContent = content.title
+  document.getElementById("details-sub").textContent = content.sub
+  const html = content.body
+  if (body.dataset.html !== html) {
+    body.innerHTML = html
+    body.dataset.html = html
+    body.querySelectorAll("details").forEach((d, i) => { if (openDetails[i] !== undefined) d.open = openDetails[i] })
+    body.scrollTop = scroll
+  }
+}
+
+function topDialog() {
+  if (document.getElementById("drawer").classList.contains("open")) return document.getElementById("drawer")
+  if (document.getElementById("details").classList.contains("open")) return document.getElementById("details")
+  return null
 }
 
 function verdictHtml(text) {
@@ -547,24 +851,74 @@ function renderDrawer() {
 }
 
 document.addEventListener("click", (event) => {
-  const project = event.target.closest(".project")
+  const target = event.target
+  const project = target.closest(".project")
   if (project) return select(project.dataset.name)
-  const task = event.target.closest("[data-task]")
-  if (task) { const id = task.dataset.task; state.openTasks.has(id) ? state.openTasks.delete(id) : state.openTasks.add(id); return render() }
-  const tab = event.target.closest("[data-artifact]")
+  const openTask = target.closest("[data-open-task]")
+  if (openTask) return openDetails({ kind: "task", id: openTask.dataset.openTask })
+  const openPhase = target.closest("[data-open-phase]")
+  if (openPhase) return openDetails({ kind: "phase", id: openPhase.dataset.openPhase })
+  const openArtifact = target.closest("[data-open-artifact]")
+  if (openArtifact) {
+    state.artifact = openArtifact.dataset.openArtifact
+    state.section = "files"
+    closeDetails()
+    render()
+    loadArtifact()
+    document.getElementById("artifact")?.scrollIntoView({ behavior: "smooth", block: "center" })
+    return
+  }
+  const copy = target.closest("[data-copy]")
+  if (copy) { navigator.clipboard?.writeText(copy.dataset.copy).then(() => { copy.textContent = "Copied"; setTimeout(() => (copy.textContent = "Copy"), 1200) }); return }
+  const transcript = target.closest("[data-transcript]")
+  if (transcript) return openTranscript(transcript)
+  const task = target.closest("[data-task]")
+  if (task) return openDetails({ kind: "task", id: task.dataset.task })
+  const phase = target.closest("[data-phase]")
+  if (phase) return openDetails({ kind: "phase", id: phase.dataset.phase })
+  const logRow = target.closest("[data-event]")
+  if (logRow) return openDetails({ kind: "event", id: logRow.dataset.event })
+  const runner = target.closest("[data-runner]")
+  if (runner) return openDetails({ kind: "runner", id: runner.dataset.runner })
+  const container = target.closest("[data-container]")
+  if (container) return openDetails({ kind: "container", id: container.dataset.container })
+  const tab = target.closest("[data-artifact]")
   if (tab) { state.artifact = tab.dataset.artifact; document.querySelectorAll("[data-artifact]").forEach((b) => { b.classList.toggle("selected", b === tab); b.setAttribute("aria-selected", b === tab) }); return loadArtifact() }
-  const segment = event.target.closest("[data-segment]")
+  const segment = target.closest("[data-segment]")
   if (segment) { state.section = segment.dataset.segment; return render() }
-  const drawerTab = event.target.closest("[data-drawer-tab]")
+  const drawerTab = target.closest("[data-drawer-tab]")
   if (drawerTab) { state.drawerTab = drawerTab.dataset.drawerTab; return renderDrawer() }
-  const row = event.target.closest("tr[data-transcript]")
-  if (row) return openTranscript(row)
-  if (event.target.id === "scrim" || event.target.id === "drawer-close") closeDrawer()
+  if (target.id === "scrim" || target.closest("#drawer-close")) return closeDrawer()
+  if (target.id === "details-scrim" || target.closest("#details-close")) return closeDetails()
 })
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") closeDrawer()
-  const row = event.target.closest?.("tr[data-transcript]")
-  if (row && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); openTranscript(row) }
+  if (event.key === "Escape") { if (!closeDrawer()) closeDetails(); return }
+  if (event.key === "Tab") {
+    const dialog = topDialog()
+    if (!dialog) return
+    const focusable = [...dialog.querySelectorAll('button, [href], [tabindex]:not([tabindex="-1"]), summary')].filter((el) => el.offsetParent !== null)
+    if (!focusable.length) return
+    const first = focusable[0]
+    const last = focusable.at(-1)
+    if (!dialog.contains(document.activeElement)) { event.preventDefault(); first.focus() }
+    else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
+    return
+  }
+  if (event.key !== "Enter" && event.key !== " ") return
+  const actionable = event.target.closest?.("tr[data-transcript], [data-event], [data-container]")
+  if (!actionable) return
+  event.preventDefault()
+  actionable.click()
+})
+window.addEventListener("hashchange", () => {
+  const fromHash = parseHash()
+  if (fromHash.project && fromHash.project !== state.selected) {
+    closeDetails()
+    state.panel = fromHash.panel
+    return select(fromHash.project, { keepPanel: true })
+  }
+  if (fromHash.panel && (fromHash.panel.kind !== state.panel?.kind || fromHash.panel.id !== state.panel?.id)) openDetails(fromHash.panel)
 })
 document.getElementById("switcher").addEventListener("change", (event) => select(event.target.value))
 

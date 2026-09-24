@@ -4,6 +4,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { join, resolve, sep } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { promisify } from "node:util"
+import { parse as parseYaml } from "yaml"
 
 const execFileAsync = promisify(execFile)
 const pagePath = new URL("./index.html", import.meta.url)
@@ -32,6 +33,16 @@ function withDatabase<T>(projectDir: string, read: (db: DatabaseSync) => T, fall
     }
   }
   return fallback
+}
+
+function processAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
 }
 
 function all(db: DatabaseSync, sql: string, ...params: (string | number)[]): any[] {
@@ -70,7 +81,8 @@ function summary(runsDir: string, name: string) {
       const lastEvent = all(db, "SELECT at, type, message FROM events ORDER BY id DESC LIMIT 1")[0] ?? null
       const running = all(db, "SELECT id FROM tasks WHERE status = 'running' LIMIT 1")[0]?.id ?? null
       const activePhase = phases.find((phase) => phase.status === "running")?.name ?? null
-      const active = Boolean(lastEvent && Date.now() - Date.parse(lastEvent.at) < activeWindowMs && !/^finished/.test(lastEvent.message))
+      const pidRow = all(db, "SELECT value FROM meta WHERE key = 'run.pid'")[0]
+      const active = pidRow ? processAlive(Number(pidRow.value)) : Boolean(lastEvent && Date.now() - Date.parse(lastEvent.at) < activeWindowMs && !/^finished/.test(lastEvent.message))
       return { name, phases, counts, lastEvent, current: running ?? activePhase, active }
     },
     { name, phases: [], counts: {}, lastEvent: null, current: null, active: false },
@@ -86,6 +98,64 @@ async function command(cwd: string, file: string, args: string[]): Promise<strin
   }
 }
 
+function readConfig(projectDir: string) {
+  try {
+    const raw = parseYaml(readFileSync(join(projectDir, "pipeline.yaml"), "utf8")) ?? {}
+    const roles: Record<string, unknown> = {}
+    for (const [role, value] of Object.entries<any>(raw.roles ?? {})) {
+      roles[role] = { runner: value?.runner, model: value?.model, fallbacks: value?.fallbacks ?? [], maxRetries: value?.maxRetries ?? null }
+    }
+    return {
+      target: raw.target ?? "web",
+      gates: raw.autonomy?.gates ?? [],
+      roles,
+      mockups: raw.mockups ?? null,
+      publish: { github: { enabled: Boolean(raw.publish?.github?.enabled) } },
+    }
+  } catch {
+    return null
+  }
+}
+
+function httpsRepoUrl(remote: string): string | null {
+  const trimmed = remote.trim()
+  if (!trimmed) return null
+  const ssh = trimmed.match(/^git@github\.com:(.+?)(\.git)?$/)
+  if (ssh) return `https://github.com/${ssh[1]}`
+  return trimmed.replace(/\.git$/, "").replace(/^https:\/\/[^@]+@/, "https://")
+}
+
+const pullRequestCache = new Map<string, { at: number; value: any[] }>()
+const pullRequestCacheMs = 60_000
+
+async function pullRequests(projectDir: string, repoUrl: string | null): Promise<any[]> {
+  const repo = repoUrl?.match(/github\.com\/([^/]+\/[^/]+)$/)?.[1]
+  if (!repo) return []
+  const cached = pullRequestCache.get(projectDir)
+  if (cached && Date.now() - cached.at < pullRequestCacheMs) return cached.value
+  let value: any[] = []
+  try {
+    value = JSON.parse((await command(projectDir, "gh", ["pr", "list", "-R", repo, "--state", "all", "--json", "number,title,url,headRefName,state", "--limit", "100"])) || "[]")
+  } catch {}
+  pullRequestCache.set(projectDir, { at: Date.now(), value })
+  return value
+}
+
+async function githubInfo(projectDir: string, meta: Record<string, string>, enabled: boolean) {
+  const repoUrl = httpsRepoUrl(await command(projectDir, "git", ["remote", "get-url", "origin"]))
+  if (!repoUrl && !meta["github.owner"]) return null
+  const prs = enabled || repoUrl ? await pullRequests(projectDir, repoUrl) : []
+  const owner = meta["github.owner"] ?? null
+  const projectNumber = meta["github.project.number"] ?? null
+  return {
+    repoUrl,
+    owner,
+    epic: meta["github.epic"] ? Number(meta["github.epic"]) : null,
+    projectUrl: owner && projectNumber ? `https://github.com/users/${owner}/projects/${projectNumber}` : null,
+    pullRequests: prs.map((pr) => ({ number: pr.number, title: pr.title, url: pr.url, branch: pr.headRefName, state: pr.state })),
+  }
+}
+
 async function detail(runsDir: string, name: string) {
   const projectDir = join(runsDir, name)
   const taskDefinitions = new Map(readTasksFile(projectDir).map((task) => [task.id, task]))
@@ -93,25 +163,42 @@ async function detail(runsDir: string, name: string) {
     projectDir,
     (db) => ({
       phases: all(db, "SELECT name, status, updated_at AS updatedAt FROM phases"),
-      tasks: all(db, "SELECT id, status, attempts, last_failure AS lastFailure FROM tasks ORDER BY id"),
+      tasks: (() => {
+        const withIssue = all(db, "SELECT id, status, attempts, last_failure AS lastFailure, issue_number AS issueNumber FROM tasks ORDER BY id")
+        return withIssue.length ? withIssue : all(db, "SELECT id, status, attempts, last_failure AS lastFailure FROM tasks ORDER BY id")
+      })(),
+      meta: Object.fromEntries(all(db, "SELECT key, value FROM meta").filter((row) => !String(row.key).startsWith("github.item.")).map((row) => [row.key, row.value])),
       attempts: all(
         db,
-        "SELECT id, subject, role, runner, model, status, failure_class AS failureClass, duration_ms AS durationMs, cost_usd AS costUsd, transcript_path AS transcriptPath, created_at AS createdAt FROM attempts ORDER BY id DESC LIMIT 100",
+        "SELECT id, subject, role, runner, model, status, failure_class AS failureClass, duration_ms AS durationMs, cost_usd AS costUsd, transcript_path AS transcriptPath, created_at AS createdAt FROM attempts ORDER BY id DESC LIMIT 300",
       ),
       events: all(db, "SELECT id, at, type, message FROM events ORDER BY id DESC LIMIT 300").reverse(),
       cooldowns: all(db, "SELECT runner, cooldown_until AS until, reason FROM runner_health"),
     }),
-    { phases: [], tasks: [], attempts: [], events: [], cooldowns: [] },
+    { phases: [], tasks: [], attempts: [], events: [], cooldowns: [], meta: {} as Record<string, string> },
   )
+  const definitionFields = (definition: any) => ({
+    title: definition.title,
+    phase: definition.phase ?? null,
+    story: definition.story ?? null,
+    dependsOn: definition.dependsOn ?? [],
+    allowedPaths: definition.allowedPaths ?? [],
+    readPaths: definition.readPaths ?? [],
+    acceptance: definition.acceptance ?? [],
+    verify: definition.verify ?? null,
+  })
   const tasks = state.tasks.map((task: any) => {
     const definition = taskDefinitions.get(task.id) ?? {}
-    return { ...task, title: definition.title ?? task.id, phase: definition.phase ?? null, dependsOn: definition.dependsOn ?? [] }
+    return { issueNumber: null, ...task, ...definitionFields(definition), title: definition.title ?? task.id }
   })
   for (const [id, definition] of taskDefinitions) {
-    if (!tasks.some((task: any) => task.id === id)) tasks.push({ id, status: "pending", attempts: 0, lastFailure: null, title: definition.title, phase: definition.phase, dependsOn: definition.dependsOn ?? [] })
+    if (!tasks.some((task: any) => task.id === id)) tasks.push({ id, status: "pending", attempts: 0, lastFailure: null, issueNumber: null, ...definitionFields(definition) })
   }
+  const config = readConfig(projectDir)
   const attempts = state.attempts.map(({ transcriptPath, ...attempt }: any) => ({ ...attempt, transcript: String(transcriptPath ?? "").split("/").pop() }))
-  const [gitLog, worktrees, dockerPs] = await Promise.all([
+  const { meta, ...stateWithoutMeta } = state
+  const [github, gitLog, worktrees, dockerPs] = await Promise.all([
+    githubInfo(projectDir, meta, Boolean(config?.publish.github.enabled)),
     command(projectDir, "git", ["log", "--oneline", "-30"]),
     command(projectDir, "git", ["worktree", "list"]),
     command(projectDir, "docker", ["ps", "--filter", "label=agent-team=1", "--format", "{{json .}}"]),
@@ -130,7 +217,9 @@ async function detail(runsDir: string, name: string) {
     .filter(Boolean)
   return {
     ...summary(runsDir, name),
-    ...state,
+    ...stateWithoutMeta,
+    config,
+    github,
     tasks,
     attempts,
     gitLog: gitLog.split("\n").filter(Boolean),
