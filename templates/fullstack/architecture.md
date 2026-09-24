@@ -28,6 +28,14 @@ One Node.js process serves the JSON API under `/api` and the built React client 
 - Keep Fastify, `node:sqlite`, React, Vite, Tailwind CSS, shadcn/ui, and Vitest.
 - Every API route sits under `/api`, so it never clashes with a client route.
 
+## Analytics
+
+- PostHog through `posthog-js`. `client/src/lib/analytics.ts` starts it only when `VITE_POSTHOG_KEY` is set at build time; the deploy sets it from `operate.posthog.publicKey`. Without the key nothing is sent.
+- Page views are captured on every route change.
+- Call `track(event, properties)` from `@/lib/analytics` for each core user action in the spec, for example `track("joke_voted", { jokeId })`. Use snake_case, past-tense event names.
+- List every event in `docs/analytics.md`, with a `## Funnel` section that names the signup funnel steps in order.
+
 ## CHANGELOG
 
 - v1: first version.
+- v2: PostHog analytics with a `track()` helper.

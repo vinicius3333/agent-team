@@ -20,6 +20,7 @@
     "clsx": "^2.1.1",
     "fastify": "^5.12.5",
     "lucide-react": "^1.48.0",
+    "posthog-js": "^1.434.12",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "tailwind-merge": "^3.7.0"

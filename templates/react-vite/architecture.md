@@ -25,6 +25,14 @@ A static web app. Vite builds it to `dist/` and `serve` serves it on `PORT`, wit
 - Data that must persist across devices needs an API. If the spec needs one, pick the fullstack template instead.
 - Add a router (for example React Router) in a foundation task when the app has more than one page.
 
+## Analytics
+
+- PostHog through `posthog-js`. `src/lib/analytics.ts` starts it only when `VITE_POSTHOG_KEY` is set at build time; the deploy sets it from `operate.posthog.publicKey`. Without the key nothing is sent.
+- Page views are captured on every route change.
+- Call `track(event, properties)` from `@/lib/analytics` for each core user action in the spec, for example `track("joke_voted", { jokeId })`. Use snake_case, past-tense event names.
+- List every event in `docs/analytics.md`, with a `## Funnel` section that names the signup funnel steps in order.
+
 ## CHANGELOG
 
 - v1: first version.
+- v2: PostHog analytics with a `track()` helper.

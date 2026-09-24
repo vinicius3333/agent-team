@@ -1,6 +1,6 @@
 {
   "name": "fullstack",
-  "version": 1,
+  "version": 2,
   "title": "Full stack Node + React",
   "description": "One Fastify server serves the API under /api and the built React client (Tailwind CSS v4, shadcn/ui, Vitest).",
   "targets": ["web+api"],
