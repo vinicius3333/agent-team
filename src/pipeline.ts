@@ -18,7 +18,7 @@ import { changePath } from "./project.ts"
 import { designSystemRoute, parseDesignScreens, parseLoginRoute, parseQaVerdict, runQaLoop, type QaRoundResult, type QaScreen } from "./qa.ts"
 import { extractJsonObject } from "./json.ts"
 import { changeTaskConflict, decideReplan, formatBlock, normalizeFailure, parseBlock, parseReplanAction, type Block, type ReplanDecision } from "./replan.ts"
-import { budgetReachedPrefix, changeMergedPrefix, changeOpenedPrefix, changeWaitingText, gateReadyText } from "./notify/events.ts"
+import { budgetReachedPrefix, changeMergedPrefix, changeOpenedPrefix, changeWaitingText, gateReadyText, humanDecisionText } from "./notify/events.ts"
 import { diffFileHashes, flaggedFiles } from "./reviews.ts"
 import { captureScreenshots, loginFailures, mobileFailures, type VisualReport } from "./screenshots.ts"
 import { runUiSmoke, type SmokeCheck } from "./smoke.ts"
@@ -940,8 +940,8 @@ function blockedStop(context: PipelineContext, tasks: Task[]): RunOutcome | null
   if (!task) return null
   const row = store.task(task.id)
   if (row.humanReason) {
-    noteStop(context, `${task.id} needs a human decision: ${row.humanReason}`)
-    store.log("gate", `${task.id} needs a human decision: ${row.humanReason.slice(0, 500)}. Edit tasks.json if needed, then: agent-team retry ${projectDir} ${task.id}`)
+    noteStop(context, `${task.id} ${humanDecisionText}: ${row.humanReason}`)
+    store.log("gate", `${task.id} ${humanDecisionText}: ${row.humanReason.slice(0, 500)}. Edit tasks.json if needed, then: agent-team retry ${projectDir} ${task.id}`)
     return "awaiting_approval"
   }
   noteStop(context, `${task.id} is blocked: ${row.lastFailure}`)
@@ -1026,8 +1026,8 @@ async function handleBlock(context: PipelineContext, task: Task, block: Block): 
 
 function requireHuman(context: PipelineContext, task: Task, reason: string): RunOutcome {
   context.store.requireHuman(task.id, reason)
-  noteStop(context, `${task.id} needs a human decision: ${reason}`)
-  context.store.log("gate", `${task.id} needs a human decision: ${reason.slice(0, 500)}. Edit tasks.json if needed, then: agent-team retry ${context.projectDir} ${task.id}`)
+  noteStop(context, `${task.id} ${humanDecisionText}: ${reason}`)
+  context.store.log("gate", `${task.id} ${humanDecisionText}: ${reason.slice(0, 500)}. Edit tasks.json if needed, then: agent-team retry ${context.projectDir} ${task.id}`)
   context.github.taskBlocked(task, reason)
   return "awaiting_approval"
 }

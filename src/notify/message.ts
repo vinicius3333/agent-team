@@ -51,6 +51,7 @@ function describe(project: string, notification: Notification, dashboardUrl: str
   const { reason } = notification
   switch (notification.kind) {
     case "gate": {
+      if (notification.taskId) return { line: `${notification.taskId} needs a decision`, body: failureBody(reason), url: projectLink(dashboardUrl, project) }
       const phase = notification.phase ?? "a phase"
       return { line: `${phase} is ready for review`, body: "Approve or request changes.", url: projectLink(dashboardUrl, project, phaseLinks[phase] ?? "") }
     }
