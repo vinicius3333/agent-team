@@ -32,6 +32,8 @@ export const defaultAllowlist = [
   "github.com",
   "codeload.github.com",
   "objects.githubusercontent.com",
+  "release-assets.githubusercontent.com",
+  "nodejs.org",
 ]
 
 async function docker(args: string[]): Promise<string> {
