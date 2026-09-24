@@ -76,6 +76,8 @@ export function readStop(store: Store): RunStop | null {
   }
 }
 
+const legacyScanEvents = 500
+
 export function detect(projectDir: string, store: Store, config: DoctorConfig, now = Date.now()): Detection {
   const lastEvent = store.lastEvent()
   if (!lastEvent) return { kind: "none", reason: "never ran" }
@@ -99,6 +101,8 @@ export function detect(projectDir: string, store: Store, config: DoctorConfig, n
   if (!stop) {
     if (/^finished: completed/.test(lastEvent.message)) return { kind: "none", reason: "completed" }
     if (store.phases().some((phase) => phase.status === "awaiting_approval")) return { kind: "none", reason: "waiting at a gate" }
+    // Runs from before run.stop existed end with a "finished:" event; commands such as deploy may log after it.
+    if (store.recentEvents(legacyScanEvents).some((event) => event.type === "run" && event.message.startsWith("finished:"))) return { kind: "none", reason: "stopped before the doctor existed" }
     const reason = `the run exited without recording why; last event: [${lastEvent.type}] ${lastEvent.message.split("\n")[0].slice(0, 300)}`
     return { kind: "incident", incidentKind: "crashed", fingerprint: fingerprint("crashed", `[${lastEvent.type}] ${lastEvent.message.split("\n")[0]}`), reason }
   }

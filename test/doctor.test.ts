@@ -128,6 +128,21 @@ test("detection ignores completed runs, gates, and operator stops", () => {
   }
 })
 
+test("detection ignores projects that stopped before run.stop existed, but not a first run that crashed", () => {
+  const { runsDir, projectDir } = setup()
+  const config = loadDoctorConfig(runsDir)
+  const store = openProjectStore(projectDir)
+  try {
+    store.log("phase", "spec: attempt 1 with pm")
+    assert.equal(detect(projectDir, store, config).kind, "incident", "a first run that exited without a stop record")
+    store.log("run", "finished: completed")
+    store.log("deploy", "live at https://example.trycloudflare.com")
+    assert.equal(detect(projectDir, store, config).kind, "none")
+  } finally {
+    store.close()
+  }
+})
+
 test("detection sends budget stops and human replans to a notice, not an incident", () => {
   const { runsDir, projectDir } = setup()
   const config = loadDoctorConfig(runsDir)
