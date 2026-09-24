@@ -83,8 +83,8 @@ function PhaseTree({ project, route, current }: { project: ProjectSummary; route
             <SidebarMenuSubItem>
               <CollapsibleTrigger asChild>
                 <SidebarMenuSubButton asChild size="sm" className={cn(touchSubButton, "font-medium tracking-wide uppercase", future && "text-muted-foreground")}>
-                  <button type="button" className="w-full">
-                    <ChevronRight className="size-3.5! transition-transform in-data-[state=open]:rotate-90" aria-hidden="true" />
+                  <button type="button" className="group/phase w-full">
+                    <ChevronRight className="size-3.5! transition-transform group-data-[state=open]/phase:rotate-90" aria-hidden="true" />
                     <PhaseIcon phase={phase} current={current} />
                     <span>{phaseLabels[phase]}</span>
                   </button>
