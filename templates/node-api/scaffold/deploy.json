@@ -1,0 +1,1 @@
+{ "install": "npm ci --include=dev --no-audit --no-fund && npm run build", "start": "npm start", "port": 3000 }
