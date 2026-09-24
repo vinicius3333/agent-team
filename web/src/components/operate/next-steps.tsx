@@ -12,8 +12,8 @@ import { useIsMobile } from "@/hooks/use-mobile"
 import { formatRelative } from "@/lib/format"
 import { agentLabels, rankFindings, sourceLabels } from "@/lib/operate"
 import { cn } from "@/lib/utils"
-import { SeverityBadge, useFindingActions } from "./shared"
-import { useFindings } from "./use-operate"
+import { FunnelBars, SeverityBadge, useFindingActions } from "./shared"
+import { useFindings, useOperateSnapshot } from "./use-operate"
 
 type Filter = "all" | InsightAgent
 const filters: Filter[] = ["all", "monitoring", "analytics", "research"]
@@ -56,6 +56,9 @@ function FindingDetail({ finding, onChange }: { finding: Finding; onChange: () =
   const { detail } = useProjectView()
   const { approve, dismiss, busy } = useFindingActions(onChange)
   const open = finding.status === "open"
+  const { snapshot } = useOperateSnapshot()
+  // Findings carry no chart data, so the funnel shows only for analytics findings that cite it.
+  const showFunnel = finding.source === "analytics" && /funnel/i.test(finding.evidence) && Boolean(snapshot?.funnel.length)
   return (
     <div className="flex flex-col gap-4 text-sm">
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -67,6 +70,12 @@ function FindingDetail({ finding, onChange }: { finding: Finding; onChange: () =
         <h3 className="font-semibold">Evidence</h3>
         <p className="whitespace-pre-line text-muted-foreground">{finding.evidence}</p>
       </section>
+      {showFunnel && snapshot && (
+        <section className="flex flex-col gap-2">
+          <h3 className="font-semibold">Signup funnel, last 30 days</h3>
+          <FunnelBars funnel={snapshot.funnel} />
+        </section>
+      )}
       <section className="flex flex-col gap-1">
         <h3 className="font-semibold">Proposed change</h3>
         <p className="whitespace-pre-line text-muted-foreground">{finding.proposal}</p>

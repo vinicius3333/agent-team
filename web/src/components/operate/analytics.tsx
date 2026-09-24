@@ -4,7 +4,7 @@ import { EmptyState } from "@/components/empty-state"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { formatNumber } from "@/lib/operate"
-import { AgentSummaryCard, BarChart, ConfigLink, LineChart } from "./shared"
+import { AgentSummaryCard, BarChart, ConfigLink, FunnelBars, LineChart } from "./shared"
 import { useOperateSnapshot } from "./use-operate"
 
 const configExample = `operate:
@@ -31,7 +31,6 @@ function NoPosthog() {
 }
 
 function FunnelCard({ funnel }: { funnel: OperateSnapshot["funnel"] }) {
-  const first = funnel[0]?.count ?? 0
   return (
     <Card className="gap-3">
       <CardHeader>
@@ -40,22 +39,7 @@ function FunnelCard({ funnel }: { funnel: OperateSnapshot["funnel"] }) {
       </CardHeader>
       <CardContent>
         {funnel.length ? (
-          <ul className="flex flex-col gap-3">
-            {funnel.map((step) => {
-              const share = first ? (step.count / first) * 100 : 0
-              return (
-                <li key={step.step} className="grid grid-cols-[minmax(0,7rem)_minmax(0,1fr)_3rem] items-center gap-3 text-sm">
-                  <span className="truncate font-mono text-xs" title={step.step}>
-                    {step.step}
-                  </span>
-                  <span className="h-5 overflow-hidden rounded-sm bg-primary/10" title={`${formatNumber(step.count)} people`}>
-                    <span className="block h-full bg-primary" style={{ width: `${share}%` }} />
-                  </span>
-                  <span className="text-right tabular-nums">{Math.round(share)}%</span>
-                </li>
-              )
-            })}
-          </ul>
+          <FunnelBars funnel={funnel} />
         ) : (
           <p className="text-sm text-muted-foreground">No funnel data yet.</p>
         )}

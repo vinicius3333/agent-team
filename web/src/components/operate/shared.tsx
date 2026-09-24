@@ -3,7 +3,7 @@ import { Link } from "react-router"
 import { Loader2, Play } from "lucide-react"
 import { toast } from "sonner"
 import { api, ApiError } from "@/api/client"
-import type { Finding, FindingSeverity, InsightAgent, InsightRun, MetricPoint } from "@/api/types"
+import type { Finding, FindingSeverity, InsightAgent, InsightRun, MetricPoint, OperateSnapshot } from "@/api/types"
 import { Markdown } from "@/components/markdown"
 import { StatusBadge } from "@/components/status-badge"
 import { Button } from "@/components/ui/button"
@@ -11,7 +11,7 @@ import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle }
 import { useProjectView } from "@/components/project/context"
 import { formatRelative } from "@/lib/format"
 import { projectPath } from "@/lib/navigation"
-import { agentLabels, type MetricTone } from "@/lib/operate"
+import { agentLabels, formatNumber, type MetricTone } from "@/lib/operate"
 import { cn } from "@/lib/utils"
 
 const severityClasses: Record<FindingSeverity, string> = {
@@ -213,5 +213,27 @@ export function BarChart({ points, label, format }: { points: MetricPoint[]; lab
         <span>{shortDate(points.at(-1)!.at)}</span>
       </figcaption>
     </figure>
+  )
+}
+
+export function FunnelBars({ funnel }: { funnel: OperateSnapshot["funnel"] }) {
+  const first = funnel[0]?.count ?? 0
+  return (
+    <ul className="flex flex-col gap-3">
+      {funnel.map((step) => {
+        const share = first ? (step.count / first) * 100 : 0
+        return (
+          <li key={step.step} className="grid grid-cols-[minmax(0,7rem)_minmax(0,1fr)_3rem] items-center gap-3 text-sm">
+            <span className="truncate font-mono text-xs" title={step.step}>
+              {step.step}
+            </span>
+            <span className="h-5 overflow-hidden rounded-sm bg-primary/10" title={`${formatNumber(step.count)} people`}>
+              <span className="block h-full bg-primary" style={{ width: `${share}%` }} />
+            </span>
+            <span className="text-right tabular-nums">{Math.round(share)}%</span>
+          </li>
+        )
+      })}
+    </ul>
   )
 }
