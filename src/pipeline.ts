@@ -434,6 +434,8 @@ type TaskOutcome = RunOutcome | "replanned"
 export interface PreviousAttempt {
   reason: string
   diff: string | null
+  // Reasons from attempts before the last one, oldest first. Without them a retry can undo an earlier fix.
+  earlierReasons?: string[]
 }
 
 export async function runPipeline(context: PipelineContext): Promise<RunOutcome> {
@@ -959,7 +961,8 @@ async function runTask(context: PipelineContext, task: Task): Promise<TaskOutcom
     store.log("task", `${task.id} "${task.title}": attempt ${attempt}/${maxRetries}`)
     context.github.taskStarted(task, attempt)
 
-    const previous = lastFailure ? { reason: lastFailure, diff: readAttemptDiff(projectDir, task.id, attempts) } : null
+    const earlierReasons = Array.from({ length: Math.max(attempts - 1, 0) }, (_, index) => readAttemptReason(projectDir, task.id, index + 1)).filter((reason): reason is string => Boolean(reason))
+    const previous = lastFailure ? { reason: lastFailure, diff: readAttemptDiff(projectDir, task.id, attempts), earlierReasons } : null
     const result = await attemptTask(context, task, attempt, previous)
     switch (result.kind) {
       case "passed":
@@ -1347,6 +1350,16 @@ function readAttemptDiff(projectDir: string, taskId: string, attempt: number): s
   const start = lines.findIndex((line) => !line.startsWith("#"))
   const diff = lines.slice(start === -1 ? lines.length : start).join("\n").trim()
   return diff || null
+}
+
+function readAttemptReason(projectDir: string, taskId: string, attempt: number): string | null {
+  const path = attemptDiffPath(projectDir, taskId, attempt)
+  if (!existsSync(path)) return null
+  const lines = readFileSync(path, "utf8").split("\n")
+  const end = lines.findIndex((line) => !line.startsWith("#"))
+  const header = lines.slice(0, end === -1 ? lines.length : end).map((line) => line.replace(/^# ?/, ""))
+  const start = header.indexOf("Reason:")
+  return start === -1 ? null : header.slice(start + 1).join("\n").trim() || null
 }
 
 function capDiff(diff: string): string {
@@ -1790,6 +1803,15 @@ export function workerPrompt(input: WorkerPromptInput): string {
         "```",
       ].join("\n"),
     )
+    if (previous.earlierReasons?.length) {
+      sections.push(
+        [
+          "Earlier attempts were rejected for these reasons too. Keep those fixes in place:",
+          "",
+          ...previous.earlierReasons.map((reason, index) => [`Attempt ${index + 1}:`, "", "```", reason.trim(), "```"].join("\n")),
+        ].join("\n"),
+      )
+    }
     if (previous.diff) sections.push(["Previous diff:", "", "```diff", previous.diff, "```"].join("\n"))
   }
   return sections.join("\n\n")

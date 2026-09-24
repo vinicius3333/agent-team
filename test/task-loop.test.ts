@@ -219,6 +219,27 @@ test("a replan that touches an unfinished task's files stops for a human", async
   assert.equal(await run(stubHarness({}).harness), "awaiting_approval", "a resumed run stops at the same decision")
 })
 
+test("a third attempt still sees the first rejection", async () => {
+  const { run } = setupProject("earlier-reasons", [task("T001")])
+  const { harness, jobs } = stubHarness({
+    worker: [
+      (_job, workdir) => {
+        writeFile(workdir, "src/t001/a.ts")
+        return "done"
+      },
+    ],
+    reviewer: [
+      '```json\n{"verdict":"fail","reasons":["missing node environment docblock"],"fixes":["add it"]}\n```',
+      '```json\n{"verdict":"fail","reasons":["port logic untested"],"fixes":["test it"]}\n```',
+      pass,
+    ],
+  })
+  assert.equal(await run(harness), "completed")
+  const thirdWorker = jobs.filter((job) => job.role === "worker")[2]
+  assert.match(thirdWorker.taskPrompt, /port logic untested/)
+  assert.match(thirdWorker.taskPrompt, /Earlier attempts were rejected[\s\S]*Attempt 1:[\s\S]*missing node environment docblock/)
+})
+
 test("flaky verify, a reviewer without JSON, and a retry that gets the previous diff", async () => {
   const flag = join(scratch, "flaky-flag")
   const { projectDir, store, run } = setupProject("retry", [task("T001", { verify: `if [ -f ${flag} ]; then exit 0; fi; touch ${flag}; exit 1` })])
