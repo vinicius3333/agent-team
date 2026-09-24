@@ -280,6 +280,14 @@ export function openStore(path: string) {
     recentEvents(limit: number): { at: string; type: string; message: string }[] {
       return db.prepare("SELECT at, type, message FROM events ORDER BY id DESC LIMIT ?").all(limit) as { at: string; type: string; message: string }[]
     },
+    // Oldest first.
+    eventsAfter(id: number, limit: number): { id: number; at: string; type: string; message: string }[] {
+      return db.prepare("SELECT id, at, type, message FROM events WHERE id > ? ORDER BY id LIMIT ?").all(id, limit) as { id: number; at: string; type: string; message: string }[]
+    },
+    lastEventId(): number {
+      const row = db.prepare("SELECT MAX(id) AS id FROM events").get() as { id: number | null }
+      return row.id ?? 0
+    },
     addChatMessage(author: ChatAuthor, body: string, actions: LeadAction[] = []): number {
       const result = db.prepare("INSERT INTO chat_messages (at, author, body, actions) VALUES (?, ?, ?, ?)").run(now(), author, body, JSON.stringify(actions))
       return Number(result.lastInsertRowid)
