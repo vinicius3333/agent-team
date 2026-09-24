@@ -196,6 +196,24 @@ export interface ChatMessage {
   actions: LeadAction[]
 }
 
+export interface LiveActivity {
+  kind: "command" | "edit" | "read" | "message" | "reasoning" | "tool"
+  text: string
+}
+
+export interface LiveAgent {
+  subject: string
+  role: string
+  runner: string
+  model: string
+  startedAt: string
+  // When the transcript last grew; a long gap means the agent is thinking or stuck.
+  updatedAt: string | null
+  transcript: string
+  activity: LiveActivity[]
+  changedFiles: { status: string; path: string }[]
+}
+
 export interface ProjectDetail extends Omit<ProjectSummary, "live" | "liveUrl"> {
   tasks: Task[]
   attempts: Attempt[]
@@ -207,6 +225,8 @@ export interface ProjectDetail extends Omit<ProjectSummary, "live" | "liveUrl"> 
   gitLog: string[]
   worktrees: string[]
   containers: Container[]
+  // Absent on servers from before live agent tracking.
+  liveAgents?: LiveAgent[]
   deploy: DeployInfo | null
   // The demo account the app seeds from DEMO_EMAIL and DEMO_PASSWORD.
   access?: { email: string; password: string } | null

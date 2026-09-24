@@ -15,6 +15,8 @@ export interface TranscriptRequest {
   role: string
   runner: string
   model: string
+  // The agent is still running, so the transcript keeps growing.
+  live?: boolean
 }
 
 export interface ProjectView {

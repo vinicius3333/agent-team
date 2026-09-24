@@ -12,6 +12,8 @@ import { pendingFeedback } from "../feedback.ts"
 import { approvePhase, changeRoleModels, createProject, parseRoleModels, listProjects, ProjectError, raiseRunBudget, requestChanges, retryTask, runAlive, runLogPath, startRun as spawnRun, withProjectStore, type ProjectChoices } from "../project.ts"
 import { listIncidents, openIncident, readIncident } from "../incidents.ts"
 import { askLead, chatMessageMaxLength } from "../lead.ts"
+import { summarizeActivity } from "../activity.ts"
+import { liveAgentPrefix, type LiveAgent } from "../harness/harness.ts"
 import { reviewerMetrics, type ReviewRow } from "../reviews.ts"
 
 const execFileAsync = promisify(execFile)
@@ -37,6 +39,8 @@ const bodyMaxBytes = 64 * 1024
 const newProjectNamePattern = /^[a-z0-9][a-z0-9-]{1,40}$/
 const targets = ["web", "api", "web+api"]
 const transcriptMaxBytes = 200 * 1024
+const liveTranscriptBytes = 256 * 1024
+const liveChangedFilesLimit = 200
 const artifactMaxBytes = 500 * 1024
 const imageMaxBytes = 20 * 1024 * 1024
 const brandingImagePattern = /^[A-Za-z0-9._-]+\.(png|jpe?g|webp)$/
@@ -395,7 +399,7 @@ async function detail(runsDir: string, name: string) {
         }
         return []
       })(),
-      meta: Object.fromEntries(all(db, "SELECT key, value FROM meta").filter((row) => !/^(github\.item|task\.files)\./.test(String(row.key))).map((row) => [row.key, row.value])),
+      meta: Object.fromEntries(all(db, "SELECT key, value FROM meta").filter((row) => !/^(github\.item|task\.files|agent\.live)\./.test(String(row.key))).map((row) => [row.key, row.value])),
       attempts: all(
         db,
         "SELECT id, subject, role, runner, model, status, failure_class AS failureClass, duration_ms AS durationMs, cost_usd AS costUsd, tokens, transcript_path AS transcriptPath, created_at AS createdAt FROM attempts ORDER BY id DESC LIMIT 300",
@@ -404,9 +408,10 @@ async function detail(runsDir: string, name: string) {
       activeTime: activeTime(all(db, "SELECT at, type, message FROM events ORDER BY id")),
       cooldowns: all(db, "SELECT runner, cooldown_until AS until, reason FROM runner_health"),
       reviews: all(db, "SELECT task_id AS taskId, attempt, verdict, flagged_files AS flaggedFiles, file_hashes AS fileHashes FROM reviews ORDER BY id"),
+      liveRecords: all(db, "SELECT value FROM meta WHERE substr(key, 1, ?) = ?", liveAgentPrefix.length, liveAgentPrefix).map((row) => String(row.value)),
       spend: all(db, "SELECT COALESCE(SUM(cost_usd), 0) AS usd, COALESCE(SUM(cost_usd IS NULL), 0) AS unreportedCalls, COALESCE(SUM(tokens), 0) AS tokens FROM attempts WHERE role NOT IN ('doctor', 'lead')")[0] ?? { usd: 0, unreportedCalls: 0, tokens: 0 },
     }),
-    { phases: [], tasks: [], attempts: [], events: [], activeTime: { ms: 0, openSince: null } as ActiveTime, cooldowns: [], reviews: [], spend: { usd: 0, unreportedCalls: 0, tokens: 0 }, meta: {} as Record<string, string> },
+    { phases: [], tasks: [], attempts: [], liveRecords: [] as string[], events: [], activeTime: { ms: 0, openSince: null } as ActiveTime, cooldowns: [], reviews: [], spend: { usd: 0, unreportedCalls: 0, tokens: 0 }, meta: {} as Record<string, string> },
   )
   const definitionFields = (definition: any) => ({
     title: definition.title,
@@ -427,13 +432,15 @@ async function detail(runsDir: string, name: string) {
   }
   const config = readConfig(projectDir)
   const attempts = state.attempts.map(({ transcriptPath, ...attempt }: any) => ({ ...attempt, transcript: String(transcriptPath ?? "").split("/").pop() }))
-  const { meta, reviews, spend, ...stateWithoutMeta } = state
-  const [github, gitLog, worktrees, dockerPs, deploy] = await Promise.all([
+  const { meta, reviews, spend, liveRecords, ...stateWithoutMeta } = state
+  const runActive = runAlive(projectDir)
+  const [github, gitLog, worktrees, dockerPs, deploy, live] = await Promise.all([
     githubInfo(projectDir, meta, Boolean(config?.publish.github.enabled)),
     command(projectDir, "git", ["log", "--oneline", "-30"]),
     command(projectDir, "git", ["worktree", "list"]),
     command(projectDir, "docker", ["ps", "--filter", "label=agent-team=1", "--format", "{{json .}}"]),
     deployInfo(projectDir, meta["deploy.url"] ?? null),
+    runActive ? liveAgents(projectDir, liveRecords) : Promise.resolve([]),
   ])
   const containers = dockerPs
     .split("\n")
@@ -457,6 +464,7 @@ async function detail(runsDir: string, name: string) {
     gitLog: gitLog.split("\n").filter(Boolean),
     worktrees: worktrees.split("\n").filter(Boolean),
     containers,
+    liveAgents: live,
     deploy,
     access: readDemoAccess(meta[demoAccessMetaKey]),
     qa: { round: meta["qa.round"] ? Number(meta["qa.round"]) : null },
@@ -488,6 +496,31 @@ function parseReviewRow(row: any): ReviewRow | null {
 function defaultRoles() {
   const { roles } = loadConfig(examplePipelinePath)
   return Object.fromEntries(Object.entries(roles).map(([role, value]) => [role, { runner: value.runner, model: value.model, fallbacks: value.fallbacks }]))
+}
+
+// Agents working right now: what they did last and which files they changed so far.
+async function liveAgents(projectDir: string, records: string[]) {
+  const transcriptsDir = join(projectDir, ".agent-team", "transcripts")
+  return Promise.all(
+    records.flatMap((value) => {
+      try {
+        return [JSON.parse(value) as LiveAgent]
+      } catch {
+        return []
+      }
+    }).map(async (agent) => {
+      const transcriptPath = join(transcriptsDir, basename(agent.transcript))
+      const transcript = existsSync(transcriptPath) ? readTail(transcriptPath, liveTranscriptBytes) : ""
+      const status = existsSync(agent.hostDir) ? await command(agent.hostDir, "git", ["status", "--porcelain", "--untracked-files=all"]) : ""
+      const changedFiles = status
+        .split("\n")
+        .filter(Boolean)
+        .slice(0, liveChangedFilesLimit)
+        .map((line) => ({ status: line.slice(0, 2).trim() || "M", path: line.slice(3) }))
+      const { hostDir, ...visible } = agent
+      return { ...visible, updatedAt: existsSync(transcriptPath) ? statSync(transcriptPath).mtime.toISOString() : null, activity: summarizeActivity(transcript), changedFiles }
+    }),
+  )
 }
 
 function readTail(path: string, maxBytes: number): string {

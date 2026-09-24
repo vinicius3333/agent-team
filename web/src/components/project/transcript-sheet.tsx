@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react"
 import { CheckCircle2, XCircle } from "lucide-react"
 import { api } from "@/api/client"
 import { useAsync } from "@/api/hooks"
@@ -10,6 +11,8 @@ import { formatCost, formatDuration, formatTokens } from "@/lib/format"
 import { cleanCommand, parseTranscript, parseVerdict, type TranscriptEntry } from "@/lib/transcript"
 import { cn } from "@/lib/utils"
 import type { TranscriptRequest } from "./context"
+
+const liveRefreshMs = 3000
 
 function Label({ children }: { children: string }) {
   return <span className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{children}</span>
@@ -126,14 +129,27 @@ function Entry({ entry }: { entry: TranscriptEntry }) {
           <pre className="max-h-80 overflow-auto border-t px-3 py-2 font-mono text-xs whitespace-pre-wrap">{entry.text.slice(-6000)}</pre>
         </details>
       )
+    case "tool":
+      return (
+        <div className="flex items-start gap-2 rounded-md border bg-muted/30 px-3 py-1.5 text-xs">
+          <span className="shrink-0 font-semibold">{entry.name}</span>
+          <code className="min-w-0 font-mono break-all text-muted-foreground">{entry.detail.replace(/^\/workspace\//, "")}</code>
+        </div>
+      )
     case "raw":
       return <pre className="overflow-auto rounded-md border bg-muted/40 p-3 font-mono text-xs whitespace-pre-wrap">{entry.text}</pre>
   }
 }
 
 function TranscriptBody({ project, request }: { project: string; request: TranscriptRequest }) {
-  const { value, error, loading } = useAsync(() => api.transcript(project, request.file), [project, request.file])
-  if (loading) {
+  const [refresh, setRefresh] = useState(0)
+  useEffect(() => {
+    if (!request.live) return
+    const timer = setInterval(() => setRefresh((count) => count + 1), liveRefreshMs)
+    return () => clearInterval(timer)
+  }, [request.live])
+  const { value, error, loading } = useAsync(() => api.transcript(project, request.file), [project, request.file, refresh])
+  if (loading && value === null) {
     return (
       <div className="flex flex-col gap-2 p-4">
         <Skeleton className="h-20 w-full" />

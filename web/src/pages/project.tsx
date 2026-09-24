@@ -20,6 +20,7 @@ import { MarketingPieces } from "@/components/project/marketing-tab"
 import { LeadTab } from "@/components/project/lead-tab"
 import { GithubCard } from "@/components/project/github-card"
 import { IncidentBanner } from "@/components/project/incident-banner"
+import { LiveAgentsCard } from "@/components/project/live-agents"
 import { ProjectBranding } from "@/components/project/branding"
 import { QaSection } from "@/components/project/qa-section"
 import { StatCards } from "@/components/project/stat-cards"
@@ -226,6 +227,7 @@ function ProjectBody({ name, detail, stream }: { name: string; detail: ProjectDe
             </TabsList>
           </div>
           <TabsContent value="overview" className="mt-2 flex flex-col gap-4">
+            <LiveAgentsCard />
             <div className="grid gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
               <TasksCard />
               <EventsCard stream={stream} />
