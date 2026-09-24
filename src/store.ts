@@ -167,6 +167,9 @@ export function openStore(path: string) {
     clearCooldowns() {
       db.exec("DELETE FROM runner_health")
     },
+    close() {
+      db.close()
+    },
     log(type: string, message: string) {
       db.prepare("INSERT INTO events (at, type, message) VALUES (?, ?, ?)").run(now(), type, message)
       console.log(`[${type}] ${message}`)

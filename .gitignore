@@ -2,3 +2,5 @@ node_modules/
 *.db
 *.db-journal
 .agent-team/
+web/dist/
+web/node_modules/

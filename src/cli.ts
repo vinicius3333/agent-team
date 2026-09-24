@@ -1,16 +1,15 @@
 #!/usr/bin/env -S node --disable-warning=ExperimentalWarning
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
+import { readFileSync } from "node:fs"
 import { join, resolve } from "node:path"
 import { parseArgs } from "node:util"
-import { loadConfig, planningPhases, type PlanningPhase } from "./config.ts"
-import { commitAll, initRepository } from "./git.ts"
+import { loadConfig, planningPhases } from "./config.ts"
 import { cleanupOrphans } from "./harness/docker.ts"
 import { currentTunnelUrl, deployProject, undeployProject } from "./deploy.ts"
 import { createGitHub } from "./github.ts"
 import { createHarness } from "./harness/harness.ts"
 import { removeAllWorkspaces } from "./harness/workspace.ts"
 import { runPipeline } from "./pipeline.ts"
-import { openStore } from "./store.ts"
+import { approvePhase, createProject, openProjectStore, retryTask, withProjectStore } from "./project.ts"
 import { startUi } from "./ui/server.ts"
 
 const usage = `Usage:
@@ -24,26 +23,9 @@ const usage = `Usage:
   agent-team undeploy <projectDir>
   agent-team ui <runsDir> [--port 4400]`
 
-function stateDir(projectDir: string): string {
-  const dir = join(projectDir, ".agent-team")
-  mkdirSync(dir, { recursive: true })
-  return dir
-}
-
-function openProjectStore(projectDir: string) {
-  if (!existsSync(join(projectDir, "pipeline.yaml"))) throw new Error(`${projectDir} is not an agent-team project (no pipeline.yaml)`)
-  return openStore(join(stateDir(projectDir), "state.db"))
-}
-
 function init(projectDir: string, briefPath: string | undefined): void {
   if (!briefPath) throw new Error("init needs --brief <file>")
-  if (existsSync(projectDir) && readdirSync(projectDir).length > 0) throw new Error(`${projectDir} already exists and is not empty`)
-  mkdirSync(projectDir, { recursive: true })
-  writeFileSync(join(projectDir, "input.md"), readFileSync(briefPath, "utf8"))
-  copyFileSync(new URL("../pipeline.example.yaml", import.meta.url), join(projectDir, "pipeline.yaml"))
-  writeFileSync(join(projectDir, ".gitignore"), ".agent-team/\nnode_modules/\n")
-  initRepository(projectDir)
-  commitAll(projectDir, "chore: start project from brief")
+  createProject(projectDir, readFileSync(briefPath, "utf8"))
   console.log(`Created ${projectDir}. Edit pipeline.yaml if needed, then: agent-team run ${projectDir}`)
 }
 
@@ -97,19 +79,11 @@ function status(projectDir: string): void {
 }
 
 function approve(projectDir: string, phase: string | undefined): void {
-  if (!planningPhases.includes(phase as PlanningPhase)) throw new Error(`phase must be one of ${planningPhases.join(", ")}`)
-  const store = openProjectStore(projectDir)
-  if (store.phaseStatus(phase!) !== "awaiting_approval") throw new Error(`phase "${phase}" is not waiting for approval`)
-  commitAll(projectDir, `docs(${phase}): apply human edits`)
-  store.setPhase(phase!, "approved")
-  store.log("gate", `phase "${phase}" approved`)
+  withProjectStore(projectDir, (store) => approvePhase(projectDir, store, phase))
 }
 
 function retry(projectDir: string, taskId: string | undefined): void {
-  if (!taskId) throw new Error("retry needs a task id")
-  const store = openProjectStore(projectDir)
-  store.resetTask(taskId)
-  store.log("task", `${taskId} reset for retry`)
+  withProjectStore(projectDir, (store) => retryTask(store, taskId))
 }
 
 async function deploy(projectDir: string): Promise<void> {

@@ -12,6 +12,7 @@
   },
   "scripts": {
     "start": "node --disable-warning=ExperimentalWarning src/cli.ts",
+    "build:ui": "npm --prefix web ci && npm --prefix web run build",
     "typecheck": "tsc --noEmit",
     "test": "node --disable-warning=ExperimentalWarning --test test/*.test.ts"
   },

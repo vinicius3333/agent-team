@@ -8,6 +8,7 @@ import { defaultAllowlist, ensureEgressProxy } from "./harness/network.ts"
 import type { Harness, HarnessOutcome } from "./harness/harness.ts"
 import { commitAndRebase, createWorkspace, detectSetupCommand, fastForwardMain, removeWorkspace } from "./harness/workspace.ts"
 import { deployProject } from "./deploy.ts"
+import { archiveFeedback, readFeedback } from "./feedback.ts"
 import type { GitHub } from "./github.ts"
 import type { Store } from "./store.ts"
 import { filesOutsideScope, loadTasks, type Task } from "./tasks.ts"
@@ -127,6 +128,7 @@ async function runPlanningPhase(context: PipelineContext, phase: PlanningPhase):
       store.log("phase", `${phase}: output rejected: ${previousError}`)
       continue
     }
+    archiveFeedback(projectDir, phase)
     if (config.autonomy.gates.includes(phase)) {
       store.setPhase(phase, "awaiting_approval")
       store.log("gate", `phase "${phase}" is ready for review: agent-team approve ${projectDir} ${phase}`)
@@ -145,7 +147,7 @@ async function attemptPhase(context: PipelineContext, phase: PlanningPhase, defi
   const workspace = createWorkspace(projectDir, `phase-${phase}-${attempt}`)
   const executor = await createExecutor(context, workspace.path, `phase-${phase}-${attempt}`)
   try {
-    const outcome = await runAgent(context, executor, definition.role, `phase-${phase}-${attempt}`, planningTools, phasePrompt(context, definition, previousError))
+    const outcome = await runAgent(context, executor, definition.role, `phase-${phase}-${attempt}`, planningTools, phasePrompt(context, phase, previousError))
     if (isInfrastructureFailure(outcome)) return { kind: "infrastructure", reason: `${outcome.failureClass}: ${outcome.result.summary}` }
     if (outcome.result.status !== "done") return { kind: "failed", reason: `agent ${outcome.result.status}: ${outcome.result.summary}` }
     try {
@@ -170,8 +172,9 @@ async function attemptPhase(context: PipelineContext, phase: PlanningPhase, defi
   }
 }
 
-function phasePrompt(context: PipelineContext, definition: PhaseDefinition, previousError: string | null): string {
-  const { config } = context
+export function phasePrompt(context: Pick<PipelineContext, "projectDir" | "config">, phase: PlanningPhase, previousError: string | null): string {
+  const { config, projectDir } = context
+  const definition = phaseDefinitions[phase]
   const lines = [
     `Project target: ${config.target}.`,
     `Read these inputs: ${definition.inputs.join(", ")}.`,
@@ -180,6 +183,11 @@ function phasePrompt(context: PipelineContext, definition: PhaseDefinition, prev
   if (definition.role === "illustrator") lines.push(`Generate ${config.mockups.count} mockup images.`)
   if (config.stackHints.prefer.length) lines.push(`Preferred technologies: ${config.stackHints.prefer.join(", ")}.`)
   if (config.stackHints.avoid.length) lines.push(`Avoid: ${config.stackHints.avoid.join(", ")}.`)
+  const feedback = readFeedback(projectDir, phase)
+  if (feedback) {
+    lines.push("A human reviewed your last output and asked for these changes:", feedback.trim())
+    lines.push("Edit your existing outputs to address this feedback. Do not start over.")
+  }
   if (previousError) lines.push(`Your previous output was rejected. Fix this: ${previousError}`)
   return lines.join("\n")
 }

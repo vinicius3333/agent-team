@@ -1,13 +1,37 @@
 import { execFile } from "node:child_process"
-import { existsSync, readdirSync, readFileSync, statSync, openSync, readSync, closeSync } from "node:fs"
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync, openSync, readSync, closeSync } from "node:fs"
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http"
 import { basename, join, resolve, sep } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { promisify } from "node:util"
+import { fileURLToPath } from "node:url"
 import { parse as parseYaml } from "yaml"
+import { loadConfig, planningPhases, runnerNames, type PlanningPhase } from "../config.ts"
+import { pendingFeedback } from "../feedback.ts"
+import { approvePhase, createProject, ProjectError, requestChanges, retryTask, runAlive, startRun as spawnRun, withProjectStore, type ProjectChoices } from "../project.ts"
 
 const execFileAsync = promisify(execFile)
-const pagePath = new URL("./index.html", import.meta.url)
+const builtWebDir = fileURLToPath(new URL("../../web/dist/", import.meta.url))
+const examplePipelinePath = fileURLToPath(new URL("../../pipeline.example.yaml", import.meta.url))
+const staticTypes: Record<string, string> = {
+  html: "text/html; charset=utf-8",
+  js: "text/javascript; charset=utf-8",
+  css: "text/css; charset=utf-8",
+  json: "application/json; charset=utf-8",
+  svg: "image/svg+xml",
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  webp: "image/webp",
+  ico: "image/x-icon",
+  woff: "font/woff",
+  woff2: "font/woff2",
+  txt: "text/plain; charset=utf-8",
+  map: "application/json; charset=utf-8",
+}
+const bodyMaxBytes = 64 * 1024
+const newProjectNamePattern = /^[a-z0-9][a-z0-9-]{1,40}$/
+const targets = ["web", "api", "web+api"]
 const transcriptMaxBytes = 200 * 1024
 const artifactMaxBytes = 500 * 1024
 const mockupMaxBytes = 20 * 1024 * 1024
@@ -15,6 +39,21 @@ const mockupPattern = /^[A-Za-z0-9._-]+\.(png|jpe?g|webp)$/
 const activeWindowMs = 2 * 60_000
 const projectNamePattern = /^[A-Za-z0-9._-]+$/
 const transcriptNamePattern = /^[A-Za-z0-9._-]+\.log$/
+const loopbackHosts = new Set(["127.0.0.1", "localhost", "[::1]"])
+
+// Blocks DNS rebinding: a hostile page resolving its own name to 127.0.0.1 would otherwise be same-origin and pass the header check.
+function allowedHost(request: IncomingMessage, extraHosts: string[]): boolean {
+  const host = String(request.headers.host ?? "").toLowerCase().replace(/:\d+$/, "")
+  return loopbackHosts.has(host) || host.endsWith(".ts.net") || extraHosts.includes(host)
+}
+
+// Agents write the project files, so a symlink could point outside the project; the real path must stay inside.
+function projectFile(projectDir: string, relative: string): string | null {
+  const path = resolve(projectDir, relative)
+  if (!path.startsWith(projectDir + sep) || !existsSync(path)) return null
+  const real = realpathSync(path)
+  return real.startsWith(realpathSync(projectDir) + sep) ? real : null
+}
 
 function withDatabase<T>(projectDir: string, read: (db: DatabaseSync) => T, fallback: T): T {
   const path = join(projectDir, ".agent-team", "state.db")
@@ -109,9 +148,10 @@ function summary(runsDir: string, name: string) {
       const activePhase = phases.find((phase) => phase.status === "running")?.name ?? null
       const pidRow = all(db, "SELECT value FROM meta WHERE key = 'run.pid'")[0]
       const active = pidRow ? processAlive(Number(pidRow.value)) : Boolean(lastEvent && Date.now() - Date.parse(lastEvent.at) < activeWindowMs && !/^finished/.test(lastEvent.message))
-      return { name, phases, counts, lastEvent, current: running ?? activePhase, active }
+      const cost = all(db, "SELECT COALESCE(SUM(cost_usd), 0) AS total, SUM(cost_usd IS NULL) AS unreported FROM attempts")[0]
+      return { name, phases, counts, lastEvent, current: running ?? activePhase, active, costUsd: cost?.total ?? 0, costUnreported: (cost?.unreported ?? 0) > 0 }
     },
-    { name, phases: [], counts: {}, lastEvent: null, current: null, active: false },
+    { name, phases: [], counts: {}, lastEvent: null, current: null, active: false, costUsd: 0, costUnreported: false },
   )
 }
 
@@ -300,7 +340,13 @@ async function detail(runsDir: string, name: string) {
     worktrees: worktrees.split("\n").filter(Boolean),
     containers,
     deploy,
+    feedback: pendingFeedback(projectDir),
   }
+}
+
+function defaultRoles() {
+  const { roles } = loadConfig(examplePipelinePath)
+  return Object.fromEntries(Object.entries(roles).map(([role, value]) => [role, { runner: value.runner, model: value.model, fallbacks: value.fallbacks }]))
 }
 
 function readTail(path: string, maxBytes: number): string {
@@ -321,17 +367,141 @@ function send(response: ServerResponse, status: number, body: unknown, type = "a
   response.end(typeof body === "string" ? body : JSON.stringify(body))
 }
 
-export function startUi(options: { runsDir: string; port: number }) {
+function serveStatic(response: ServerResponse, webDist: string, pathname: string) {
+  const indexPath = join(webDist, "index.html")
+  if (!existsSync(indexPath)) return send(response, 503, "The dashboard is not built. Run: npm run build:ui", "text/plain")
+  const requested = resolve(webDist, `.${decodeURIComponent(pathname)}`)
+  const inside = requested.startsWith(webDist)
+  const isFile = inside && existsSync(requested) && statSync(requested).isFile()
+  const path = isFile ? requested : indexPath
+  const type = staticTypes[path.split(".").pop()?.toLowerCase() ?? ""] ?? "application/octet-stream"
+  const immutable = isFile && path.startsWith(join(webDist, "assets") + sep)
+  response.writeHead(200, { "content-type": type, "cache-control": immutable ? "public, max-age=31536000, immutable" : "no-store", "x-content-type-options": "nosniff" })
+  response.end(readFileSync(path))
+}
+
+async function readJson(request: IncomingMessage): Promise<Record<string, unknown>> {
+  const chunks: Buffer[] = []
+  let size = 0
+  // Drains the whole body even when too large, so the client reads the 413 instead of a reset connection.
+  for await (const chunk of request) {
+    size += chunk.length
+    if (size <= bodyMaxBytes) chunks.push(chunk)
+  }
+  if (size > bodyMaxBytes) throw new ProjectError(413, "The request body is larger than 64 KB.")
+  const text = Buffer.concat(chunks).toString("utf8").trim()
+  if (!text) return {}
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    throw new ProjectError(400, "The request body is not valid JSON.")
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new ProjectError(400, "The request body must be a JSON object.")
+  return parsed as Record<string, unknown>
+}
+
+function parseChoices(body: Record<string, unknown>): { name: string; brief: string; choices: ProjectChoices } {
+  const { name, brief, target, workerRunner, gates, github, deploy, mockups } = body
+  if (typeof name !== "string" || !newProjectNamePattern.test(name)) {
+    throw new ProjectError(400, "The name must be 2 to 41 characters: lowercase letters, digits, and dashes, starting with a letter or digit.")
+  }
+  if (typeof brief !== "string" || !brief.trim()) throw new ProjectError(400, "The brief is empty.")
+  if (typeof target !== "string" || !targets.includes(target)) throw new ProjectError(400, "The target must be web, api, or web+api.")
+  if (typeof workerRunner !== "string" || !(runnerNames as readonly string[]).includes(workerRunner)) throw new ProjectError(400, "The worker provider must be claude or codex.")
+  if (!Array.isArray(gates) || !gates.every((gate) => (planningPhases as readonly unknown[]).includes(gate))) {
+    throw new ProjectError(400, `Each gate must be one of ${planningPhases.join(", ")}.`)
+  }
+  for (const [field, value] of Object.entries({ github, deploy, mockups })) {
+    if (typeof value !== "boolean") throw new ProjectError(400, `The ${field} field must be true or false.`)
+  }
+  return {
+    name,
+    brief,
+    choices: {
+      target: target as ProjectChoices["target"],
+      workerRunner: workerRunner as ProjectChoices["workerRunner"],
+      gates: [...new Set(gates as PlanningPhase[])],
+      github: github as boolean,
+      deploy: deploy as boolean,
+      mockups: mockups as boolean,
+    },
+  }
+}
+
+function requireString(body: Record<string, unknown>, field: string): string {
+  const value = body[field]
+  if (typeof value !== "string" || !value.trim()) throw new ProjectError(400, `The ${field} field is required.`)
+  return value
+}
+
+export interface UiOptions {
+  runsDir: string
+  port: number
+  startRun?: (projectDir: string, logPath: string) => void
+  webDir?: string
+}
+
+export function startUi(options: UiOptions) {
   const runsDir = resolve(options.runsDir)
+  const webDist = options.webDir ? resolve(options.webDir) + sep : builtWebDir
   const knownProject = (name: string) => projectNamePattern.test(name) && existsSync(join(runsDir, name, "pipeline.yaml"))
+  const launchRun = options.startRun ?? spawnRun
+  const extraHosts = (process.env.AGENT_TEAM_UI_HOSTS ?? "").split(",").map((host) => host.trim().toLowerCase()).filter(Boolean)
+  const startRunIfIdle = (name: string) => {
+    const projectDir = join(runsDir, name)
+    if (runAlive(projectDir)) return false
+    launchRun(projectDir, join(runsDir, `${name}.log`))
+    return true
+  }
+
+  async function handlePost(request: IncomingMessage, response: ServerResponse, parts: string[]) {
+    if (request.headers["x-agent-team"] !== "1") return send(response, 403, { error: "The x-agent-team header is missing." })
+    const body = await readJson(request)
+    if (parts[0] !== "api" || parts[1] !== "projects") return send(response, 404, { error: "not found" })
+
+    if (parts.length === 2) {
+      const { name, brief, choices } = parseChoices(body)
+      if (existsSync(join(runsDir, name))) return send(response, 409, { error: `A project named "${name}" already exists.` })
+      createProject(join(runsDir, name), brief, choices)
+      startRunIfIdle(name)
+      return send(response, 201, { name })
+    }
+
+    const name = parts[2]
+    if (!knownProject(name) || parts.length !== 4) return send(response, 404, { error: "unknown project" })
+    const projectDir = join(runsDir, name)
+    switch (parts[3]) {
+      case "run":
+        if (!startRunIfIdle(name)) return send(response, 409, { error: "A run is already in progress." })
+        return send(response, 202, { started: true })
+      case "approve":
+        withProjectStore(projectDir, (store) => approvePhase(projectDir, store, requireString(body, "phase")))
+        return send(response, 200, { started: startRunIfIdle(name) })
+      case "feedback": {
+        const phase = requireString(body, "phase")
+        const message = requireString(body, "message")
+        withProjectStore(projectDir, (store) => requestChanges(projectDir, store, phase, message))
+        return send(response, 200, { started: startRunIfIdle(name) })
+      }
+      case "retry":
+        withProjectStore(projectDir, (store) => retryTask(store, requireString(body, "taskId")))
+        return send(response, 200, { started: startRunIfIdle(name) })
+      default:
+        return send(response, 404, { error: "not found" })
+    }
+  }
 
   const server = createServer(async (request: IncomingMessage, response: ServerResponse) => {
     try {
+      if (!allowedHost(request, extraHosts)) return send(response, 403, { error: "This host name is not allowed. Add it to AGENT_TEAM_UI_HOSTS." })
       const url = new URL(request.url ?? "/", "http://localhost")
       const parts = url.pathname.split("/").filter(Boolean).map(decodeURIComponent)
-      if (request.method !== "GET") return send(response, 405, { error: "read-only" })
+      if (request.method === "POST") return await handlePost(request, response, parts)
+      if (request.method !== "GET") return send(response, 405, { error: "method not allowed" })
+      if (parts[0] !== "api") return serveStatic(response, webDist, url.pathname)
 
-      if (parts.length === 0) return send(response, 200, readFileSync(pagePath, "utf8"), "text/html")
+      if (parts[0] === "api" && parts[1] === "defaults" && parts.length === 2) return send(response, 200, { roles: defaultRoles() })
       if (parts[0] === "api" && parts[1] === "projects" && parts.length === 2) {
         const names = projectDirs(runsDir)
         const deploys = await Promise.all(names.map((name) => deployInfo(join(runsDir, name), metaValue(join(runsDir, name), "deploy.url"))))
@@ -351,12 +521,12 @@ export function startUi(options: { runsDir: string; port: number }) {
         if (parts[3] === "markdown" && parts.length === 4) return send(response, 200, listMarkdown(projectDir))
         if (parts[3] === "raw" && parts.length === 4) {
           const relative = url.searchParams.get("path") ?? ""
-          const path = resolve(projectDir, relative)
           const extension = relative.split(".").pop()?.toLowerCase() ?? ""
           const type = rawImageTypes[extension]
           const hidden = relative.split(/[\\/]/).some((segment) => ignoredDirectories.has(segment))
-          if (!type || !path.startsWith(projectDir + sep) || hidden) return send(response, 400, { error: "path not allowed" })
-          if (!existsSync(path) || !statSync(path).isFile() || statSync(path).size > mockupMaxBytes) return send(response, 404, { error: "not found" })
+          if (!type || !resolve(projectDir, relative).startsWith(projectDir + sep) || hidden) return send(response, 400, { error: "path not allowed" })
+          const path = projectFile(projectDir, relative)
+          if (!path || !statSync(path).isFile() || statSync(path).size > mockupMaxBytes) return send(response, 404, { error: "not found" })
           response.writeHead(200, { "content-type": type, "cache-control": "no-store", "x-content-type-options": "nosniff" })
           return response.end(readFileSync(path))
         }
@@ -367,19 +537,19 @@ export function startUi(options: { runsDir: string; port: number }) {
         }
         if (parts[3] === "mockups" && parts[4] && parts.length === 5) {
           if (!mockupPattern.test(parts[4])) return send(response, 400, { error: "bad file name" })
-          const path = join(projectDir, "design", "mockups", parts[4])
-          if (!existsSync(path) || statSync(path).size > mockupMaxBytes) return send(response, 404, { error: "not found" })
+          const path = projectFile(projectDir, join("design", "mockups", parts[4]))
+          if (!path || statSync(path).size > mockupMaxBytes) return send(response, 404, { error: "not found" })
           const extension = parts[4].split(".").pop()!.toLowerCase()
           response.writeHead(200, { "content-type": `image/${extension === "jpg" ? "jpeg" : extension}`, "cache-control": "no-store" })
           return response.end(readFileSync(path))
         }
         if (parts[3] === "file" && parts.length === 4) {
           const relative = url.searchParams.get("path") ?? ""
-          const path = resolve(projectDir, relative)
-          const inside = path.startsWith(projectDir + sep)
-          const hidden = relative.split(/[\\/]/).some((segment) => segment === ".git" || segment === ".agent-team" || segment === "node_modules")
+          const inside = resolve(projectDir, relative).startsWith(projectDir + sep)
+          const hidden = relative.split(/[\\/]/).some((segment) => ignoredDirectories.has(segment))
           if (!relative || !inside || hidden) return send(response, 400, { error: "path not allowed" })
-          if (!existsSync(path) || !statSync(path).isFile()) return send(response, 404, { error: "not found" })
+          const path = projectFile(projectDir, relative)
+          if (!path || !statSync(path).isFile()) return send(response, 404, { error: "not found" })
           if (statSync(path).size > artifactMaxBytes) return send(response, 413, { error: "file too large" })
           return send(response, 200, readFileSync(path, "utf8"), "text/plain")
         }
@@ -390,31 +560,43 @@ export function startUi(options: { runsDir: string; port: number }) {
         response.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" })
         let previous = ""
         let closed = false
+        let pushing = false
         const push = async () => {
-          if (closed) return
-          const snapshot = JSON.stringify(await detail(runsDir, name))
-          if (snapshot !== previous && !closed) {
-            previous = snapshot
-            response.write(`data: ${snapshot}\n\n`)
-          } else if (!closed) {
-            response.write(": ping\n\n")
+          if (closed || pushing) return
+          pushing = true
+          try {
+            const snapshot = JSON.stringify(await detail(runsDir, name))
+            if (closed) return
+            if (snapshot !== previous) {
+              previous = snapshot
+              response.write(`data: ${snapshot}\n\n`)
+            } else {
+              response.write(": ping\n\n")
+            }
+          } catch (error) {
+            if (!closed) response.write(`: error ${String((error as Error).message).replace(/\n/g, " ")}\n\n`)
+          } finally {
+            pushing = false
           }
         }
-        await push()
         const timer = setInterval(push, 2000)
         request.on("close", () => {
           closed = true
           clearInterval(timer)
         })
+        await push()
         return
       }
       send(response, 404, { error: "not found" })
     } catch (error) {
-      if (!response.headersSent) send(response, 500, { error: (error as Error).message })
+      if (response.headersSent) return
+      if (error instanceof ProjectError) return send(response, error.status, { error: error.message })
+      if (error instanceof URIError) return send(response, 400, { error: "The URL is not valid." })
+      send(response, 500, { error: (error as Error).message })
     }
   })
   server.listen(options.port, "127.0.0.1", () => {
-    console.log(`agent-team ui on http://127.0.0.1:${options.port} watching ${runsDir}`)
+    console.log(`agent-team ui on http://127.0.0.1:${(server.address() as import("node:net").AddressInfo).port} watching ${runsDir}`)
   })
   return server
 }
