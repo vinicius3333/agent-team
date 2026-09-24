@@ -202,7 +202,7 @@ export function OfficeScene() {
 
   return (
     <Card className="gap-3 p-3">
-      <div className="@container relative aspect-[16/10] w-full overflow-hidden rounded-lg text-[clamp(8px,1.05cqw,13px)]">
+      <div className="@container relative isolate aspect-[16/10] w-full overflow-hidden rounded-lg text-[clamp(8px,1.05cqw,13px)]">
         <img src={resolved === "dark" ? officeNight : officeDay} alt="" className="absolute inset-0 size-full object-cover select-none" draggable={false} />
         {desks
           .filter((desk) => desk.role !== "deploy")
