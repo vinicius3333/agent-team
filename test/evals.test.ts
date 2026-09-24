@@ -159,6 +159,12 @@ test("compareResults flags worse outcomes, cost over 25%, and fewer merged tasks
   assert.match(comparison.warnings[0], /roles\.worker\.model/)
 })
 
+test("compareResults compares the share of merged tasks, not the count", () => {
+  const before = evalResult([briefResult({ tasks: { total: 9, merged: 9, blocked: 0, replans: 0 } })])
+  const after = evalResult([briefResult({ tasks: { total: 8, merged: 8, blocked: 0, replans: 0 } })])
+  assert.deepEqual(compareResults(before, after).briefs[0].regressions, [])
+})
+
 test("compareResults refuses a changed brief unless allowed", () => {
   const before = evalResult([briefResult()])
   const after = evalResult([briefResult({ briefHash: "new" })])

@@ -303,6 +303,10 @@ function flatten(value: unknown, prefix = ""): Record<string, string> {
   return entries
 }
 
+function mergedShare(brief: BriefResult): number {
+  return brief.tasks.total ? brief.tasks.merged / brief.tasks.total : 0
+}
+
 export function compareResults(before: EvalResult, after: EvalResult, allowBriefChange = false): Comparison {
   const warnings: string[] = []
   const flatBefore = flatten(before.config)
@@ -325,7 +329,8 @@ export function compareResults(before: EvalResult, after: EvalResult, allowBrief
     }
     const regressions: string[] = []
     if (outcomeRank[next.outcome] > outcomeRank[previous.outcome]) regressions.push(`outcome ${previous.outcome} -> ${next.outcome}`)
-    if (next.tasks.merged < previous.tasks.merged) regressions.push(`merged tasks ${previous.tasks.merged} -> ${next.tasks.merged}`)
+    // The planner makes a different number of tasks each run, so the share merged is compared, not the count.
+    if (mergedShare(next) < mergedShare(previous)) regressions.push(`merged tasks ${previous.tasks.merged}/${previous.tasks.total} -> ${next.tasks.merged}/${next.tasks.total}`)
     if (previous.costUsd > 0 && next.costUsd > previous.costUsd * costRegressionRatio) regressions.push(`cost +${Math.round((next.costUsd / previous.costUsd - 1) * 100)}%`)
     if (previous.tokens > 0 && next.tokens > previous.tokens * costRegressionRatio) regressions.push(`tokens +${Math.round((next.tokens / previous.tokens - 1) * 100)}%`)
     briefs.push({ id: previous.id, before: previous, after: next, regressions })

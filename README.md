@@ -466,7 +466,7 @@ node src/cli.ts eval compare evals/results/<a>.json evals/results/<b>.json
 - Every brief runs in a fresh project under `evals/runs/<resultId>/`, one after another. Gates, deploy, and GitHub publishing are always off.
 - Each brief's `budgetUsd` becomes its `budget.runUsd`. `--max-usd` caps the whole suite. The command shows the planned spend and asks before it starts, unless you pass `--yes`.
 - The result goes to `evals/results/<resultId>.json`: outcome, merged tasks, attempts, fallbacks, reviewer rejections, QA rounds, cost, tokens, and wall time for each brief. `--clean` deletes the project folders afterwards.
-- `eval compare` flags a regression when the outcome gets worse, fewer tasks merge, or cost or tokens rise by more than 25%. It exits with 1 when it finds one.
+- `eval compare` flags a regression when the outcome gets worse, a smaller share of tasks merges, or cost or tokens rise by more than 25%. It exits with 1 when it finds one.
 - `--config <file>` replaces `pipeline.example.yaml` as the base, so you can compare two role or model setups.
 
 ## Limits

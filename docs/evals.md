@@ -20,7 +20,7 @@ agent-team eval compare --rev <gitRevA> --rev <gitRevB> [--tier smoke]
 ```
 
 - `eval run` runs the selected briefs one after another (not in parallel, see Isolation) and writes one result file. Exit code 0 when every brief completed, 1 otherwise.
-- `eval compare` prints a table per brief and a total row: tasks merged, attempts, cost, tokens, wall time, QA rounds, reviewer rejections, outcome. It marks a regression when the outcome gets worse, cost or tokens rise more than 25%, or merged tasks drop.
+- `eval compare` prints a table per brief and a total row: tasks merged, attempts, cost, tokens, wall time, QA rounds, reviewer rejections, outcome. It marks a regression when the outcome gets worse, cost or tokens rise more than 25%, or the share of merged tasks drops.
 - Add the `eval` case in `main()` in `src/cli.ts`. `parseArgs` needs `multiple: true` for `--brief` and `--rev`.
 
 ## Headless run
