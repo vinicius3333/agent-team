@@ -21,6 +21,12 @@ export function useProjectStream(name: string) {
     }
     source.onerror = () => {
       setState("retrying")
+      api
+        .session()
+        .then((session) => {
+          if (!session.authenticated) source.close()
+        })
+        .catch(() => {})
       api.project(name).catch((error: { status?: number }) => {
         if (error.status === 404) {
           setMissing(true)

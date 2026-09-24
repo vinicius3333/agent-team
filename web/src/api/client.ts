@@ -2,12 +2,25 @@ import type { Defaults, LeadActionState, RoleCandidate, Incident, IncidentDetail
 
 export class ApiError extends Error {
   status: number
+  retryAfterSeconds: number | null
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, retryAfterSeconds: number | null = null) {
     super(message)
     this.status = status
+    this.retryAfterSeconds = retryAfterSeconds
   }
 }
+
+export type AuthMode = "none" | "password" | "proxy" | "password+proxy"
+
+export interface AuthSession {
+  authenticated: boolean
+  user: string | null
+  source: "proxy" | "session" | null
+  mode: AuthMode
+}
+
+export const unauthorizedEvent = "agent-team:unauthorized"
 
 const projectPath = (name: string) => `/api/projects/${encodeURIComponent(name)}`
 
@@ -19,7 +32,9 @@ async function errorFrom(response: Response): Promise<ApiError> {
   } catch {
     // The body was not JSON; keep the generic message.
   }
-  return new ApiError(response.status, message)
+  if (response.status === 401) window.dispatchEvent(new Event(unauthorizedEvent))
+  const retryAfter = Number(response.headers.get("retry-after"))
+  return new ApiError(response.status, message, Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : null)
 }
 
 async function getJson<T>(path: string): Promise<T> {
@@ -41,10 +56,15 @@ async function post<T>(path: string, body: unknown): Promise<T> {
     body: JSON.stringify(body),
   })
   if (!response.ok) throw await errorFrom(response)
+  if (response.status === 204) return undefined as T
   return (await response.json()) as T
 }
 
 export const api = {
+  session: () => getJson<AuthSession>("/api/auth/session"),
+  login: (password: string) => post<void>("/api/auth/login", { password }),
+  logout: () => post<void>("/api/auth/logout", {}),
+
   defaults: () => getJson<Defaults>("/api/defaults"),
   projects: () => getJson<ProjectSummary[]>("/api/projects"),
   project: (name: string) => getJson<ProjectDetail>(projectPath(name)),
