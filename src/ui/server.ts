@@ -498,6 +498,7 @@ async function detail(runsDir: string, name: string) {
     readPaths: definition.readPaths ?? [],
     acceptance: definition.acceptance ?? [],
     verify: definition.verify ?? null,
+    change: definition.change ?? null,
   })
   const tasks = state.tasks.map((task: any) => {
     const definition = taskDefinitions.get(task.id) ?? {}

@@ -88,6 +88,9 @@ export const api = {
   chatAction: (name: string, messageId: number, index: number, state: Exclude<LeadActionState, "proposed">) =>
     post<{ saved: boolean }>(`${projectPath(name)}/chat-action`, { messageId, index, state }),
   testNotifications: (channel?: string) => post<NotificationTestResult[]>("/api/notifications/test", channel ? { channel } : {}),
+  requestChange: (name: string, request: string) => post<{ id: string; branch: string; started: boolean }>(`${projectPath(name)}/changes`, { request }),
+  abandonChange: (name: string, id: string) => post<{ abandoned: boolean }>(`${projectPath(name)}/changes/${encodeURIComponent(id)}/abandon`, {}),
+  approveChangeMerge: (name: string, id: string) => post<{ started: boolean }>(`${projectPath(name)}/changes/${encodeURIComponent(id)}/merge`, {}),
   raiseBudget: (name: string) => post<{ runUsd: number; started: boolean }>(`${projectPath(name)}/raise-budget`, {}),
 }
 
