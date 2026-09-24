@@ -34,6 +34,7 @@ import { StatusBadge } from "@/components/status-badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
+import { BudgetCard } from "@/components/project/budget-card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { awaitingPhase, projectStatus, projectStatusLabels, stepLabels, taskCounts } from "@/lib/pipeline"
 import type { PipelineStep, ProjectDetail } from "@/api/types"
@@ -228,6 +229,7 @@ function ProjectBody({ name, detail, stream }: { name: string; detail: ProjectDe
           </div>
           <TabsContent value="overview" className="mt-2 flex flex-col gap-4">
             <LiveAgentsCard />
+            <BudgetCard />
             <div className="grid gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
               <TasksCard />
               <EventsCard stream={stream} />
