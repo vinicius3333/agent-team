@@ -582,6 +582,7 @@ function requireString(body: Record<string, unknown>, field: string): string {
 export interface UiOptions {
   runsDir: string
   port: number
+  host?: string
   startRun?: (projectDir: string, logPath: string) => void
   webDir?: string
   askLead?: (projectDir: string, message: string) => Promise<void>
@@ -788,8 +789,9 @@ export function startUi(options: UiOptions) {
       send(response, 500, { error: (error as Error).message })
     }
   })
-  server.listen(options.port, "127.0.0.1", () => {
-    console.log(`agent-team ui on http://127.0.0.1:${(server.address() as import("node:net").AddressInfo).port} watching ${runsDir}`)
+  const host = options.host ?? "127.0.0.1"
+  server.listen(options.port, host, () => {
+    console.log(`agent-team ui on http://${host}:${(server.address() as import("node:net").AddressInfo).port} watching ${runsDir}`)
   })
   return server
 }

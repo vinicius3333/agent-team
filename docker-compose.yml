@@ -24,7 +24,12 @@ x-agent-team: &agent-team
 services:
   ui:
     <<: *agent-team
-    command: ["node", "--disable-warning=ExperimentalWarning", "src/cli.ts", "ui", "${AGENT_TEAM_HOME:-/home/opc}/agent-team-runs", "--port", "4400"]
+    # The edge Caddy runs in a bridge container and cannot reach the host's loopback, so the UI binds to
+    # the docker0 gateway. That address is not reachable from the internet; Caddy adds the login.
+    environment:
+      HOME: ${AGENT_TEAM_HOME:-/home/opc}
+      AGENT_TEAM_UI_HOSTS: ${AGENT_TEAM_UI_HOSTS:-agent-team.137-131-153-58.sslip.io}
+    command: ["node", "--disable-warning=ExperimentalWarning", "src/cli.ts", "ui", "${AGENT_TEAM_HOME:-/home/opc}/agent-team-runs", "--port", "4400", "--host", "${AGENT_TEAM_UI_BIND:-172.17.0.1}"]
 
   doctor:
     <<: *agent-team

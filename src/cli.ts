@@ -22,7 +22,7 @@ const usage = `Usage:
   agent-team reset-cooldowns <projectDir>
   agent-team deploy <projectDir>
   agent-team undeploy <projectDir>
-  agent-team ui <runsDir> [--port 4400]
+  agent-team ui <runsDir> [--port 4400] [--host 127.0.0.1]
   agent-team doctor <runsDir> [--once]`
 
 function init(projectDir: string, briefPath: string | undefined): void {
@@ -110,7 +110,7 @@ async function doctor(runsDir: string, once: boolean): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const { positionals, values } = parseArgs({ allowPositionals: true, options: { brief: { type: "string" }, port: { type: "string" }, once: { type: "boolean" } } })
+  const { positionals, values } = parseArgs({ allowPositionals: true, options: { brief: { type: "string" }, port: { type: "string" }, host: { type: "string" }, once: { type: "boolean" } } })
   const [command, target, extra] = positionals
   if (!command || !target) {
     console.log(usage)
@@ -136,7 +136,7 @@ async function main(): Promise<void> {
     case "undeploy":
       return undeployProject(projectDir, openProjectStore(projectDir))
     case "ui":
-      startUi({ runsDir: projectDir, port: Number(values.port ?? 4400) })
+      startUi({ runsDir: projectDir, port: Number(values.port ?? 4400), host: values.host })
       return
     case "doctor":
       return doctor(projectDir, values.once ?? false)

@@ -74,10 +74,11 @@ Most work happens in the dashboard. You type the brief in a form, and the agents
 
 ## Access
 
-The dashboard listens on `127.0.0.1` only and has no login. Reach it from another machine in one of two ways:
+The dashboard listens on `127.0.0.1` by default (change it with `--host`) and has no login. Reach it from another machine in one of these ways:
 
 - SSH tunnel: `ssh -L 4400:127.0.0.1:4400 you@server`, then open `http://localhost:4400`.
 - Tailscale: `tailscale serve --bg --https=4400 http://127.0.0.1:4400`, then open `https://<machine>.<tailnet>.ts.net:4400`. Only devices on your tailnet can reach it.
+- Reverse proxy with a login: run with `--host` on an address the proxy can reach but the internet cannot, such as the docker0 gateway `172.17.0.1`. Put basic auth in the proxy and add its host name to `AGENT_TEAM_UI_HOSTS`. The Dokploy deploy in `docker-compose.yml` does this for `agent-team.137-131-153-58.sslip.io`.
 
 Do not expose the port to the internet. Anyone who reaches it can start paid agent runs. The server answers only `localhost`, `127.0.0.1`, and `*.ts.net` hosts; add others with `AGENT_TEAM_UI_HOSTS`.
 
