@@ -122,6 +122,16 @@ export interface ProjectConfig {
   qa: { enabled: boolean; maxRounds: number }
   publish: { github: { enabled: boolean } }
   budget?: { perTaskUsd: number; runUsd: number }
+  // null is the custom stack. latest is null when this server no longer has the template.
+  template?: { name: string; version: number; latest: number | null } | null
+}
+
+export interface StackTemplate {
+  name: string
+  version: number
+  title: string
+  description: string
+  targets: Target[]
 }
 
 // Why the last run stopped. kind "budget" means the run budget was reached.
@@ -270,6 +280,8 @@ export interface NewProjectRequest {
   github: boolean
   deploy: boolean
   branding: boolean
+  // Left out for the custom stack.
+  template?: string
 }
 
 export type IncidentStatus = "open" | "diagnosing" | "fixed" | "gave_up"

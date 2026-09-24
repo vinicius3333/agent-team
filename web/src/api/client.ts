@@ -1,4 +1,4 @@
-import type { Defaults, LeadActionState, RoleCandidate, Incident, IncidentDetail, NewProjectRequest, ProjectDetail, ProjectSummary, QaRound } from "@/api/types"
+import type { Defaults, LeadActionState, RoleCandidate, Incident, IncidentDetail, NewProjectRequest, ProjectDetail, ProjectSummary, QaRound, StackTemplate } from "@/api/types"
 
 export class ApiError extends Error {
   status: number
@@ -46,6 +46,7 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 
 export const api = {
   defaults: () => getJson<Defaults>("/api/defaults"),
+  templates: () => getJson<StackTemplate[]>("/api/templates"),
   projects: () => getJson<ProjectSummary[]>("/api/projects"),
   project: (name: string) => getJson<ProjectDetail>(projectPath(name)),
   markdownFiles: (name: string) => getJson<string[]>(`${projectPath(name)}/markdown`),

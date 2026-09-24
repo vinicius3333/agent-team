@@ -1,14 +1,15 @@
 import { useMemo, useState, type FormEvent } from "react"
 import { useNavigate } from "react-router"
-import { Boxes, ChevronDown, Cloud, Code2, Globe, Image, Layers, ListTodo, Megaphone, Loader2, Palette, Play, ShieldCheck, User, Users, Zap } from "lucide-react"
+import { Atom, Boxes, ChevronDown, Cloud, Code2, Globe, Image, Layers, ListTodo, Megaphone, Loader2, Package, Palette, Play, Server, ShieldCheck, User, Users, Zap } from "lucide-react"
 import { toast } from "sonner"
 import { ApiError, api } from "@/api/client"
 import { useAsync } from "@/api/hooks"
 import { useProjectList } from "@/api/projects-context"
-import { planningPhases, type PlanningPhase, type Target } from "@/api/types"
+import { planningPhases, type PlanningPhase, type StackTemplate, type Target } from "@/api/types"
 import { PageHeader } from "@/components/page-header"
 import { invalidRoles, pickEditable, RoleModelsEditor, type RoleModels } from "@/components/role-models-editor"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -146,6 +147,72 @@ function validate(name: string, brief: string): FormErrors {
   return errors
 }
 
+const customStack = "custom"
+const stackIcons: Record<string, typeof Globe> = { "node-api": Server, "react-vite": Atom, fullstack: Layers }
+
+interface StackOption {
+  name: string
+  title: string
+  description: string
+  badges: string[]
+  icon: typeof Globe
+  disabled: boolean
+}
+
+function StackPicker({ templates, loading, target, value, onChange }: { templates: StackTemplate[]; loading: boolean; target: Target; value: string; onChange: (name: string) => void }) {
+  const options: StackOption[] = [
+    { name: customStack, title: "Custom", description: "The architect chooses the stack.", badges: [], icon: Boxes, disabled: false },
+    ...templates.map((template) => ({
+      name: template.name,
+      title: template.name,
+      description: `${template.title}. ${template.description}`,
+      badges: [template.targets.join(", "), `v${template.version}`],
+      icon: stackIcons[template.name] ?? Package,
+      disabled: !template.targets.includes(target),
+    })),
+  ]
+  return (
+    <fieldset className="grid gap-2" aria-describedby="stack-help">
+      <legend className="mb-2 text-sm font-medium">Stack</legend>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {options.map((option) => {
+          const checked = value === option.name
+          return (
+            <label
+              key={option.name}
+              className={cn(
+                "flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50",
+                checked ? "border-primary bg-accent" : "hover:bg-muted/50",
+                option.disabled && "cursor-not-allowed bg-muted/40 opacity-60 hover:bg-muted/40",
+              )}
+            >
+              <input type="radio" name="stack" value={option.name} checked={checked} disabled={option.disabled} onChange={() => onChange(option.name)} className="mt-1 size-4 shrink-0 accent-primary" />
+              <option.icon className={cn("mt-0.5 size-5 shrink-0", checked ? "text-primary" : "text-muted-foreground")} aria-hidden="true" />
+              <span className="grid min-w-0 flex-1 gap-0.5">
+                <span className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-mono text-sm font-medium">{option.title}</span>
+                  <span className="flex gap-1">
+                    {option.badges.map((badge) => (
+                      <Badge key={badge} variant="secondary" className="font-mono text-[0.7rem]">
+                        {badge}
+                      </Badge>
+                    ))}
+                  </span>
+                </span>
+                <span className="text-xs text-muted-foreground">{option.description}</span>
+              </span>
+            </label>
+          )
+        })}
+        {loading && <Skeleton className="h-20 rounded-lg" />}
+      </div>
+      <p id="stack-help" className="text-xs text-muted-foreground">
+        A template starts from a tested scaffold with fixed commands. Only templates for the chosen target can be picked.
+      </p>
+    </fieldset>
+  )
+}
+
 export function NewProjectPage() {
   const navigate = useNavigate()
   const { refresh } = useProjectList()
@@ -161,6 +228,13 @@ export function NewProjectPage() {
   const [errors, setErrors] = useState<FormErrors>({})
   const [touched, setTouched] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [template, setTemplate] = useState(customStack)
+  const templates = useAsync(api.templates, [])
+  const changeTarget = (next: Target) => {
+    setTarget(next)
+    const chosen = templates.value?.find((option) => option.name === template)
+    if (chosen && !chosen.targets.includes(next)) setTemplate(customStack)
+  }
   const defaults = useAsync(api.defaults, [])
   const defaultModels = useMemo(() => (defaults.value ? pickEditable(defaults.value.roles) : {}), [defaults.value])
   const models: RoleModels = { ...defaultModels, ...roleEdits }
@@ -194,6 +268,7 @@ export function NewProjectPage() {
         github,
         deploy,
         branding,
+        ...(template === customStack ? {} : { template }),
       })
       toast.success(`Started ${created.name}`)
       void refresh()
@@ -258,7 +333,7 @@ export function NewProjectPage() {
               </div>
               <fieldset className="grid gap-2">
                 <legend className="mb-2 text-sm font-medium">Target</legend>
-                <ToggleGroup type="single" variant="outline" value={target} onValueChange={(value) => value && setTarget(value as Target)} className="w-full sm:w-fit" aria-describedby="target-help">
+                <ToggleGroup type="single" variant="outline" value={target} onValueChange={(value) => value && changeTarget(value as Target)} className="w-full sm:w-fit" aria-describedby="target-help">
                   {targets.map((option) => (
                     <ToggleGroupItem key={option.value} value={option.value} className="min-w-0 flex-1 gap-1 px-1.5 text-xs sm:gap-2 sm:text-sm data-[state=on]:bg-accent data-[state=on]:text-accent-foreground sm:flex-none sm:px-5">
                       <option.icon /> {option.label}
@@ -269,6 +344,7 @@ export function NewProjectPage() {
                   {targetHint}
                 </p>
               </fieldset>
+              <StackPicker templates={templates.value ?? []} loading={templates.loading} target={target} value={template} onChange={setTemplate} />
               <section className="grid gap-2" aria-labelledby="models-heading">
                 <div className="flex items-center justify-between gap-3">
                   <div>

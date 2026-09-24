@@ -9,7 +9,8 @@ import { parse as parseYaml } from "yaml"
 import { defaultRoles as laterRoleDefaults, defaultRunBudgetUsd, loadConfig, normalizePhaseName, planningPhases, runnerNames, type PlanningPhase } from "../config.ts"
 import { demoAccessMetaKey, readDemoAccess } from "../access.ts"
 import { pendingFeedback } from "../feedback.ts"
-import { approvePhase, changeRoleModels, createProject, parseRoleModels, listProjects, ProjectError, raiseRunBudget, requestChanges, retryTask, runAlive, runLogPath, startRun as spawnRun, withProjectStore, type ProjectChoices } from "../project.ts"
+import { customTemplate, findTemplate, listTemplates, readStack } from "../templates.ts"
+import { approvePhase, changeRoleModels, chooseTemplate, createProject, parseRoleModels, listProjects, ProjectError, raiseRunBudget, requestChanges, retryTask, runAlive, runLogPath, startRun as spawnRun, withProjectStore, type ProjectChoices } from "../project.ts"
 import { listIncidents, openIncident, readIncident } from "../incidents.ts"
 import { askLead, chatMessageMaxLength } from "../lead.ts"
 import { summarizeActivity } from "../activity.ts"
@@ -257,6 +258,23 @@ function qaRounds(projectDir: string) {
     })
 }
 
+function templateSummaries() {
+  return listTemplates().map(({ name, version, title, description, targets }) => ({ name, version, title, description, targets }))
+}
+
+// latest is the version in this orchestrator now, or null when the template folder is gone.
+function templateInfo(projectDir: string, raw: unknown): { name: string; version: number; latest: number | null } | null {
+  if (!raw || raw === customTemplate) return null
+  const pinned = readStack(projectDir)
+  const name = typeof raw === "string" ? raw : String((raw as { name?: unknown }).name ?? "")
+  const version = typeof raw === "object" && Number.isInteger((raw as { version?: unknown }).version) ? Number((raw as { version: number }).version) : (pinned?.version ?? 0)
+  let latest: number | null = null
+  try {
+    latest = findTemplate(name)?.version ?? null
+  } catch {}
+  return { name, version, latest }
+}
+
 function readConfig(projectDir: string) {
   try {
     const raw = parseYaml(readFileSync(join(projectDir, "pipeline.yaml"), "utf8")) ?? {}
@@ -272,6 +290,7 @@ function readConfig(projectDir: string) {
       qa: { enabled: raw.qa?.enabled ?? true, maxRounds: raw.qa?.maxRounds ?? 3 },
       publish: { github: { enabled: Boolean(raw.publish?.github?.enabled) } },
       budget: { perTaskUsd: raw.budget?.perTaskUsd ?? 2, runUsd: raw.budget?.runUsd ?? defaultRunBudgetUsd },
+      template: templateInfo(projectDir, raw.template),
     }
   } catch {
     return null
@@ -576,7 +595,7 @@ async function readJson(request: IncomingMessage): Promise<Record<string, unknow
 }
 
 function parseChoices(body: Record<string, unknown>): { name: string; brief: string; choices: ProjectChoices } {
-  const { name, brief, target, workerRunner, github, deploy } = body
+  const { name, brief, target, workerRunner, github, deploy, template } = body
   const branding = body.branding ?? body.mockups
   const gates = Array.isArray(body.gates) ? body.gates.map((gate) => (typeof gate === "string" ? normalizePhaseName(gate) : gate)) : body.gates
   if (typeof name !== "string" || !newProjectNamePattern.test(name)) {
@@ -591,6 +610,8 @@ function parseChoices(body: Record<string, unknown>): { name: string; brief: str
   for (const [field, value] of Object.entries({ github, deploy, branding })) {
     if (typeof value !== "boolean") throw new ProjectError(400, `The ${field} field must be true or false.`)
   }
+  if (template !== undefined && typeof template !== "string") throw new ProjectError(400, "The template field must be a template name.")
+  chooseTemplate(template, target as ProjectChoices["target"])
   return {
     name,
     brief,
@@ -602,6 +623,7 @@ function parseChoices(body: Record<string, unknown>): { name: string; brief: str
       github: github as boolean,
       deploy: deploy as boolean,
       branding: branding as boolean,
+      template: template as string | undefined,
     },
   }
 }
@@ -711,6 +733,7 @@ export function startUi(options: UiOptions) {
       if (parts[0] !== "api") return serveStatic(response, webDist, url.pathname)
 
       if (parts[0] === "api" && parts[1] === "defaults" && parts.length === 2) return send(response, 200, { roles: defaultRoles() })
+      if (parts[0] === "api" && parts[1] === "templates" && parts.length === 2) return send(response, 200, templateSummaries())
       if (parts[0] === "api" && parts[1] === "incidents" && parts.length === 2) return send(response, 200, allIncidents(runsDir))
       if (parts[0] === "api" && parts[1] === "incidents" && parts.length === 4) {
         if (!knownProject(parts[2])) return send(response, 404, { error: "unknown project" })
