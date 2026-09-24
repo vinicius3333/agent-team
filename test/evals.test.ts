@@ -137,7 +137,14 @@ test("runEval stops before a brief that would pass --max-usd", async () => {
 })
 
 test("runEval records a timeout", async () => {
-  const hanging: ProjectRunner = (_projectDir, _store, signal) => new Promise((resolve) => signal.addEventListener("abort", () => resolve("paused")))
+  // AbortSignal.timeout does not keep the event loop alive, so the stub holds a timer like a real run would.
+  const hanging: ProjectRunner = (_projectDir, _store, signal) => new Promise((resolve) => {
+    const alive = setInterval(() => {}, 1000)
+    signal.addEventListener("abort", () => {
+      clearInterval(alive)
+      resolve("paused")
+    })
+  })
   const { result } = await runEval({
     evalsDir: join(scratch, "timeout"), tier: "smoke", briefs: [brief({ timeoutMinutes: 0.001 })], baseYaml: readBaseYaml(undefined), label: null,
     maxUsd: null, clean: true, signal: new AbortController().signal, log: () => {}, runProject: hanging,
