@@ -26,9 +26,11 @@ Fail for concrete defects a user would notice: a broken route, a failed test, a 
 
 ## Output
 
-Your final message must be only one JSON object, with no prose before or after it and no code fence:
+End your final message with exactly one ```json fenced block that holds the verdict object. Put nothing after the block:
 
+```json
 {"verdict":"fail","findings":[{"title":"Header has no logo","detail":"The header on / shows plain text. The branding shows the hexagon logo left of the name.","screen":"/"}],"tasks":[{"id":"Q101","title":"Show the logo in the app header","story":"setup","phase":"feature","dependsOn":[],"allowedPaths":["src/components/header/**","public/logo.svg"],"readPaths":["design/logo.svg","docs/design-system.md"],"acceptance":["The header renders design/logo.svg at 32px height, left of the product name"],"verify":"npm test -- src/components/header"}]}
+```
 
 - `verdict`: `"pass"` or `"fail"`.
 - `findings`: one entry per defect: a short `title`, a `detail` that says what you saw and what was expected, and the `screen` (the route) it concerns. On pass, findings may list minor notes, or be empty.

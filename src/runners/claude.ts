@@ -6,11 +6,20 @@ const toolNames: Record<string, string[]> = {
   write: ["Write"],
 }
 
-export function toClaudeTools(allowedTools: string[]): string[] {
+const editTools = new Set(["edit", "write"])
+
+// With writablePaths, edit and write become path rules such as Edit(./src/auth/**), so Claude denies other paths at once.
+export function toClaudeTools(allowedTools: string[], writablePaths?: string[]): string[] {
   return allowedTools.flatMap((tool) => {
     if (tool.startsWith("bash:")) return [`Bash(${tool.slice("bash:".length)}:*)`]
+    if (writablePaths && editTools.has(tool)) return writablePaths.flatMap((path) => toolNames[tool].map((name) => `${name}(${relativeRule(path)})`))
     return toolNames[tool] ?? []
   })
+}
+
+// `./` anchors the rule to the working directory; a leading `/` would mean the settings file's directory.
+function relativeRule(path: string): string {
+  return path.startsWith("./") || path.startsWith("/") ? path : `./${path}`
 }
 
 export const claudeRunner: AgentRunner = {
@@ -21,9 +30,10 @@ export const claudeRunner: AgentRunner = {
       "--output-format", "json",
       "--model", request.model,
       "--append-system-prompt", request.systemPrompt,
-      "--permission-mode", "acceptEdits",
+      // acceptEdits approves any edit in the working directory, which would bypass the path rules.
+      "--permission-mode", request.writablePaths ? "default" : "acceptEdits",
       "--max-budget-usd", String(request.budgetUsd),
-      "--allowedTools", ...toClaudeTools(request.allowedTools),
+      "--allowedTools", ...toClaudeTools(request.allowedTools, request.writablePaths),
     ]
     const result = await request.executor.exec({
       command: "claude",

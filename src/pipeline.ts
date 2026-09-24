@@ -1,16 +1,18 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import type { Candidate, PipelineConfig, PlanningPhase, Role } from "./config.ts"
-import { changedFiles, stagedDiff } from "./git.ts"
+import { changedFiles, stagedDiff, trackedFiles } from "./git.ts"
 import { createDockerExecutor, ensureImage } from "./harness/docker.ts"
 import { hostExecutor, type Executor } from "./harness/executor.ts"
 import { defaultAllowlist, ensureEgressProxy } from "./harness/network.ts"
 import type { Harness, HarnessOutcome } from "./harness/harness.ts"
-import { commitAndRebase, createWorkspace, detectSetupCommand, fastForwardMain, removeWorkspace } from "./harness/workspace.ts"
+import { commitAndRebase, createWorkspace, detectSetupCommand, fastForwardMain, removeWorkspace, type Workspace } from "./harness/workspace.ts"
 import { deployProject } from "./deploy.ts"
 import { archiveFeedback, readFeedback } from "./feedback.ts"
 import type { GitHub } from "./github.ts"
 import { parseArchitectureCommands, parseDesignScreens, parseQaVerdict, runQaLoop, type QaRoundResult, type QaScreen } from "./qa.ts"
+import { extractJsonObject } from "./json.ts"
+import { decideReplan, formatBlock, normalizeFailure, parseBlock, parseReplanAction, type Block, type ReplanDecision } from "./replan.ts"
 import { captureScreenshots, type VisualReport } from "./screenshots.ts"
 import type { Store } from "./store.ts"
 import { filesOutsideScope, loadTasks, type Task } from "./tasks.ts"
@@ -21,8 +23,11 @@ const commandTimeoutMs = 10 * 60 * 1000
 const planningTools = ["read", "edit", "write", "bash:mkdir", "bash:ls"]
 const reviewerTools = ["read"]
 const qaTools = ["read"]
-// Workers start their final message with this when the task cannot be done within its scope.
-const blockedPrefix = "BLOCKED:"
+const replannerTools = ["read"]
+const reviewAttempts = 2
+const maxReplansPerTask = 1
+const maxAttemptDiffLength = 40_000
+const maxListedFiles = 300
 
 interface PhaseDefinition {
   role: Role
@@ -105,7 +110,20 @@ export interface PipelineContext {
   signal: AbortSignal
 }
 
-type AttemptResult = { kind: "passed" } | { kind: "failed"; reason: string } | { kind: "blocked"; reason: string } | { kind: "infrastructure"; reason: string }
+type AttemptResult =
+  | { kind: "passed" }
+  // diff is the rejected change, kept so the next attempt can fix it instead of starting over.
+  | { kind: "failed"; reason: string; diff?: string }
+  | { kind: "blocked"; reason: string; block: Block }
+  | { kind: "infrastructure"; reason: string }
+
+// "replanned" means tasks.json changed on main, so the caller reloads it before going on.
+type TaskOutcome = RunOutcome | "replanned"
+
+export interface PreviousAttempt {
+  reason: string
+  diff: string | null
+}
 
 export async function runPipeline(context: PipelineContext): Promise<RunOutcome> {
   for (const phase of Object.keys(phaseDefinitions) as PlanningPhase[]) {
@@ -230,28 +248,41 @@ async function runTasks(context: PipelineContext): Promise<RunOutcome> {
   return "completed"
 }
 
-// Runs every task in tasks.json that is not merged yet. QA fix tasks are appended to the same file.
+// Runs every task in tasks.json that is not merged yet. QA fix tasks and replans change the same file.
 async function buildTasks(context: PipelineContext): Promise<RunOutcome> {
   const { projectDir, store } = context
-  const tasks = loadTasks(join(projectDir, "tasks.json"))
-  store.syncTasks(tasks.map((task) => task.id))
-  context.github.syncTaskIssues(tasks)
-  for (const task of tasks) {
+  const load = () => {
+    const tasks = loadTasks(join(projectDir, "tasks.json"))
+    store.syncTasks(tasks.map((task) => task.id))
+    context.github.syncTaskIssues(tasks)
+    return tasks
+  }
+  let tasks = load()
+  for (;;) {
+    const task = tasks.find((candidate) => store.task(candidate.id).status !== "merged")
+    if (!task) break
     const row = store.task(task.id)
-    if (row.status === "merged") continue
     if (row.status === "blocked") {
+      if (row.humanReason) {
+        store.log("gate", `${task.id} needs a human decision: ${row.humanReason.slice(0, 500)}. Edit tasks.json if needed, then: agent-team retry ${projectDir} ${task.id}`)
+        return "awaiting_approval"
+      }
       store.log("task", `${task.id} is blocked: ${row.lastFailure}. Fix it, then: agent-team retry ${projectDir} ${task.id}`)
       return "failed"
     }
     const outcome = await runTask(context, task)
+    if (outcome === "replanned") {
+      tasks = load()
+      continue
+    }
     if (outcome !== "completed") return outcome
   }
   store.log("run", "all tasks merged")
   return "completed"
 }
 
-async function runTask(context: PipelineContext, task: Task): Promise<RunOutcome> {
-  const { config, store } = context
+async function runTask(context: PipelineContext, task: Task): Promise<TaskOutcome> {
+  const { config, projectDir, store } = context
   const maxRetries = config.roles.worker.maxRetries ?? 3
   while (store.task(task.id).attempts < maxRetries) {
     const { attempts, lastFailure } = store.task(task.id)
@@ -260,7 +291,8 @@ async function runTask(context: PipelineContext, task: Task): Promise<RunOutcome
     store.log("task", `${task.id} "${task.title}": attempt ${attempt}/${maxRetries}`)
     context.github.taskStarted(task, attempt)
 
-    const result = await attemptTask(context, task, attempt, lastFailure)
+    const previous = lastFailure ? { reason: lastFailure, diff: readAttemptDiff(projectDir, task.id, attempts) } : null
+    const result = await attemptTask(context, task, attempt, previous)
     switch (result.kind) {
       case "passed":
         store.countAttempt(task.id)
@@ -276,10 +308,15 @@ async function runTask(context: PipelineContext, task: Task): Promise<RunOutcome
         store.countAttempt(task.id)
         store.updateTask(task.id, "blocked", result.reason)
         store.log("task", `${task.id} blocked by worker: ${result.reason.slice(0, 300)}`)
-        context.github.taskBlocked(task, result.reason)
-        return "failed"
+        return handleBlock(context, task, result.block)
       case "failed":
         store.countAttempt(task.id)
+        writeAttemptDiff(projectDir, task.id, attempt, result.reason, result.diff ?? "")
+        if (lastFailure && normalizeFailure(lastFailure) === normalizeFailure(result.reason)) {
+          store.updateTask(task.id, "blocked", result.reason)
+          store.log("task", `${task.id} failed the same way on attempts ${attempt - 1} and ${attempt}; replanning instead of retrying`)
+          return handleBlock(context, task, { kind: "spec", needPaths: [], reason: `the same failure repeated on two attempts in a row:\n${result.reason}` })
+        }
         store.updateTask(task.id, "pending", result.reason)
         store.log("task", `${task.id} failed: ${result.reason.slice(0, 500)}`)
         context.github.attemptFailed(task, attempt, result.reason)
@@ -291,10 +328,113 @@ async function runTask(context: PipelineContext, task: Task): Promise<RunOutcome
   return "failed"
 }
 
-async function attemptTask(context: PipelineContext, task: Task, attempt: number, lastFailure: string | null): Promise<AttemptResult> {
+async function handleBlock(context: PipelineContext, task: Task, block: Block): Promise<TaskOutcome> {
+  const { store } = context
+  if (store.task(task.id).replans >= maxReplansPerTask) {
+    return requireHuman(context, task, `${task.id} was already replanned once and is blocked again. ${formatBlock(block)}`)
+  }
+  store.log("replan", `${task.id}: asking the planner to replan (${block.kind} block)`)
+  const result = await replanTask(context, task, block)
+  if (result.kind === "infrastructure") {
+    store.updateTask(task.id, "pending", formatBlock(block))
+    store.log("replan", `${task.id}: paused before the replan finished: ${result.reason.slice(0, 300)}`)
+    return "paused"
+  }
+  store.countReplan(task.id)
+  if (result.kind === "human") return requireHuman(context, task, `${result.reason}\n${formatBlock(block)}`)
+  store.resetTask(task.id)
+  if (!result.tasks.some((entry) => entry.id === task.id)) store.removeTask(task.id)
+  store.log("replan", `${task.id}: ${result.summary}; attempts reset`)
+  return "replanned"
+}
+
+function requireHuman(context: PipelineContext, task: Task, reason: string): RunOutcome {
+  context.store.requireHuman(task.id, reason)
+  context.store.log("gate", `${task.id} needs a human decision: ${reason.slice(0, 500)}. Edit tasks.json if needed, then: agent-team retry ${context.projectDir} ${task.id}`)
+  context.github.taskBlocked(task, reason)
+  return "awaiting_approval"
+}
+
+type ReplanResult = ReplanDecision | { kind: "infrastructure"; reason: string }
+
+// The planner gets the blocked task, the block, every task with its status, and the tracked files,
+// and answers with one action. A valid "apply" lands on main like QA fix tasks do.
+async function replanTask(context: PipelineContext, task: Task, block: Block): Promise<ReplanResult> {
+  const { projectDir, store } = context
+  const name = `replan-${task.id}`
+  const workspace = createWorkspace(projectDir, name)
+  const executor = await createExecutor(context, workspace.path, name)
+  try {
+    const tasks = loadTasks(join(workspace.path, "tasks.json"))
+    const statuses = Object.fromEntries(tasks.map((entry) => [entry.id, store.task(entry.id)?.status ?? "pending"]))
+    const files = trackedFiles(workspace.path)
+    let previousError: string | null = null
+    for (let attempt = 1; attempt <= phaseAttempts; attempt++) {
+      const prompt = replanPrompt({ task, block, tasks, statuses, files, previousError })
+      const outcome = await runAgent(context, executor, "planner", `${name}-${attempt}`, replannerTools, prompt, { promptName: "replanner" })
+      if (isInfrastructureFailure(outcome)) return { kind: "infrastructure", reason: `planner ${outcome.failureClass}: ${outcome.result.summary}` }
+      if (outcome.result.status !== "done") {
+        previousError = `agent ${outcome.result.status}: ${outcome.result.summary}`
+        continue
+      }
+      let decision: ReplanDecision
+      try {
+        decision = decideReplan(tasks, task.id, parseReplanAction(outcome.result.summary))
+      } catch (error) {
+        previousError = (error as Error).message
+        store.log("replan", `${task.id}: answer rejected: ${previousError.slice(0, 300)}`)
+        continue
+      }
+      if (decision.kind === "apply") {
+        landTasksFile(context, workspace, decision.tasks, `chore(plan): replan ${task.id}`, [`${task.id} was blocked:`, "", "```", formatBlock(block).slice(0, 3000), "```", "", `The planner ${decision.summary}.`].join("\n"))
+      }
+      return decision
+    }
+    return { kind: "human", reason: `the planner gave no usable replan: ${previousError ?? "no answer"}` }
+  } catch (error) {
+    return { kind: "infrastructure", reason: (error as Error).message }
+  } finally {
+    await executor.dispose()
+    removeWorkspace(projectDir, workspace)
+  }
+}
+
+export function replanPrompt(input: { task: Task; block: Block; tasks: Task[]; statuses: Record<string, string>; files: string[]; previousError: string | null }): string {
+  const { task, block, files } = input
+  const listed = files.slice(0, maxListedFiles)
+  const lines = [
+    `Task ${task.id} is blocked. Replan it.`,
+    "",
+    "## Blocked task",
+    "",
+    "```json",
+    JSON.stringify(task, null, 2),
+    "```",
+    "",
+    "## Block reported by the worker",
+    "",
+    "```json",
+    JSON.stringify(block, null, 2),
+    "```",
+    "",
+    "## All tasks",
+    "",
+    ...input.tasks.map((entry) => `- ${entry.id} [${input.statuses[entry.id] ?? "pending"}] ${entry.title}; dependsOn: ${entry.dependsOn.join(", ") || "none"}; allowedPaths: ${entry.allowedPaths.join(", ")}`),
+    "",
+    "## Tracked files (git ls-files)",
+    "",
+    ...listed,
+  ]
+  if (files.length > listed.length) lines.push(`[${files.length - listed.length} more files not shown]`)
+  if (input.previousError) lines.push("", `Your previous answer was rejected. Fix this: ${input.previousError}`)
+  return lines.join("\n")
+}
+
+async function attemptTask(context: PipelineContext, task: Task, attempt: number, previous: PreviousAttempt | null): Promise<AttemptResult> {
   const { projectDir, store } = context
   const workspace = createWorkspace(projectDir, `${task.id}-${attempt}`)
   const executor = await createExecutor(context, workspace.path, `${task.id}-${attempt}`)
+  const rejected = (reason: string): AttemptResult => ({ kind: "failed", reason, diff: stagedDiff(workspace.path) })
   try {
     const setupCommand = detectSetupCommand(workspace.path)
     if (setupCommand) {
@@ -302,25 +442,36 @@ async function attemptTask(context: PipelineContext, task: Task, attempt: number
       if (!setup.passed) return { kind: "infrastructure", reason: `workspace setup failed (${setupCommand}):\n${setup.output}` }
     }
 
-    const worker = await runAgent(context, executor, "worker", `${task.id}-worker-${attempt}`, workerTools(task), workerPrompt(task, lastFailure))
+    const worker = await runAgent(context, executor, "worker", `${task.id}-worker-${attempt}`, workerTools(task), workerPrompt({ task, previous }), { writablePaths: task.allowedPaths })
     if (isInfrastructureFailure(worker)) return { kind: "infrastructure", reason: `worker ${worker.failureClass}: ${worker.result.summary}` }
-    if (worker.result.status !== "done") return { kind: "failed", reason: `worker ${worker.result.status}: ${worker.result.summary}` }
-    const summary = worker.result.summary.trimStart()
-    if (summary.startsWith(blockedPrefix)) return { kind: "blocked", reason: summary }
+    if (worker.result.status !== "done") return rejected(`worker ${worker.result.status}: ${worker.result.summary}`)
+    const block = parseBlock(worker.result.summary)
+    if (block) return { kind: "blocked", reason: formatBlock(block), block }
 
     const outside = filesOutsideScope(changedFiles(workspace.path), task.allowedPaths)
-    if (outside.length) return { kind: "failed", reason: `edited files outside allowedPaths: ${outside.join(", ")}` }
+    if (outside.length) return rejected(`edited files outside allowedPaths: ${outside.join(", ")}`)
 
-    const verification = await runCommand(context, executor, task.verify, `${task.id}-${attempt}-verify`)
-    if (!verification.passed) return { kind: "failed", reason: `verify command failed:\n${verification.output}` }
+    const verification = await runCheck(context, executor, task.verify, `${task.id}-${attempt}-verify`, `${task.id} verify`)
+    if (!verification.passed) return rejected(`verify command failed:\n${verification.output}`)
 
-    const reviewPromptText = reviewPrompt(task, stagedDiff(workspace.path), verification.output)
-    const review = await runAgent(context, executor, "reviewer", `${task.id}-review-${attempt}`, reviewerTools, reviewPromptText)
-    if (isInfrastructureFailure(review)) return { kind: "infrastructure", reason: `reviewer ${review.failureClass}: ${review.result.summary}` }
-    if (review.result.status !== "done") return { kind: "failed", reason: `reviewer ${review.result.status}: ${review.result.summary}` }
-    const verdict = parseVerdict(review.result.summary)
+    const diff = stagedDiff(workspace.path)
+    let verdict: ReviewVerdict | null = null
+    let reviewError: string | null = null
+    for (let reviewAttempt = 1; reviewAttempt <= reviewAttempts && !verdict; reviewAttempt++) {
+      const subject = reviewAttempt === 1 ? `${task.id}-review-${attempt}` : `${task.id}-review-${attempt}-${reviewAttempt}`
+      const review = await runAgent(context, executor, "reviewer", subject, reviewerTools, reviewPrompt(task, diff, verification.output, reviewError))
+      if (isInfrastructureFailure(review)) return { kind: "infrastructure", reason: `reviewer ${review.failureClass}: ${review.result.summary}` }
+      if (review.result.status !== "done") return { kind: "failed", reason: `reviewer ${review.result.status}: ${review.result.summary}`, diff }
+      try {
+        verdict = parseVerdict(review.result.summary)
+      } catch (error) {
+        reviewError = (error as Error).message
+        store.log("review", `${task.id} attempt ${attempt}: verdict rejected: ${reviewError.slice(0, 300)}`)
+      }
+    }
+    if (!verdict) return { kind: "failed", reason: `the reviewer gave no valid verdict: ${reviewError}`, diff }
     if (verdict.verdict !== "pass") {
-      return { kind: "failed", reason: `reviewer rejected the change.\nReasons: ${verdict.reasons.join("; ")}\nFixes: ${verdict.fixes.join("; ")}` }
+      return { kind: "failed", reason: `reviewer rejected the change.\nReasons: ${verdict.reasons.join("; ")}\nFixes: ${verdict.fixes.join("; ")}`, diff }
     }
 
     const title = `feat(${task.id}): ${task.title}`
@@ -343,6 +494,31 @@ async function attemptTask(context: PipelineContext, task: Task, attempt: number
     await executor.dispose()
     removeWorkspace(projectDir, workspace)
   }
+}
+
+function attemptDiffPath(projectDir: string, taskId: string, attempt: number): string {
+  return join(projectDir, ".agent-team", "attempts", `${taskId}-${attempt}.diff`)
+}
+
+// The file starts with the failure reason as `# ` lines, then the diff, so `git apply` still reads it.
+function writeAttemptDiff(projectDir: string, taskId: string, attempt: number, reason: string, diff: string): void {
+  const path = attemptDiffPath(projectDir, taskId, attempt)
+  mkdirSync(join(projectDir, ".agent-team", "attempts"), { recursive: true })
+  const header = [`Attempt ${attempt} of ${taskId} was rejected.`, "Reason:", ...reason.split("\n")].map((line) => `# ${line}`.trimEnd())
+  writeFileSync(path, `${header.join("\n")}\n\n${capDiff(diff)}`)
+}
+
+function readAttemptDiff(projectDir: string, taskId: string, attempt: number): string | null {
+  const path = attemptDiffPath(projectDir, taskId, attempt)
+  if (attempt < 1 || !existsSync(path)) return null
+  const lines = readFileSync(path, "utf8").split("\n")
+  const start = lines.findIndex((line) => !line.startsWith("#"))
+  const diff = lines.slice(start === -1 ? lines.length : start).join("\n").trim()
+  return diff || null
+}
+
+function capDiff(diff: string): string {
+  return diff.length > maxAttemptDiffLength ? `${diff.slice(0, maxAttemptDiffLength)}\n[diff truncated at 40 KB]` : diff
 }
 
 async function runQaPhase(context: PipelineContext, deploy: () => Promise<RunOutcome>): Promise<RunOutcome> {
@@ -441,7 +617,7 @@ async function runTestGate(context: PipelineContext, executor: Executor, dir: st
     const setup = await runCommand(context, executor, install, `${subject}-install`)
     if (!setup.passed) return { install, command, passed: false, output: `install failed (${install}):\n${setup.output}` }
   }
-  const result = await runCommand(context, executor, command, `${subject}-test`)
+  const result = await runCheck(context, executor, command, `${subject}-test`, "QA tests")
   return { install, command, passed: result.passed, output: result.output }
 }
 
@@ -508,22 +684,27 @@ async function appendFixTasks(context: PipelineContext, round: number, tasks: Ta
   const { projectDir } = context
   const workspace = createWorkspace(projectDir, `qa-fixes-${round}`)
   try {
-    const path = join(workspace.path, "tasks.json")
-    const current = JSON.parse(readFileSync(path, "utf8")) as Task[]
+    const current = JSON.parse(readFileSync(join(workspace.path, "tasks.json"), "utf8")) as Task[]
     const added = tasks.filter((task) => !current.some((existing) => existing.id === task.id))
-    writeJson(path, [...current, ...added])
-    loadTasks(path)
-    const title = `chore(qa): add round ${round} fix tasks`
-    commitAndRebase(workspace, title)
-    context.github.land({
-      branch: workspace.branch,
-      title,
-      body: [`QA round ${round} failed. The QA agent added these fix tasks:`, "", ...added.map((task) => `- ${task.id}: ${task.title}`)].join("\n"),
-      localMerge: () => fastForwardMain(projectDir, workspace.branch),
-    })
+    const body = [`QA round ${round} failed. The QA agent added these fix tasks:`, "", ...added.map((task) => `- ${task.id}: ${task.title}`)].join("\n")
+    landTasksFile(context, workspace, [...current, ...added], `chore(qa): add round ${round} fix tasks`, body)
   } finally {
     removeWorkspace(projectDir, workspace)
   }
+}
+
+// Writes tasks.json in a worktree from main, checks it, and lands it on main through the normal merge path.
+function landTasksFile(context: PipelineContext, workspace: Workspace, tasks: Task[], title: string, body: string): void {
+  const path = join(workspace.path, "tasks.json")
+  writeJson(path, tasks)
+  loadTasks(path)
+  commitAndRebase(workspace, title)
+  context.github.land({
+    branch: workspace.branch,
+    title,
+    body,
+    localMerge: () => fastForwardMain(context.projectDir, workspace.branch),
+  })
 }
 
 function writeJson(path: string, value: unknown): void {
@@ -675,43 +856,89 @@ async function runCommand(context: PipelineContext, executor: Executor, command:
   return { passed: result.exitCode === 0 && !result.aborted, output }
 }
 
+// Runs a test command and, when it fails, once more; a pass on the rerun is logged as flaky and accepted.
+async function runCheck(context: PipelineContext, executor: Executor, command: string, subject: string, label: string): Promise<{ passed: boolean; output: string }> {
+  const first = await runCommand(context, executor, command, subject)
+  if (first.passed || context.signal.aborted) return first
+  const rerun = await runCommand(context, executor, command, `${subject}-rerun`)
+  if (rerun.passed) context.store.log("flaky", `${label} failed, then passed on a rerun (\`${command}\`). First output:\n${first.output.slice(-1500)}`)
+  return rerun
+}
+
 function workerTools(task: Task): string[] {
   const verifyExecutable = task.verify.trim().split(/\s+/)[0]
   return [...new Set(["read", "edit", "write", "bash:npm", "bash:npx", "bash:node", "bash:mkdir", "bash:ls", `bash:${verifyExecutable}`])]
 }
 
-function workerPrompt(task: Task, lastFailure: string | null): string {
-  const lines = [`Implement this task:`, JSON.stringify(task, null, 2)]
-  if (lastFailure) lines.push(`Your previous attempt failed. Address this:\n${lastFailure}`)
-  return lines.join("\n\n")
+// The one place that builds the worker's task prompt.
+export function workerPrompt(input: { task: Task; previous: PreviousAttempt | null }): string {
+  const { task, previous } = input
+  const sections = ["Implement this task:", JSON.stringify(task, null, 2)]
+  if (previous) {
+    sections.push(
+      [
+        "## Previous attempt",
+        "",
+        "Your previous attempt was rejected. Fix the listed problems; do not start over. Your worktree starts clean from main, so reapply the parts of the previous diff that were right, then fix the problems.",
+        "",
+        "Why it was rejected:",
+        "",
+        "```",
+        previous.reason.trim(),
+        "```",
+      ].join("\n"),
+    )
+    if (previous.diff) sections.push(["Previous diff:", "", "```diff", previous.diff, "```"].join("\n"))
+  }
+  return sections.join("\n\n")
 }
 
-function reviewPrompt(task: Task, diff: string, verifyOutput: string): string {
+function reviewPrompt(task: Task, diff: string, verifyOutput: string, previousError: string | null): string {
   const maxDiffLength = 60_000
   const shownDiff = diff.length > maxDiffLength ? `${diff.slice(0, maxDiffLength)}\n[diff truncated]` : diff
-  return [`Task:`, JSON.stringify(task, null, 2), `Verify output (passed):`, verifyOutput, `Diff:`, shownDiff].join("\n\n")
+  const sections = [`Task:`, JSON.stringify(task, null, 2), `Verify output (passed):`, verifyOutput, `Diff:`, shownDiff]
+  if (previousError) sections.push(`Your previous answer was rejected: ${previousError}. End with exactly one \`\`\`json block that holds the verdict object.`)
+  return sections.join("\n\n")
 }
 
-export function parseVerdict(text: string): { verdict: string; reasons: string[]; fixes: string[] } {
-  const match = text.match(/\{[\s\S]*\}/)
-  try {
-    const parsed = JSON.parse(match?.[0] ?? "")
-    return { verdict: parsed.verdict, reasons: parsed.reasons ?? [], fixes: parsed.fixes ?? [] }
-  } catch {
-    return { verdict: "fail", reasons: ["reviewer did not return a JSON verdict"], fixes: [] }
-  }
+export interface ReviewVerdict {
+  verdict: "pass" | "fail"
+  reasons: string[]
+  fixes: string[]
 }
 
-function runAgent(context: PipelineContext, executor: Executor, role: Role, subject: string, allowedTools: string[], taskPrompt: string): Promise<HarnessOutcome> {
+export function parseVerdict(text: string): ReviewVerdict {
+  const parsed = extractJsonObject(text) as any
+  if (parsed?.verdict !== "pass" && parsed?.verdict !== "fail") throw new Error('verdict must be "pass" or "fail"')
+  const reasons = parsed.reasons ?? []
+  const fixes = parsed.fixes ?? []
+  if (!isStringList(reasons) || !isStringList(fixes)) throw new Error("reasons and fixes must be arrays of strings")
+  if (parsed.verdict === "fail" && !reasons.length) throw new Error("a fail verdict needs at least one reason")
+  return { verdict: parsed.verdict, reasons, fixes }
+}
+
+function isStringList(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string")
+}
+
+interface AgentOptions {
+  // Globs the agent may edit; the Claude runner turns them into path-scoped permission rules.
+  writablePaths?: string[]
+  // Prompt file in prompts/, when it differs from the role name (the replanner runs as the planner role).
+  promptName?: string
+}
+
+function runAgent(context: PipelineContext, executor: Executor, role: Role, subject: string, allowedTools: string[], taskPrompt: string, options: AgentOptions = {}): Promise<HarnessOutcome> {
   const { config, harness } = context
   return harness.run(
     config.roles[role],
     {
       role,
       subject,
-      systemPrompt: loadPrompt(role),
+      systemPrompt: loadPrompt(options.promptName ?? role),
       taskPrompt,
       allowedTools,
+      writablePaths: options.writablePaths,
       budgetUsd: config.budget.perTaskUsd,
       transcriptPath: (candidate: Candidate, attempt: number) => transcriptPath(context, `${subject}-${candidate.runner}-${attempt}.log`),
     },
@@ -725,8 +952,8 @@ function transcriptPath(context: PipelineContext, fileName: string): string {
   return join(dir, fileName)
 }
 
-function loadPrompt(role: Role): string {
-  return readFileSync(new URL(`../prompts/${role}.md`, import.meta.url), "utf8")
+function loadPrompt(name: string): string {
+  return readFileSync(new URL(`../prompts/${name}.md`, import.meta.url), "utf8")
 }
 
 function requireFile(path: string): string {

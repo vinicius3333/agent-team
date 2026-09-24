@@ -41,6 +41,8 @@ export interface Task {
   status: TaskStatus
   attempts: number
   lastFailure: string | null
+  // Why the orchestrator stopped and wants a person to decide (for example a replan that touches shared files).
+  needsHuman: string | null
   issueNumber: number | null
   phase: string | null
   story: string | null

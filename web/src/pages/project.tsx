@@ -22,7 +22,7 @@ import { StatCards } from "@/components/project/stat-cards"
 import { PipelineStepper } from "@/components/project/stepper"
 import { RunnerHealthCard, runnerCooldown } from "@/components/project/system-tab"
 import { SystemTab } from "@/components/project/system-tab"
-import { TasksCard } from "@/components/project/tasks-card"
+import { RetryButton, TasksCard } from "@/components/project/tasks-card"
 import { TranscriptSheet } from "@/components/project/transcript-sheet"
 import { StatusBadge } from "@/components/status-badge"
 import { Button } from "@/components/ui/button"
@@ -69,7 +69,25 @@ function Brief({ name }: { name: string }) {
   return <span className="line-clamp-2 max-w-3xl">{text}</span>
 }
 
+function HumanNeededBanner({ detail }: { detail: ProjectDetail }) {
+  const task = detail.tasks.find((entry) => entry.status === "blocked" && entry.needsHuman)
+  if (!task) return null
+  return (
+    <Card role="alert" className="flex-col items-start gap-3 border-warning/40 px-4 py-3 sm:flex-row sm:items-center">
+      <div className="min-w-0 flex-1">
+        <p className="font-medium">
+          {task.id} needs your decision
+        </p>
+        <p className="text-sm whitespace-pre-wrap break-words text-muted-foreground">{task.needsHuman}</p>
+        <p className="mt-1 text-sm text-muted-foreground">Edit tasks.json if you agree with the change, then retry the task.</p>
+      </div>
+      <RetryButton task={task} size="default" />
+    </Card>
+  )
+}
+
 function ProblemBanner({ detail }: { detail: ProjectDetail }) {
+  if (detail.tasks.some((entry) => entry.status === "blocked" && entry.needsHuman)) return <HumanNeededBanner detail={detail} />
   const counts = taskCounts(detail.tasks)
   const failedPhase = detail.phases.find((phase) => phase.status === "failed")
   const cooling = ["claude", "codex"].map((runner) => runnerCooldown(detail.cooldowns, runner)).filter((entry) => entry !== null)

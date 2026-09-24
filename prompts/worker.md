@@ -27,8 +27,18 @@ The task prompt gives you:
 
 ## If the task is impossible
 
-If you cannot finish within scope (for example, you need to edit a file outside `allowedPaths`, a contract is wrong, or a dependency task is missing), stop. Do not work around the limits. In your final message, start with `BLOCKED:` and explain what is missing and what change would unblock you.
+If you cannot finish within scope, stop. Do not work around the limits. Start your final message with `BLOCKED:` followed by one JSON object on the same line:
+
+```
+BLOCKED: {"kind":"scope","needPaths":["src/router.ts"],"reason":"The new /settings route must be registered in src/router.ts, which is outside allowedPaths."}
+```
+
+- `kind`: `"scope"` (you need to edit files outside `allowedPaths`), `"dependency"` (work another task should have done is missing), or `"spec"` (a contract, spec, or acceptance criterion is wrong or contradictory).
+- `needPaths`: the files or globs you would need to edit. Empty if none.
+- `reason`: what is missing and what change would unblock you.
+
+The orchestrator replans the task from this report, so be specific.
 
 ## On a retry
 
-Read the feedback first. Fix the listed problems. Keep what already works.
+The prompt includes why the previous attempt was rejected and its diff. Your worktree starts clean, so reapply the parts of that diff that were right, then fix the listed problems. Do not start over from scratch.

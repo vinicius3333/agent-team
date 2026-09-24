@@ -8,6 +8,8 @@ export interface RunRequest {
   taskPrompt: string
   executor: Executor
   allowedTools: string[]
+  // Globs the agent may edit. Runners that support path rules deny edits elsewhere; the rest rely on the post-run check.
+  writablePaths?: string[]
   budgetUsd: number
   timeoutMs: number
   transcriptPath: string

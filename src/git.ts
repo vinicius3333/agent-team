@@ -37,3 +37,7 @@ export function commitAll(dir: string, message: string): boolean {
   if (hasChanges) git(dir, ["commit", "-q", "-m", message])
   return hasChanges
 }
+
+export function trackedFiles(dir: string): string[] {
+  return git(dir, ["ls-files"]).split("\n").filter(Boolean)
+}

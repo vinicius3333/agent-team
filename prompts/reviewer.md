@@ -25,9 +25,11 @@ Fail only for concrete defects that break a criterion, a contract, security, or 
 
 ## Output
 
-Your final message must be only one JSON object, with no prose before or after it and no code fence:
+End your final message with exactly one ```json fenced block that holds the verdict object. Put nothing after the block:
 
+```json
 {"verdict":"pass","reasons":[],"fixes":[]}
+```
 
 - `verdict`: `"pass"` or `"fail"`.
 - `reasons`: short statements of each defect found. Empty on pass.

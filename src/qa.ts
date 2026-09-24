@@ -1,3 +1,4 @@
+import { extractJsonObject } from "./json.ts"
 import type { Store } from "./store.ts"
 import { validateTasks, type Task } from "./tasks.ts"
 
@@ -99,13 +100,7 @@ export function parseArchitectureCommands(markdown: string): { install: string |
 const protectedPrefixes = ["docs/", "contracts/", "design/"]
 
 export function parseQaVerdict(text: string, round: number, existing: Task[]): QaVerdict {
-  const match = text.match(/\{[\s\S]*\}/)
-  let parsed: any
-  try {
-    parsed = JSON.parse(match?.[0] ?? "")
-  } catch {
-    throw new Error("the final message is not one JSON object")
-  }
+  const parsed = extractJsonObject(text) as any
   if (parsed?.verdict !== "pass" && parsed?.verdict !== "fail") throw new Error('verdict must be "pass" or "fail"')
   if (!Array.isArray(parsed.findings ?? [])) throw new Error("findings must be an array")
   const findings: QaFinding[] = (parsed.findings ?? []).map((finding: any) => ({

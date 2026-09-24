@@ -100,6 +100,7 @@ export function retryTask(store: Store, taskId: string | undefined): void {
   if (!taskId) throw new ProjectError(400, "retry needs a task id")
   if (!store.task(taskId)) throw new ProjectError(404, `unknown task "${taskId}"`)
   store.resetTask(taskId)
+  store.resetReplans(taskId)
   store.log("task", `${taskId} reset for retry`)
 }
 

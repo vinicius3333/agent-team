@@ -325,8 +325,17 @@ async function detail(runsDir: string, name: string) {
     (db) => ({
       phases: all(db, `SELECT ${phaseNameColumn}, status, updated_at AS updatedAt FROM phases`),
       tasks: (() => {
-        const withIssue = all(db, "SELECT id, status, attempts, last_failure AS lastFailure, issue_number AS issueNumber FROM tasks ORDER BY id")
-        return withIssue.length ? withIssue : all(db, "SELECT id, status, attempts, last_failure AS lastFailure FROM tasks ORDER BY id")
+        // Older state files may lack the newer columns; fall back step by step.
+        const queries = [
+          "SELECT id, status, attempts, last_failure AS lastFailure, issue_number AS issueNumber, human_reason AS needsHuman FROM tasks ORDER BY id",
+          "SELECT id, status, attempts, last_failure AS lastFailure, issue_number AS issueNumber FROM tasks ORDER BY id",
+          "SELECT id, status, attempts, last_failure AS lastFailure FROM tasks ORDER BY id",
+        ]
+        for (const query of queries) {
+          const rows = all(db, query)
+          if (rows.length) return rows
+        }
+        return []
       })(),
       meta: Object.fromEntries(all(db, "SELECT key, value FROM meta").filter((row) => !String(row.key).startsWith("github.item.")).map((row) => [row.key, row.value])),
       attempts: all(
@@ -350,10 +359,10 @@ async function detail(runsDir: string, name: string) {
   })
   const tasks = state.tasks.map((task: any) => {
     const definition = taskDefinitions.get(task.id) ?? {}
-    return { issueNumber: null, ...task, ...definitionFields(definition), title: definition.title ?? task.id }
+    return { issueNumber: null, needsHuman: null, ...task, ...definitionFields(definition), title: definition.title ?? task.id }
   })
   for (const [id, definition] of taskDefinitions) {
-    if (!tasks.some((task: any) => task.id === id)) tasks.push({ id, status: "pending", attempts: 0, lastFailure: null, issueNumber: null, ...definitionFields(definition) })
+    if (!tasks.some((task: any) => task.id === id)) tasks.push({ id, status: "pending", attempts: 0, lastFailure: null, issueNumber: null, needsHuman: null, ...definitionFields(definition) })
   }
   const config = readConfig(projectDir)
   const attempts = state.attempts.map(({ transcriptPath, ...attempt }: any) => ({ ...attempt, transcript: String(transcriptPath ?? "").split("/").pop() }))

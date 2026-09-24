@@ -12,6 +12,7 @@ export interface AgentJob {
   systemPrompt: string
   taskPrompt: string
   allowedTools: string[]
+  writablePaths?: string[]
   budgetUsd: number
   transcriptPath: (candidate: Candidate, attempt: number) => string
 }
@@ -43,6 +44,7 @@ export function createHarness(options: {
         taskPrompt: job.taskPrompt,
         executor,
         allowedTools: job.allowedTools,
+        writablePaths: job.writablePaths,
         budgetUsd: job.budgetUsd,
         timeoutMs: config.agentTimeoutMs,
         transcriptPath: job.transcriptPath(candidate, attempt),

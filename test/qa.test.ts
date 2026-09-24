@@ -73,7 +73,7 @@ test("parseQaVerdict accepts pass and valid fail verdicts", () => {
 test("parseQaVerdict rejects malformed verdicts and fix tasks", () => {
   const finding = [{ title: "x", detail: "y", screen: "/" }]
   const fail = (tasks: unknown, round = 1) => parseQaVerdict(JSON.stringify({ verdict: "fail", findings: finding, tasks }), round, existing)
-  assert.throws(() => parseQaVerdict("looks good to me", 1, existing), /not one JSON object/)
+  assert.throws(() => parseQaVerdict("looks good to me", 1, existing), /no ```json block and no JSON object/)
   assert.throws(() => parseQaVerdict('{"verdict":"maybe"}', 1, existing), /verdict must be/)
   assert.throws(() => parseQaVerdict('{"verdict":"fail","findings":[],"tasks":[]}', 1, existing), /at least one finding/)
   assert.throws(() => fail([]), /at least one fix task/)

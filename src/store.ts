@@ -8,6 +8,9 @@ export interface TaskRow {
   status: TaskStatus
   attempts: number
   lastFailure: string | null
+  replans: number
+  // Set when an automatic decision needs a person (a replan that widens scope into shared files, or an escalation).
+  humanReason: string | null
 }
 
 export function openStore(path: string) {
@@ -60,10 +63,13 @@ export function openStore(path: string) {
   if (!attemptColumns.some((column) => column.name === "failure_class")) db.exec("ALTER TABLE attempts ADD COLUMN failure_class TEXT")
   const taskColumns = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[]
   if (!taskColumns.some((column) => column.name === "issue_number")) db.exec("ALTER TABLE tasks ADD COLUMN issue_number INTEGER")
+  if (!taskColumns.some((column) => column.name === "replans")) db.exec("ALTER TABLE tasks ADD COLUMN replans INTEGER NOT NULL DEFAULT 0")
+  if (!taskColumns.some((column) => column.name === "human_reason")) db.exec("ALTER TABLE tasks ADD COLUMN human_reason TEXT")
 
   // Projects created before the rename have a "mockups" phase row.
   db.exec("UPDATE OR IGNORE phases SET name = 'branding' WHERE name = 'mockups'")
 
+  const taskColumnsSql = "id, status, attempts, last_failure AS lastFailure, replans, human_reason AS humanReason"
   const now = () => new Date().toISOString()
 
   return {
@@ -89,12 +95,12 @@ export function openStore(path: string) {
     },
     task(id: string): TaskRow {
       return db
-        .prepare("SELECT id, status, attempts, last_failure AS lastFailure FROM tasks WHERE id = ?")
+        .prepare(`SELECT ${taskColumnsSql} FROM tasks WHERE id = ?`)
         .get(id) as unknown as TaskRow
     },
     tasks(): TaskRow[] {
       return db
-        .prepare("SELECT id, status, attempts, last_failure AS lastFailure FROM tasks ORDER BY id")
+        .prepare(`SELECT ${taskColumnsSql} FROM tasks ORDER BY id`)
         .all() as unknown as TaskRow[]
     },
     updateTask(id: string, status: TaskStatus, lastFailure: string | null = null) {
@@ -103,8 +109,21 @@ export function openStore(path: string) {
     countAttempt(id: string) {
       db.prepare("UPDATE tasks SET attempts = attempts + 1 WHERE id = ?").run(id)
     },
+    // Keeps the replan count, so an automatic replan cannot loop; a human retry clears it with resetReplans.
     resetTask(id: string) {
-      db.prepare("UPDATE tasks SET status = 'pending', attempts = 0, last_failure = NULL WHERE id = ?").run(id)
+      db.prepare("UPDATE tasks SET status = 'pending', attempts = 0, last_failure = NULL, human_reason = NULL WHERE id = ?").run(id)
+    },
+    resetReplans(id: string) {
+      db.prepare("UPDATE tasks SET replans = 0 WHERE id = ?").run(id)
+    },
+    countReplan(id: string) {
+      db.prepare("UPDATE tasks SET replans = replans + 1 WHERE id = ?").run(id)
+    },
+    requireHuman(id: string, reason: string) {
+      db.prepare("UPDATE tasks SET status = 'blocked', last_failure = ?, human_reason = ? WHERE id = ?").run(reason, reason, id)
+    },
+    removeTask(id: string) {
+      db.prepare("DELETE FROM tasks WHERE id = ?").run(id)
     },
     recordAttempt(attempt: {
       subject: string
