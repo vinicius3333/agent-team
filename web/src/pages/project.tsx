@@ -15,6 +15,7 @@ import { DetailsSheet } from "@/components/project/details-sheet"
 import { DocsTab } from "@/components/project/docs-tab"
 import { EventsCard } from "@/components/project/events"
 import { GatePanel } from "@/components/project/gate-panel"
+import { LeadTab } from "@/components/project/lead-tab"
 import { GithubCard } from "@/components/project/github-card"
 import { IncidentBanner } from "@/components/project/incident-banner"
 import { ProjectBranding } from "@/components/project/branding"
@@ -36,6 +37,7 @@ import type { PipelineStep, ProjectDetail } from "@/api/types"
 
 const tabs = [
   { id: "overview", label: "Overview" },
+  { id: "lead", label: "Lead" },
   { id: "docs", label: "Docs" },
   { id: "branding", label: "Branding" },
   { id: "qa", label: "QA" },
@@ -229,6 +231,9 @@ function ProjectBody({ name, detail, stream }: { name: string; detail: ProjectDe
               <GithubCard />
               <RunnerHealthCard />
             </div>
+          </TabsContent>
+          <TabsContent value="lead" className="mt-2">
+            <LeadTab />
           </TabsContent>
           <TabsContent value="docs" className="mt-2">
             <DocsTab path={document} onSelect={(path) => update((params) => params.set("doc", path))} />

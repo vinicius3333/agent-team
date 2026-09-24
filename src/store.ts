@@ -3,6 +3,26 @@ import { DatabaseSync } from "node:sqlite"
 export type PhaseStatus = "pending" | "running" | "awaiting_approval" | "approved" | "failed"
 export type TaskStatus = "pending" | "running" | "merged" | "blocked"
 
+export type ChatAuthor = "human" | "lead"
+export type LeadActionState = "proposed" | "applied" | "dismissed"
+
+// An action the lead suggests. It only runs when a person applies it from the dashboard.
+export type LeadAction = { state: LeadActionState; reason: string } & (
+  | { kind: "retry"; taskId: string }
+  | { kind: "resume" }
+  | { kind: "approve"; phase: string }
+  | { kind: "request_changes"; phase: string; message: string }
+  | { kind: "raise_budget" }
+)
+
+export interface ChatMessage {
+  id: number
+  at: string
+  author: ChatAuthor
+  body: string
+  actions: LeadAction[]
+}
+
 export interface TaskRow {
   id: string
   status: TaskStatus
@@ -59,6 +79,13 @@ export function openStore(path: string) {
       flagged_files TEXT NOT NULL,
       file_hashes TEXT NOT NULL,
       created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS chat_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      at TEXT NOT NULL,
+      author TEXT NOT NULL,
+      body TEXT NOT NULL,
+      actions TEXT NOT NULL DEFAULT '[]'
     );
     CREATE TABLE IF NOT EXISTS events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -164,9 +191,9 @@ export function openStore(path: string) {
       )
     },
     // Cost of every agent call the run made; codex reports none, so its calls are counted instead.
-    // Doctor calls have their own limit (doctor.maxUsdPerIncident), so they do not use up the run budget.
+    // Doctor calls have their own limit (doctor.maxUsdPerIncident) and lead chats are started by a person, so neither uses up the run budget.
     projectCost(): { usd: number; unreportedCalls: number } {
-      const row = db.prepare("SELECT COALESCE(SUM(cost_usd), 0) AS usd, COALESCE(SUM(cost_usd IS NULL), 0) AS unreported FROM attempts WHERE role != 'doctor'").get() as { usd: number; unreported: number }
+      const row = db.prepare("SELECT COALESCE(SUM(cost_usd), 0) AS usd, COALESCE(SUM(cost_usd IS NULL), 0) AS unreported FROM attempts WHERE role NOT IN ('doctor', 'lead')").get() as { usd: number; unreported: number }
       return { usd: row.usd, unreportedCalls: row.unreported }
     },
     // fileHashes maps each file in the reviewed diff to a hash of its part of the diff, so a later attempt can be compared.
@@ -246,6 +273,23 @@ export function openStore(path: string) {
     // Newest first.
     recentEvents(limit: number): { at: string; type: string; message: string }[] {
       return db.prepare("SELECT at, type, message FROM events ORDER BY id DESC LIMIT ?").all(limit) as { at: string; type: string; message: string }[]
+    },
+    addChatMessage(author: ChatAuthor, body: string, actions: LeadAction[] = []): number {
+      const result = db.prepare("INSERT INTO chat_messages (at, author, body, actions) VALUES (?, ?, ?, ?)").run(now(), author, body, JSON.stringify(actions))
+      return Number(result.lastInsertRowid)
+    },
+    // Oldest first.
+    chatMessages(limit: number): ChatMessage[] {
+      const rows = db.prepare("SELECT id, at, author, body, actions FROM chat_messages ORDER BY id DESC LIMIT ?").all(limit) as { id: number; at: string; author: ChatAuthor; body: string; actions: string }[]
+      return rows.reverse().map((row) => ({ ...row, actions: JSON.parse(row.actions) as LeadAction[] }))
+    },
+    setChatActionState(messageId: number, index: number, state: LeadActionState): boolean {
+      const row = db.prepare("SELECT actions FROM chat_messages WHERE id = ? AND author = 'lead'").get(messageId) as { actions: string } | undefined
+      const actions = row ? (JSON.parse(row.actions) as LeadAction[]) : []
+      if (!actions[index]) return false
+      actions[index].state = state
+      db.prepare("UPDATE chat_messages SET actions = ? WHERE id = ?").run(JSON.stringify(actions), messageId)
+      return true
     },
     log(type: string, message: string) {
       db.prepare("INSERT INTO events (at, type, message) VALUES (?, ?, ?)").run(now(), type, message)

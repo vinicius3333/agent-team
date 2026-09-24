@@ -160,6 +160,24 @@ export interface DeployInfo {
   tunnel: string
 }
 
+export type LeadActionState = "proposed" | "applied" | "dismissed"
+
+export type LeadAction = { state: LeadActionState; reason: string } & (
+  | { kind: "retry"; taskId: string }
+  | { kind: "resume" }
+  | { kind: "approve"; phase: string }
+  | { kind: "request_changes"; phase: string; message: string }
+  | { kind: "raise_budget" }
+)
+
+export interface ChatMessage {
+  id: number
+  at: string
+  author: "human" | "lead"
+  body: string
+  actions: LeadAction[]
+}
+
 export interface ProjectDetail extends Omit<ProjectSummary, "live" | "liveUrl"> {
   tasks: Task[]
   attempts: Attempt[]
@@ -176,6 +194,7 @@ export interface ProjectDetail extends Omit<ProjectSummary, "live" | "liveUrl"> 
   feedback?: Partial<Record<string, string>>
   budget?: RunBudget
   reviewer?: ReviewerMetrics
+  chat?: { messages: ChatMessage[]; thinking: boolean }
 }
 
 export interface QaFinding {

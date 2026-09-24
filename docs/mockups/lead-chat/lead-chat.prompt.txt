@@ -1,0 +1,20 @@
+Use case: ui-mockup. Generate ONE polished desktop UI prototype screenshot, exactly 1440x900 landscape, no browser chrome. The attached image is brand inspiration only: agent-team violet/black faceted hexagon logo, clean sans typography, rounded white cards, violet primary #7c3aed, light background #f7f7fa, dark navy text. Do not reproduce the office illustration. Flat crisp production dashboard screenshot, precise readable English, restrained borders and very subtle shadows.
+
+Layout: white left sidebar 220px wide, full height, fine right divider. At top hexagon violet/black logo with "agent-team" wordmark. Navigation vertically: "Projects" selected on pale violet rounded background with violet folder icon; "Incidents"; "Settings". Main content starts x252 with 32px gutters.
+Top breadcrumb "Projects / Dad Jokes". Title "Dad Jokes" and compact pale violet badge "Building".
+Below title horizontal pipeline stepper with connected circles: "Spec", "Architecture", "Branding", "Design", "Plan" each with green check; "Build" violet active; "QA" gray.
+Below pipeline full horizontal tab bar: "Overview", "Lead", "Office", "Docs", "Branding", "QA", "Agent calls", "System", "Config". Lead selected in violet with violet underline.
+
+Main area beneath tab bar two columns separated by 24px: left chat card about 820px wide, right summary card about 320px wide. Fit available area naturally, maintain 220px sidebar and clean margins. Chat occupies most remaining vertical height down to y868. White rounded card with thin border.
+Chat header: small cute white robot avatar wearing violet headset, name "Project lead", subtitle exactly "Claude Opus - reads the project, never edits code". Divider under header.
+Messages with generous clean spacing:
+1. Right aligned violet human bubble with white text exactly "Why is T005 blocked?"
+2. Left aligned white subtly bordered lead bubble with small robot avatar beside it. Exact text: "T005 failed review 3 times. The reviewer flagged missing tests in src/votes/api.ts. The worker's last attempt fixed the tests but touched src/app.tsx, which T005 does not own."
+Below this answer, aligned with lead bubble, pale violet suggestion card with violet border: heading "Suggested action", text "Retry T005 with fresh attempts", two buttons "Retry T005" in solid violet primary and "Dismiss" outlined.
+3. Right aligned violet human bubble with white text "OK. How much have we spent?"
+4. Left lead typing indicator with three dots and text "Project lead is thinking..."
+Bottom anchored composer: spacious outlined textarea with placeholder "Ask the lead about this project". Beneath text input, hint "Enter to send, Shift+Enter for a new line" left, violet "Send" button right. All stays within card.
+
+Right column white rounded card titled "What the lead sees". Four rows with labels on left and values on right, fine row dividers: "Phase" / "Build"; "Tasks" / "7 of 12 merged, 1 blocked"; "Spend" / "$4.20 of $30.00"; "Run" / "Running" with a small green status dot. Below rows small muted note exactly "The lead suggests actions. You apply them." Plenty of breathing room; this card is shorter than chat.
+
+Crisp readable English text, clean sans typography, careful alignment. No extra content, no watermarks, no browser window frame. Render the UI as a straight-on screenshot filling the entire 1440x900 image.

@@ -44,6 +44,7 @@ roles:
     model: opus          # a stronger model than the worker, since both use claude
     fallbacks: []
   qa:        { runner: claude, model: opus }   # reads screenshots and branding images; read-only
+  lead:      { runner: claude, model: opus }   # answers the project chat; read-only, suggests actions
 
 allowSameVendorReview: true   # worker and reviewer both run on claude
 

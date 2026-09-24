@@ -6,10 +6,11 @@ import { DatabaseSync } from "node:sqlite"
 import { promisify } from "node:util"
 import { fileURLToPath } from "node:url"
 import { parse as parseYaml } from "yaml"
-import { defaultRunBudgetUsd, loadConfig, normalizePhaseName, planningPhases, runnerNames, type PlanningPhase } from "../config.ts"
+import { defaultRoles as laterRoleDefaults, defaultRunBudgetUsd, loadConfig, normalizePhaseName, planningPhases, runnerNames, type PlanningPhase } from "../config.ts"
 import { pendingFeedback } from "../feedback.ts"
 import { approvePhase, changeRoleModels, createProject, parseRoleModels, listProjects, ProjectError, raiseRunBudget, requestChanges, retryTask, runAlive, runLogPath, startRun as spawnRun, withProjectStore, type ProjectChoices } from "../project.ts"
 import { listIncidents, openIncident, readIncident } from "../incidents.ts"
+import { askLead, chatMessageMaxLength } from "../lead.ts"
 import { reviewerMetrics, type ReviewRow } from "../reviews.ts"
 
 const execFileAsync = promisify(execFile)
@@ -255,7 +256,7 @@ function readConfig(projectDir: string) {
   try {
     const raw = parseYaml(readFileSync(join(projectDir, "pipeline.yaml"), "utf8")) ?? {}
     const roles: Record<string, unknown> = {}
-    for (const [role, value] of Object.entries<any>(raw.roles ?? {})) {
+    for (const [role, value] of Object.entries<any>({ ...laterRoleDefaults, ...raw.roles })) {
       roles[role] = { runner: value?.runner, model: value?.model, fallbacks: value?.fallbacks ?? [], maxRetries: value?.maxRetries ?? null }
     }
     return {
@@ -358,6 +359,21 @@ function metaValue(projectDir: string, key: string): string | null {
   return withDatabase(projectDir, (db) => (all(db, "SELECT value FROM meta WHERE key = ?", key)[0]?.value as string | undefined) ?? null, null)
 }
 
+// In memory on purpose: a lead call that dies with the server must not leave the chat locked.
+const leadBusy = new Set<string>()
+
+function chatMessages(projectDir: string) {
+  return withDatabase(
+    projectDir,
+    // all() returns no rows when an older state file has no chat_messages table.
+    (db) =>
+      all(db, "SELECT id, at, author, body, actions FROM chat_messages ORDER BY id DESC LIMIT 200")
+        .reverse()
+        .map((row) => ({ ...row, actions: JSON.parse(String(row.actions)) })),
+    [] as Record<string, unknown>[],
+  )
+}
+
 async function detail(runsDir: string, name: string) {
   const projectDir = join(runsDir, name)
   const taskDefinitions = new Map(readTasksFile(projectDir).map((task) => [task.id, task]))
@@ -387,7 +403,7 @@ async function detail(runsDir: string, name: string) {
       activeTime: activeTime(all(db, "SELECT at, type, message FROM events ORDER BY id")),
       cooldowns: all(db, "SELECT runner, cooldown_until AS until, reason FROM runner_health"),
       reviews: all(db, "SELECT task_id AS taskId, attempt, verdict, flagged_files AS flaggedFiles, file_hashes AS fileHashes FROM reviews ORDER BY id"),
-      spend: all(db, "SELECT COALESCE(SUM(cost_usd), 0) AS usd, COALESCE(SUM(cost_usd IS NULL), 0) AS unreportedCalls, COALESCE(SUM(tokens), 0) AS tokens FROM attempts WHERE role != 'doctor'")[0] ?? { usd: 0, unreportedCalls: 0, tokens: 0 },
+      spend: all(db, "SELECT COALESCE(SUM(cost_usd), 0) AS usd, COALESCE(SUM(cost_usd IS NULL), 0) AS unreportedCalls, COALESCE(SUM(tokens), 0) AS tokens FROM attempts WHERE role NOT IN ('doctor', 'lead')")[0] ?? { usd: 0, unreportedCalls: 0, tokens: 0 },
     }),
     { phases: [], tasks: [], attempts: [], events: [], activeTime: { ms: 0, openSince: null } as ActiveTime, cooldowns: [], reviews: [], spend: { usd: 0, unreportedCalls: 0, tokens: 0 }, meta: {} as Record<string, string> },
   )
@@ -444,6 +460,7 @@ async function detail(runsDir: string, name: string) {
     qa: { round: meta["qa.round"] ? Number(meta["qa.round"]) : null },
     feedback: pendingFeedback(projectDir),
     budget: { runUsd: config?.budget.runUsd ?? defaultRunBudgetUsd, spentUsd: spend.usd, spentTokens: spend.tokens, unreportedCalls: spend.unreportedCalls },
+    chat: { messages: chatMessages(projectDir), thinking: leadBusy.has(name) },
     reviewer: reviewerMetrics(reviews.map(parseReviewRow).filter((row: ReviewRow | null): row is ReviewRow => row !== null)),
   }
 }
@@ -565,6 +582,7 @@ export interface UiOptions {
   port: number
   startRun?: (projectDir: string, logPath: string) => void
   webDir?: string
+  askLead?: (projectDir: string, message: string) => Promise<void>
 }
 
 export function startUi(options: UiOptions) {
@@ -572,6 +590,7 @@ export function startUi(options: UiOptions) {
   const webDist = options.webDir ? resolve(options.webDir) + sep : builtWebDir
   const knownProject = (name: string) => projectNamePattern.test(name) && existsSync(join(runsDir, name, "pipeline.yaml"))
   const launchRun = options.startRun ?? spawnRun
+  const askLeadFor = options.askLead ?? ((projectDir: string, message: string) => askLead({ projectDir, message }))
   const extraHosts = (process.env.AGENT_TEAM_UI_HOSTS ?? "").split(",").map((host) => host.trim().toLowerCase()).filter(Boolean)
   const startRunIfIdle = (name: string) => {
     const projectDir = join(runsDir, name)
@@ -616,6 +635,24 @@ export function startUi(options: UiOptions) {
         if (runAlive(projectDir)) return send(response, 409, { error: "A run is already in progress." })
         const runUsd = withProjectStore(projectDir, (store) => raiseRunBudget(projectDir, store))
         return send(response, 200, { runUsd, started: startRunIfIdle(name) })
+      }
+      case "chat": {
+        const message = requireString(body, "message").trim()
+        if (message.length > chatMessageMaxLength) return send(response, 400, { error: `Keep the message under ${chatMessageMaxLength} characters.` })
+        if (leadBusy.has(name)) return send(response, 409, { error: "The lead is still answering." })
+        leadBusy.add(name)
+        askLeadFor(projectDir, message)
+          .catch((error) => console.error(`[lead] ${name}: ${(error as Error).message}`))
+          .finally(() => leadBusy.delete(name))
+        return send(response, 202, { accepted: true })
+      }
+      case "chat-action": {
+        const { messageId, index, state } = body
+        if (!Number.isInteger(messageId) || !Number.isInteger(index) || (state !== "applied" && state !== "dismissed")) {
+          return send(response, 400, { error: "chat-action needs messageId, index, and a state of applied or dismissed." })
+        }
+        const updated = withProjectStore(projectDir, (store) => store.setChatActionState(messageId as number, index as number, state))
+        return updated ? send(response, 200, { saved: true }) : send(response, 404, { error: "unknown action" })
       }
       case "roles": {
         const models = parseRoleModels(body.roles)

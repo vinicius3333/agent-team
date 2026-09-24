@@ -69,6 +69,7 @@ Most work happens in the dashboard. You type the brief in a form, and the agents
 | The run stopped or paused | A banner with the reason and the key error lines | Fix the cause, then **Resume run**. |
 | The run hit its budget | A budget banner | **Raise budget and resume** adds 50% to `budget.runUsd`. |
 | QA failed | The QA tab: findings, test output, and each screenshot next to its branding image | Nothing. Fix tasks run on their own, up to `qa.maxRounds`. |
+| You have a question about the run | The **Lead** tab: a chat with the project lead agent. It reads the project state, docs, and transcripts, and suggests actions such as retry or resume. | Ask in plain words. Click a suggested action to apply it. The lead never changes the project on its own, and chat cost does not count against the run budget. |
 | The app is live | A **Live** badge and the preview URL | Open it. |
 
 ## Access

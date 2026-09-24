@@ -11,7 +11,7 @@ export function normalizePhaseName(name: string): string {
   return legacyPhaseNames[name] ?? name
 }
 
-export const roles = ["pm", "architect", "illustrator", "designer", "planner", "worker", "reviewer", "qa", "doctor"] as const
+export const roles = ["pm", "architect", "illustrator", "designer", "planner", "worker", "reviewer", "qa", "doctor", "lead"] as const
 export type Role = (typeof roles)[number]
 
 export const runnerNames = ["claude", "codex"] as const
@@ -113,10 +113,11 @@ function normalizeBranding(raw: { enabled?: boolean; count?: number } | undefine
 }
 
 // Roles added after a project was created get a default, so older pipeline.yaml files keep working.
-const defaultRoles: Partial<Record<Role, Candidate>> = {
+export const defaultRoles: Partial<Record<Role, Candidate>> = {
   illustrator: { runner: "codex", model: "gpt-6-astra" },
   qa: { runner: "claude", model: "opus" },
   doctor: { runner: "claude", model: "opus" },
+  lead: { runner: "claude", model: "opus" },
 }
 
 function normalizeRoles(rawRoles: Record<string, any> | undefined): Record<Role, RoleConfig> {

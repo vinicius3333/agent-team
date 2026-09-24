@@ -1,4 +1,4 @@
-import type { Defaults, RoleCandidate, Incident, IncidentDetail, NewProjectRequest, ProjectDetail, ProjectSummary, QaRound } from "@/api/types"
+import type { Defaults, LeadActionState, RoleCandidate, Incident, IncidentDetail, NewProjectRequest, ProjectDetail, ProjectSummary, QaRound } from "@/api/types"
 
 export class ApiError extends Error {
   status: number
@@ -62,6 +62,9 @@ export const api = {
   feedback: (name: string, phase: string, message: string) => post<{ started: boolean }>(`${projectPath(name)}/feedback`, { phase, message }),
   retry: (name: string, taskId: string) => post<{ started: boolean }>(`${projectPath(name)}/retry`, { taskId }),
   saveRoles: (name: string, roles: Record<string, RoleCandidate>) => post<{ saved: boolean }>(`${projectPath(name)}/roles`, { roles }),
+  chat: (name: string, message: string) => post<{ accepted: boolean }>(`${projectPath(name)}/chat`, { message }),
+  chatAction: (name: string, messageId: number, index: number, state: Exclude<LeadActionState, "proposed">) =>
+    post<{ saved: boolean }>(`${projectPath(name)}/chat-action`, { messageId, index, state }),
   raiseBudget: (name: string) => post<{ runUsd: number; started: boolean }>(`${projectPath(name)}/raise-budget`, {}),
 }
 
