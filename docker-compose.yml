@@ -1,0 +1,30 @@
+# Production deploy (Dokploy). agent-team drives the host's Docker daemon and hands it host paths to
+# mount into agent sandboxes, so it runs with the host's network, PIDs and home directory: every path
+# and port it uses must mean the same thing inside and outside this container.
+x-agent-team: &agent-team
+  build: .
+  image: agent-team:latest
+  user: "${AGENT_TEAM_UID:-1000}:${AGENT_TEAM_GID:-1000}"
+  group_add:
+    - "${DOCKER_GID:-989}"
+  network_mode: host
+  pid: host
+  environment:
+    HOME: ${AGENT_TEAM_HOME:-/home/opc}
+  # Holds CLAUDE_CODE_OAUTH_TOKEN; kept on the host, never in the repository.
+  env_file:
+    - ${AGENT_TEAM_HOME:-/home/opc}/.config/agent-team/doctor.env
+  volumes:
+    - /var/run/docker.sock:/var/run/docker.sock
+    - /tmp:/tmp
+    - ${AGENT_TEAM_HOME:-/home/opc}:${AGENT_TEAM_HOME:-/home/opc}
+  restart: unless-stopped
+
+services:
+  ui:
+    <<: *agent-team
+    command: ["node", "--disable-warning=ExperimentalWarning", "src/cli.ts", "ui", "${AGENT_TEAM_HOME:-/home/opc}/agent-team-runs", "--port", "4400"]
+
+  doctor:
+    <<: *agent-team
+    command: ["node", "--disable-warning=ExperimentalWarning", "src/cli.ts", "doctor", "${AGENT_TEAM_HOME:-/home/opc}/agent-team-runs"]
