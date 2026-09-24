@@ -138,6 +138,8 @@ node src/cli.ts status ~/projects/my-app                  # open change, phases,
 node src/cli.ts retry ~/projects/my-app T007              # retry a blocked task
 node src/cli.ts deploy ~/projects/my-app                  # redeploy the live preview
 node src/cli.ts undeploy ~/projects/my-app                # stop the live preview
+node src/cli.ts operate ~/projects/my-app --agent research   # run Operate agents now and print findings
+node src/cli.ts findings ~/projects/my-app                # list open findings
 node src/cli.ts doctor ~/projects                         # watch every project and repair stopped runs
 node src/cli.ts notify-test ~/projects --channel phone    # send a test notification
 ```
@@ -257,6 +259,20 @@ Only one change is open at a time. Gates work as for the first build, and the ga
 When a change needs no code, its docs merge without a build, QA, or a redeploy. When `main` moved during the change (a doctor hotfix), the run merges `main` into the change branch first; on a conflict it stops and names the files. **Abandon** in the change history puts the phases back, removes the change's tasks, and closes its GitHub issue and pull requests. The branch stays for reference.
 
 The change history lists each change with its status, branch, pull request, dates, and cost. Data migrations on a live app are out of scope.
+
+## Operate
+
+After deploy, three agents watch the live app and write **findings**: a problem, its evidence, and one proposed change.
+
+| Agent | Reads | Default schedule |
+|---|---|---|
+| monitoring | health probes, the app log, incidents, and deploy events | every 24 hours |
+| analytics | PostHog: weekly active users, pageviews, the signup funnel, top events | every 24 hours |
+| research | the spec and the competitors in `operate.competitors`, with web search | every 7 days |
+
+The doctor (`agent-team doctor`) probes each live app every 5 minutes and runs due agents. **Run now** in the dashboard, or `agent-team operate <projectDir>`, runs one at once. Nothing changes the app on its own: **Approve as change** turns a finding into a change request. Configure it under `operate:` in `pipeline.yaml`; `enabled: false` turns it off.
+
+For analytics, create a PostHog project, set `operate.posthog` (`projectId`, `publicKey`, and `apiKeyEnv`, the name of the env var that holds a personal API key), and redeploy. The `react-vite` and `fullstack` templates send page views and `track()` events only when the key is set. To try the views with demo data, run `node scripts/seed-operate.ts <projectDir>`.
 
 ## GitHub
 
