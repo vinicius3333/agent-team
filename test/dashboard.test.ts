@@ -109,6 +109,20 @@ test("server write endpoints validate and start runs", async (t) => {
   assert.ok(readdirSync(runsDir).includes("todo-app"))
 })
 
+test("operate events do not mark a project active", async (t) => {
+  const runsDir = join(scratch, "operate-runs")
+  const projectDir = join(runsDir, "live-app")
+  createProject(projectDir, "brief")
+  withProjectStore(projectDir, (store) => store.log("operate", "health: down (timeout)"))
+  const server = startUi({ runsDir, port: 0, auth: { mode: "none" } })
+  await once(server, "listening")
+  t.after(() => server.close())
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  assert.equal((await (await fetch(`${base}/api/projects/live-app`)).json()).active, false)
+  withProjectStore(projectDir, (store) => store.log("run", "phase spec started"))
+  assert.equal((await (await fetch(`${base}/api/projects/live-app`)).json()).active, true)
+})
+
 test("POST /api/projects writes role models and POST /roles changes them", async (t) => {
   const runsDir = join(scratch, "roles-runs")
   const server = startUi({ runsDir, port: 0, auth: { mode: "none" }, startRun: () => {} })

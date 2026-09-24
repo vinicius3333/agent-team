@@ -227,7 +227,9 @@ function summary(runsDir: string, name: string) {
       const running = all(db, "SELECT id FROM tasks WHERE status = 'running' LIMIT 1")[0]?.id ?? null
       const activePhase = phases.find((phase) => phase.status === "running")?.name ?? null
       const pidRow = all(db, "SELECT value FROM meta WHERE key = 'run.pid'")[0]
-      const active = pidRow ? processAlive(Number(pidRow.value)) : Boolean(lastEvent && Date.now() - Date.parse(lastEvent.at) < activeWindowMs && !/^finished/.test(lastEvent.message))
+      // Operate events come from the doctor and insight agents, not from a run, so they must not mark the project active.
+      const lastRunEvent = all(db, "SELECT at, message FROM events WHERE type != 'operate' ORDER BY id DESC LIMIT 1")[0] ?? null
+      const active = pidRow ? processAlive(Number(pidRow.value)) : Boolean(lastRunEvent && Date.now() - Date.parse(lastRunEvent.at) < activeWindowMs && !/^finished/.test(lastRunEvent.message))
       const cost = all(db, "SELECT COALESCE(SUM(cost_usd), 0) AS total, SUM(cost_usd IS NULL) AS unreported, COALESCE(SUM(tokens), 0) AS tokens FROM attempts")[0]
       const stop = parseStop(all(db, "SELECT value FROM meta WHERE key = 'run.stop'")[0]?.value)
       // all() returns no rows when an older state file has no findings table.
