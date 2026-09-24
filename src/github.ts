@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
 import { basename, join } from "node:path"
 import type { PipelineConfig } from "./config.ts"
+import { fastForward, type Workspace } from "./harness/workspace.ts"
 import type { Store } from "./store.ts"
 import type { Task } from "./tasks.ts"
 
@@ -181,29 +182,30 @@ export function createGitHub(context: GitHubContext) {
       .join("\n")
   }
 
-  // Pushes the rebased branch, opens a pull request, merges it on GitHub, and brings local main up to date.
-  function mergeThroughPullRequest(branch: string, title: string, body: string): boolean {
-    const merged = attempt(`pull request "${title}"`, () => {
+  // Pushes the rebased branch, opens a pull request into base, merges it on GitHub, and brings the local base up to date.
+  function mergeThroughPullRequest(branch: string, base: string, title: string, body: string): string | null {
+    return attempt(`pull request "${title}"`, () => {
       run("git", ["push", "-q", "-f", "origin", `${branch}:${branch}`], projectDir)
-      const url = run("gh", ["pr", "create", "-R", repo(), "--base", "main", "--head", branch, "--title", title, "--body-file", "-"], projectDir, body)
+      if (base !== "main") run("git", ["push", "-q", "origin", `${base}:${base}`], projectDir)
+      const url = run("gh", ["pr", "create", "-R", repo(), "--base", base, "--head", branch, "--title", title, "--body-file", "-"], projectDir, body)
       run("gh", ["pr", "merge", url, "-R", repo(), "--merge"], projectDir)
       run("git", ["push", "-q", "origin", "--delete", branch], projectDir)
-      run("git", ["fetch", "-q", "origin", "main"], projectDir)
-      run("git", ["merge", "-q", "--ff-only", "origin/main"], projectDir)
+      run("git", ["fetch", "-q", "origin", base], projectDir)
+      fastForward(projectDir, `origin/${base}`, base)
       store.log("github", `merged ${url}`)
-      return true
+      return url
     })
-    return merged === true
   }
 
   return {
     enabled,
 
-    // Merges a finished workspace into main: through a pull request when GitHub is on, locally otherwise.
-    land(options: { branch: string; title: string; body: string; localMerge: () => void }): void {
-      if (enabled && ensureRepository() && mergeThroughPullRequest(options.branch, options.title, options.body)) return
-      options.localMerge()
-      if (enabled && hasOrigin()) attempt("push main", () => run("git", ["push", "-q", "origin", "main"], projectDir))
+    // Merges a finished workspace into its base branch: through a pull request when GitHub is on, locally otherwise.
+    land(options: { workspace: Workspace; title: string; body: string }): void {
+      const { branch, base } = options.workspace
+      if (enabled && ensureRepository() && mergeThroughPullRequest(branch, base, options.title, options.body)) return
+      fastForward(projectDir, branch, base)
+      if (enabled && hasOrigin()) attempt(`push ${base}`, () => run("git", ["push", "-q", "origin", base], projectDir))
     },
 
     syncTaskIssues(tasks: Task[]): void {

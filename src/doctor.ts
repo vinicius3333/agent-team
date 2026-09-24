@@ -13,7 +13,7 @@ import { fingerprint, incidentCauses, incidentId, listIncidents, saveIncident, s
 import { extractJsonObject } from "./json.ts"
 import { cooldownPattern, incidentGaveUpText, incidentOpenedPrefix } from "./notify/events.ts"
 import { startNotificationLoop } from "./notify/index.ts"
-import { createExecutor, landTasksFile, runAgent, type PipelineContext, type RunStop } from "./pipeline.ts"
+import { createExecutor, landingBranch, landTasksFile, runAgent, type PipelineContext, type RunStop } from "./pipeline.ts"
 import { cliPath, installDir as liveInstallDir, listProjects, openProjectStore, processAlive, retryTask, runAlive, runLogPath, startRun, withProjectStore } from "./project.ts"
 import { decideReplan } from "./replan.ts"
 import type { Store } from "./store.ts"
@@ -363,9 +363,10 @@ function setReadOnly(dir: string, readOnly: boolean): void {
 function createDoctorWorktree(sourceDir: string, name: string): Workspace {
   const path = join(sourceDir, ".agent-team", "worktrees", name)
   const branch = `doctor/${name}`
-  cleanupWorktree(sourceDir, { path, branch })
-  git(sourceDir, ["worktree", "add", "-q", "-b", branch, path, "origin/main"])
-  return { path, branch }
+  const base = "origin/main"
+  cleanupWorktree(sourceDir, { path, branch, base })
+  git(sourceDir, ["worktree", "add", "-q", "-b", branch, path, base])
+  return { path, branch, base }
 }
 
 function cleanupWorktree(sourceDir: string, workspace: Workspace): void {
@@ -506,7 +507,7 @@ function applyAction(action: ProjectAction, projectDir: string, store: Store): s
 // Goes through the same checks and landing path as a replan: shared files or another task's files need a human.
 function editTask(projectDir: string, store: Store, taskId: string, allowedPaths: string[]): string {
   const config = loadConfig(join(projectDir, "pipeline.yaml"))
-  const workspace = createWorkspace(projectDir, `doctor-edit-${taskId}`)
+  const workspace = createWorkspace(projectDir, `doctor-edit-${taskId}`, landingBranch({ store }))
   try {
     const tasks = loadTasks(join(workspace.path, "tasks.json"))
     const mergedIds = new Set(tasks.filter((task) => store.task(task.id)?.status === "merged").map((task) => task.id))

@@ -10,7 +10,7 @@ import { createDockerExecutor, ensureImage } from "./harness/docker.ts"
 import { hostExecutor, type Executor } from "./harness/executor.ts"
 import { defaultAllowlist, ensureEgressProxy } from "./harness/network.ts"
 import type { Harness, HarnessOutcome } from "./harness/harness.ts"
-import { amendCommit, commitAndRebase, createWorkspace, fastForwardMain, removeWorkspace, type Workspace } from "./harness/workspace.ts"
+import { amendCommit, commitAndRebase, createWorkspace, removeWorkspace, type Workspace } from "./harness/workspace.ts"
 import { deployProject } from "./deploy.ts"
 import { archiveFeedback, readFeedback } from "./feedback.ts"
 import type { GitHub } from "./github.ts"
@@ -327,6 +327,11 @@ export async function runPipeline(context: PipelineContext): Promise<RunOutcome>
   return outcome
 }
 
+// Every workspace starts from and lands on this branch: the open change's branch, else main.
+export function landingBranch(context: Pick<PipelineContext, "store">): string {
+  return context.store.currentChange()?.branch ?? "main"
+}
+
 async function runStages(context: PipelineContext): Promise<RunOutcome> {
   for (const phase of Object.keys(phaseDefinitions) as PlanningPhase[]) {
     const outcome = await runPlanningPhase(context, phase)
@@ -396,7 +401,7 @@ async function runPlanningPhase(context: PipelineContext, phase: PlanningPhase):
 async function attemptPhase(context: PipelineContext, phase: PlanningPhase, definition: PhaseDefinition, attempt: number, previousError: string | null): Promise<AttemptResult> {
   const { projectDir, config, store } = context
   const name = `phase-${phase}-${attempt}`
-  const workspace = createWorkspace(projectDir, name)
+  const workspace = createWorkspace(projectDir, name, landingBranch(context))
   const executor = await createExecutor(context, workspace.path, name)
   const runPhaseAgent = async (subject: string, notes: string[]): Promise<AttemptResult | null> => {
     const outcome = await runAgent(context, executor, definition.role, subject, planningTools, phasePrompt(context, phase, previousError, notes))
@@ -462,10 +467,9 @@ async function attemptPhase(context: PipelineContext, phase: PlanningPhase, defi
     const title = `docs(${phase}): add ${phase} artifacts`
     commitAndRebase(workspace, title, groupPhaseFiles(changedFiles(workspace.path), definition.commits ?? []))
     context.github.land({
-      branch: workspace.branch,
+      workspace,
       title,
       body: `Planning phase **${phase}**, written by the ${definition.role} agent (attempt ${attempt}).\n\nOutputs: ${definition.outputs.join(", ")}.`,
-      localMerge: () => fastForwardMain(projectDir, workspace.branch),
     })
     return { kind: "passed" }
   } catch (error) {
@@ -781,7 +785,7 @@ type ReplanResult = ReplanDecision | { kind: "infrastructure"; reason: string }
 async function replanTask(context: PipelineContext, task: Task, block: Block): Promise<ReplanResult> {
   const { projectDir, store } = context
   const name = `replan-${task.id}`
-  const workspace = createWorkspace(projectDir, name)
+  const workspace = createWorkspace(projectDir, name, landingBranch(context))
   const executor = await createExecutor(context, workspace.path, name)
   try {
     const tasks = loadTasks(join(workspace.path, "tasks.json"))
@@ -859,7 +863,7 @@ function serializeSmoke<T>(check: () => Promise<T>): Promise<T> {
 
 async function attemptTask(context: PipelineContext, task: Task, attempt: number, previous: PreviousAttempt | null): Promise<AttemptResult> {
   const { projectDir, store } = context
-  const workspace = createWorkspace(projectDir, `${task.id}-${attempt}`)
+  const workspace = createWorkspace(projectDir, `${task.id}-${attempt}`, landingBranch(context))
   const executor = await createExecutor(context, workspace.path, `${task.id}-${attempt}`)
   const rejected = (reason: string): AttemptResult => ({ kind: "failed", reason, diff: stagedDiff(workspace.path) })
   try {
@@ -952,12 +956,7 @@ async function attemptTask(context: PipelineContext, task: Task, attempt: number
       commitAndRebase(workspace, title, plan.kind === "groups" ? plan.groups : [])
       appendProgress(workspace.path, task, changed, worker.result.summary)
       amendCommit(workspace, title)
-      context.github.land({
-        branch: workspace.branch,
-        title,
-        body: pullRequestBody(context, task, attempt, verdict),
-        localMerge: () => fastForwardMain(projectDir, workspace.branch),
-      })
+      context.github.land({ workspace, title, body: pullRequestBody(context, task, attempt, verdict) })
     } catch (error) {
       return { kind: "failed", reason: `merge failed: ${(error as Error).message}` }
     }
@@ -1121,7 +1120,7 @@ async function runQaRound(context: PipelineContext, round: number): Promise<QaRo
   rmSync(outDir, { recursive: true, force: true })
   mkdirSync(outDir, { recursive: true })
   const name = `qa-${round}`
-  const workspace = createWorkspace(projectDir, name)
+  const workspace = createWorkspace(projectDir, name, landingBranch(context))
   const executor = await createExecutor(context, workspace.path, name)
   try {
     const tests = await runTestGate(context, executor, workspace.path, name)
@@ -1254,7 +1253,7 @@ function qaPrompt(input: {
 
 async function appendFixTasks(context: PipelineContext, round: number, tasks: Task[]): Promise<void> {
   const { projectDir } = context
-  const workspace = createWorkspace(projectDir, `qa-fixes-${round}`)
+  const workspace = createWorkspace(projectDir, `qa-fixes-${round}`, landingBranch(context))
   try {
     const current = JSON.parse(readFileSync(join(workspace.path, "tasks.json"), "utf8")) as Task[]
     const added = tasks.filter((task) => !current.some((existing) => existing.id === task.id))
@@ -1271,12 +1270,7 @@ export function landTasksFile(context: PipelineContext, workspace: Workspace, ta
   writeJson(path, tasks)
   loadTasks(path)
   commitAndRebase(workspace, title)
-  context.github.land({
-    branch: workspace.branch,
-    title,
-    body,
-    localMerge: () => fastForwardMain(context.projectDir, workspace.branch),
-  })
+  context.github.land({ workspace, title, body })
 }
 
 function writeJson(path: string, value: unknown): void {
@@ -1341,7 +1335,7 @@ export function deployFixTemplateLines(dir: string): string[] {
 async function attemptDeployFix(context: PipelineContext, attempt: number, failure: string): Promise<AttemptResult> {
   const { projectDir } = context
   const name = `deploy-fix-${attempt}`
-  const workspace = createWorkspace(projectDir, name)
+  const workspace = createWorkspace(projectDir, name, landingBranch(context))
   const executor = await createExecutor(context, workspace.path, name)
   try {
     const setupCommand = workspaceSetupCommand(workspace.path)
@@ -1377,10 +1371,9 @@ async function attemptDeployFix(context: PipelineContext, attempt: number, failu
     const title = "fix(deploy): make the app start in production"
     commitAndRebase(workspace, title)
     context.github.land({
-      branch: workspace.branch,
+      workspace,
       title,
       body: ["The deploy phase could not start the app. The worker agent changed the start setup.", "", "```", failure.slice(0, 3000), "```"].join("\n"),
-      localMerge: () => fastForwardMain(projectDir, workspace.branch),
     })
     return { kind: "passed" }
   } catch (error) {
