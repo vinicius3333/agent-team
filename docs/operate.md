@@ -171,3 +171,22 @@ Charts: follow the existing chart style (see `budget-card.tsx`). If there is non
 ## Verification
 
 Add a seed script, `scripts/seed-operate.ts`, that writes health checks, metrics, findings, and one insight run per agent into an existing project's `state.db`. Use it to check every view in a browser, at 1440 px and 390 px wide.
+
+## Group A decisions
+
+Choices made where the spec is silent:
+
+- **Health state.** `down` needs the last 3 probes to fail, like the event. `unknown` means no probe yet, or none in the last hour (the doctor is off). The p95 uses successful probes only.
+- **Operate in the doctor.** Agents start in the background, one at a time per project, so a 10-minute agent call does not delay incident checks. `doctor --once` probes nothing and runs no agents.
+- **A run is alive.** `dueAgents` skips a project while its build run is alive. An agent with a `running` row is not due, unless the row is older than 15 minutes (its process died).
+- **Metrics are dated by day**, so a second run on the same day replaces the first. A run also writes last week's WAU under the date 7 days back. With daily runs, `previous` is yesterday's value.
+- **Funnel.** Steps come from a `## Funnel` section in `docs/analytics.md` (backticked event names). The count per step is distinct people over 30 days, not a strict ordered funnel.
+- **Top events** are stored as `event.<name>` metrics and returned as `topEvents` in `GET /operate`. The spec's response has no field for the Analytics view's top events table.
+- **`metrics` in `GET /operate`** holds headline keys only (`wau`, `signups`, `signup_conversion`, `pageviews`); funnel and event rows have their own fields.
+- **`GET /findings`** defaults to `status=open`. Findings are sorted by severity, then newest first.
+- **Approve** answers `201 { changeId, branch, started }`. A finding that is not open answers 409; an unknown id answers 404.
+- **CLI** commands take `<projectDir>`, like every other command, not `<name>`. `operate` runs the agents now, whatever the schedule, and exits 1 when one fails.
+- **`docs/operate/<agent>.md`** is written to the main checkout and not committed.
+- **Templates** are now v2. The client sends events to `VITE_POSTHOG_HOST` or `https://us.i.posthog.com` (the ingestion host). `POSTHOG_HOST` is the API host that the deploy passes to the app.
+- **Planner.** Rule 16 applies only when the task prompt says the template has a `track()` helper. The planner may write `docs/analytics.md` next to `tasks.json`.
+- **Roles** `monitor`, `analyst`, and `researcher` default to Claude Sonnet. Codex has no web search tools, so the researcher needs Claude.
