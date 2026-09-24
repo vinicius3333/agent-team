@@ -20,7 +20,10 @@ All roles default to Claude. The illustrator uses Codex, because it generates th
 
 ```sh
 npm install
+npm run build:ui
 ```
+
+`npm run build:ui` builds the dashboard in `web/` into `web/dist/`. Run it again after you pull changes to `web/`.
 
 ## Usage
 
@@ -56,6 +59,39 @@ npm install
    ```sh
    node src/cli.ts retry ~/projects/my-app T007
    ```
+
+6. Redeploy the live preview, or stop it:
+
+   ```sh
+   node src/cli.ts deploy ~/projects/my-app
+   node src/cli.ts undeploy ~/projects/my-app
+   ```
+
+## Dashboard
+
+The dashboard shows every project in a folder and lets you drive them from the browser. Start it with the folder that holds your projects:
+
+```sh
+CLAUDE_CODE_OAUTH_TOKEN=... node src/cli.ts ui ~/projects --port 4400
+```
+
+The server starts runs itself, so it needs `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`) in its environment.
+
+From the dashboard you can:
+
+- Create a project from a brief. It picks the target, worker provider, gates, GitHub, deploy, and mockups, then starts the run.
+- Approve a phase that waits at a gate.
+- Request changes to a phase. The agent redoes it with your notes.
+- Retry a blocked task.
+- Resume a paused or stopped run.
+- Follow phases, tasks, agent calls, cost, transcripts, and the live preview.
+
+The server listens on `127.0.0.1` only and has no login. Reach it from another machine in one of two ways:
+
+- SSH tunnel: `ssh -L 4400:127.0.0.1:4400 you@server`, then open `http://localhost:4400`.
+- Tailscale: `tailscale serve --bg --https=4400 http://127.0.0.1:4400`, then open `https://<machine>.<tailnet>.ts.net:4400`. Only devices on your tailnet can reach it.
+
+Do not expose the port to the internet. Anyone who reaches it can start paid agent runs.
 
 ## Pipeline
 
@@ -129,7 +165,7 @@ Commands: `agent-team reset-cooldowns <projectDir>` clears runner cooldowns afte
 1. CLI MVP: sequential pipeline, both runners (this release)
 2. Harness: worktrees, Docker sandbox, retries, fallbacks (done); parallel task scheduler
 3. Scope guard hooks inside the agent (network allowlist done)
-4. Web control UI and Telegram gate approvals
+4. Web control UI (done) and Telegram gate approvals
 5. Preview deploy per run
 
 ## License

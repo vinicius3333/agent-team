@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/symbol.svg" />
+    <title>agent-team</title>
+    <meta name="description" content="Watch your agent team turn a brief into a working app. Approve each step and send feedback." />
+    <meta property="og:title" content="agent-team" />
+    <meta property="og:description" content="Watch your agent team turn a brief into a working app. Approve each step and send feedback." />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="/og-image.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script>
+      try {
+        const theme = localStorage.getItem("agent-team-theme") ?? "system"
+        const dark = theme === "dark" || (theme === "system" && matchMedia("(prefers-color-scheme: dark)").matches)
+        document.documentElement.classList.toggle("dark", dark)
+      } catch {}
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

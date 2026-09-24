@@ -1,0 +1,231 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --radius: 0.625rem;
+
+  --background: #f7f7fa;
+  --foreground: #0b0b10;
+  --card: #ffffff;
+  --card-foreground: #0b0b10;
+  --popover: #ffffff;
+  --popover-foreground: #0b0b10;
+  --primary: #7c3aed;
+  --primary-foreground: #ffffff;
+  --secondary: #f1edfd;
+  --secondary-foreground: #5b21b6;
+  --muted: #f1f1f5;
+  --muted-foreground: #62627a;
+  --accent: #f1edfd;
+  --accent-foreground: #5b21b6;
+  --destructive: #dc2626;
+  --border: #e6e6ec;
+  --input: #e6e6ec;
+  --ring: #7c3aed;
+
+  --success: #15803d;
+  --success-foreground: #ffffff;
+  --warning: #b45309;
+  --warning-foreground: #ffffff;
+
+  --chart-1: #7c3aed;
+  --chart-2: #16a34a;
+  --chart-3: #0ea5e9;
+  --chart-4: #d97706;
+  --chart-5: #db2777;
+
+  --sidebar: #ffffff;
+  --sidebar-foreground: #0b0b10;
+  --sidebar-primary: #7c3aed;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #f1edfd;
+  --sidebar-accent-foreground: #5b21b6;
+  --sidebar-border: #e6e6ec;
+  --sidebar-ring: #7c3aed;
+}
+
+.dark {
+  --background: #0b0b10;
+  --foreground: #f4f4f7;
+  --card: #14141c;
+  --card-foreground: #f4f4f7;
+  --popover: #14141c;
+  --popover-foreground: #f4f4f7;
+  --primary: #7c3aed;
+  --primary-foreground: #ffffff;
+  --secondary: #221a3a;
+  --secondary-foreground: #ddd6fe;
+  --muted: #1c1c26;
+  --muted-foreground: #a1a1b5;
+  --accent: #221a3a;
+  --accent-foreground: #ddd6fe;
+  --destructive: #f87171;
+  --border: #2a2a36;
+  --input: #2a2a36;
+  --ring: #8b5cf6;
+
+  --success: #22c55e;
+  --success-foreground: #0b0b10;
+  --warning: #f59e0b;
+  --warning-foreground: #0b0b10;
+
+  --chart-1: #8b5cf6;
+  --chart-2: #22c55e;
+  --chart-3: #38bdf8;
+  --chart-4: #f59e0b;
+  --chart-5: #f472b6;
+
+  --sidebar: #0f0f16;
+  --sidebar-foreground: #f4f4f7;
+  --sidebar-primary: #7c3aed;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #221a3a;
+  --sidebar-accent-foreground: #ddd6fe;
+  --sidebar-border: #2a2a36;
+  --sidebar-ring: #8b5cf6;
+}
+
+@theme inline {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  /* Grid items default to min-width: auto, so long URLs or code push them wider than a phone screen. */
+  .grid > * {
+    min-width: 0;
+  }
+  html {
+    color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: var(--font-sans);
+  }
+}
+
+@layer components {
+  .markdown {
+    @apply text-sm leading-relaxed break-words;
+  }
+  .markdown > :first-child {
+    @apply mt-0;
+  }
+  .markdown h1 {
+    @apply mt-6 mb-3 text-xl font-semibold tracking-tight;
+  }
+  .markdown h2 {
+    @apply mt-6 mb-2 border-b pb-1 text-lg font-semibold tracking-tight;
+  }
+  .markdown h3 {
+    @apply mt-5 mb-2 text-base font-semibold;
+  }
+  .markdown h4,
+  .markdown h5,
+  .markdown h6 {
+    @apply mt-4 mb-2 text-sm font-semibold;
+  }
+  .markdown p {
+    @apply my-3;
+  }
+  .markdown ul {
+    @apply my-3 list-disc pl-6;
+  }
+  .markdown ol {
+    @apply my-3 list-decimal pl-6;
+  }
+  .markdown li {
+    @apply my-1;
+  }
+  .markdown li.task-list-item {
+    @apply list-none;
+  }
+  .markdown li.task-list-item input {
+    @apply mr-2 -ml-5 accent-primary;
+  }
+  .markdown a {
+    @apply font-medium text-primary underline underline-offset-2;
+  }
+  .markdown blockquote {
+    @apply my-3 border-l-4 border-primary/40 pl-4 text-muted-foreground;
+  }
+  .markdown hr {
+    @apply my-6;
+  }
+  .markdown img {
+    @apply my-3 max-w-full rounded-md border;
+  }
+  .markdown :not(pre) > code {
+    @apply rounded bg-muted px-1 py-0.5 font-mono text-[0.85em];
+  }
+  .markdown .md-code {
+    @apply my-3 overflow-hidden rounded-md border bg-muted/50;
+  }
+  .markdown .md-code-head {
+    @apply flex items-center justify-between border-b px-3 py-1 font-mono text-xs text-muted-foreground;
+  }
+  .markdown .md-code pre {
+    @apply overflow-x-auto p-3 font-mono text-xs leading-relaxed;
+  }
+  .markdown .md-table {
+    @apply my-3 w-full overflow-x-auto;
+  }
+  .markdown table {
+    @apply w-full border-collapse text-left text-sm;
+  }
+  .markdown th {
+    @apply border-b bg-muted/50 px-3 py-2 font-medium;
+  }
+  .markdown td {
+    @apply border-b px-3 py-2 align-top;
+  }
+}
