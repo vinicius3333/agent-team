@@ -15,6 +15,7 @@ import { askLead, chatMessageMaxLength } from "../lead.ts"
 import { summarizeActivity } from "../activity.ts"
 import { liveAgentPrefix, type LiveAgent } from "../harness/harness.ts"
 import { reviewerMetrics, type ReviewRow } from "../reviews.ts"
+import { authenticate, clientAddress, createLoginLimiter, fromTrustedProxy, loadAuthConfig, passwordUser, sessionCookieName, signSession, verifyPassword, type AuthConfig } from "./auth.ts"
 
 const execFileAsync = promisify(execFile)
 const builtWebDir = fileURLToPath(new URL("../../web/dist/", import.meta.url))
@@ -56,11 +57,31 @@ const activeWindowMs = 2 * 60_000
 const projectNamePattern = /^[A-Za-z0-9._-]+$/
 const transcriptNamePattern = /^[A-Za-z0-9._-]+\.log$/
 const loopbackHosts = new Set(["127.0.0.1", "localhost", "[::1]"])
+const loopbackBinds = new Set(["127.0.0.1", "localhost", "::1"])
+const failedLoginDelayMs = 250
+const securityHeaders = { "x-content-type-options": "nosniff", "referrer-policy": "same-origin", "x-frame-options": "DENY" }
+
+function hostName(host: string): string {
+  return host.toLowerCase().replace(/:\d+$/, "")
+}
+
+function knownHost(host: string, extraHosts: string[]): boolean {
+  return loopbackHosts.has(host) || host.endsWith(".ts.net") || extraHosts.includes(host)
+}
 
 // Blocks DNS rebinding: a hostile page resolving its own name to 127.0.0.1 would otherwise be same-origin and pass the header check.
 function allowedHost(request: IncomingMessage, extraHosts: string[]): boolean {
-  const host = String(request.headers.host ?? "").toLowerCase().replace(/:\d+$/, "")
-  return loopbackHosts.has(host) || host.endsWith(".ts.net") || extraHosts.includes(host)
+  return knownHost(hostName(String(request.headers.host ?? "")), extraHosts)
+}
+
+function allowedOrigin(request: IncomingMessage, extraHosts: string[]): boolean {
+  const origin = request.headers.origin
+  if (origin === undefined) return true
+  try {
+    return knownHost(hostName(new URL(origin).host), extraHosts)
+  } catch {
+    return false
+  }
 }
 
 // Agents write the project files, so a symlink could point outside the project; the real path must stay inside.
@@ -536,8 +557,8 @@ function readTail(path: string, maxBytes: number): string {
   return (start > 0 ? "[earlier output truncated]\n" : "") + buffer.toString("utf8")
 }
 
-function send(response: ServerResponse, status: number, body: unknown, type = "application/json") {
-  response.writeHead(status, { "content-type": `${type}; charset=utf-8`, "cache-control": "no-store" })
+function send(response: ServerResponse, status: number, body: unknown, type = "application/json", extraHeaders: Record<string, string | string[]> = {}) {
+  response.writeHead(status, { ...securityHeaders, "content-type": `${type}; charset=utf-8`, "cache-control": "no-store", ...extraHeaders })
   response.end(typeof body === "string" ? body : JSON.stringify(body))
 }
 
@@ -550,7 +571,7 @@ function serveStatic(response: ServerResponse, webDist: string, pathname: string
   const path = isFile ? requested : indexPath
   const type = staticTypes[path.split(".").pop()?.toLowerCase() ?? ""] ?? "application/octet-stream"
   const immutable = isFile && path.startsWith(join(webDist, "assets") + sep)
-  response.writeHead(200, { "content-type": type, "cache-control": immutable ? "public, max-age=31536000, immutable" : "no-store", "x-content-type-options": "nosniff" })
+  response.writeHead(200, { ...securityHeaders, "content-type": type, "cache-control": immutable ? "public, max-age=31536000, immutable" : "no-store" })
   response.end(readFileSync(path))
 }
 
@@ -619,6 +640,20 @@ export interface UiOptions {
   startRun?: (projectDir: string, logPath: string) => void
   webDir?: string
   askLead?: (projectDir: string, message: string) => Promise<void>
+  auth?: AuthConfig
+  allowInsecureBind?: boolean
+  now?: () => number
+  failedLoginDelayMs?: number
+}
+
+function sessionCookie(value: string, maxAgeSeconds: number, secure: boolean): string {
+  return `${sessionCookieName}=${value}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAgeSeconds}${secure ? "; Secure" : ""}`
+}
+
+// Direct TLS is not supported, so HTTPS means a trusted proxy said so or Tailscale serve ended it.
+function overHttps(request: IncomingMessage, auth: AuthConfig): boolean {
+  if (hostName(String(request.headers.host ?? "")).endsWith(".ts.net")) return true
+  return fromTrustedProxy(request, auth) && String(request.headers["x-forwarded-proto"] ?? "").split(",")[0].trim() === "https"
 }
 
 export function startUi(options: UiOptions) {
@@ -628,6 +663,17 @@ export function startUi(options: UiOptions) {
   const launchRun = options.startRun ?? spawnRun
   const askLeadFor = options.askLead ?? ((projectDir: string, message: string) => askLead({ projectDir, message }))
   const extraHosts = (process.env.AGENT_TEAM_UI_HOSTS ?? "").split(",").map((host) => host.trim().toLowerCase()).filter(Boolean)
+  const auth = options.auth ?? loadAuthConfig(process.env)
+  const now = options.now ?? Date.now
+  const loginDelayMs = options.failedLoginDelayMs ?? failedLoginDelayMs
+  const passwordLogin = auth.mode === "password" || auth.mode === "password+proxy"
+  const loginLimiter = createLoginLimiter()
+  const host = options.host ?? "127.0.0.1"
+  if (!loopbackBinds.has(host) && auth.mode === "none" && !options.allowInsecureBind) {
+    throw new Error(`Refusing to listen on ${host} without a login. Set AGENT_TEAM_UI_PASSWORD_HASH or AGENT_TEAM_UI_TRUSTED_PROXIES, or pass --insecure-no-auth.`)
+  }
+  if (options.allowInsecureBind) console.warn(`[auth] warning: --insecure-no-auth is set. Anyone who reaches ${host} can start paid agent runs unless a proxy in front adds a login.`)
+  if (passwordLogin && auth.generatedSecret) console.log("[auth] AGENT_TEAM_UI_SESSION_SECRET is not set, so a random one was made. Every restart logs everyone out.")
   const startRunIfIdle = (name: string) => {
     const projectDir = join(runsDir, name)
     if (runAlive(projectDir)) return false
@@ -635,9 +681,43 @@ export function startUi(options: UiOptions) {
     return true
   }
 
+  async function login(request: IncomingMessage, response: ServerResponse, body: Record<string, unknown>) {
+    if (!passwordLogin || !auth.passwordHash || !auth.sessionSecret) return send(response, 404, { error: "Password login is off." })
+    const address = clientAddress(request, auth)
+    const retryAfterMs = loginLimiter.retryAfterMs(address, now())
+    if (retryAfterMs > 0) {
+      console.log(`[auth] login refused, locked: ${address}`)
+      return send(response, 429, { error: "Too many tries." }, "application/json", { "retry-after": String(Math.ceil(retryAfterMs / 1000)) })
+    }
+    const password = typeof body.password === "string" ? body.password : ""
+    if (!password || !verifyPassword(password, auth.passwordHash)) {
+      const lock = loginLimiter.recordFailure(address, now())
+      console.log(`[auth] login failed: ${address}`)
+      if (lock === "address") console.log(`[auth] lockout: ${address} for 15 minutes`)
+      if (lock === "global") console.log(`[auth] lockout: all password logins for 15 minutes (last failure from ${address})`)
+      await new Promise((resolve) => setTimeout(resolve, loginDelayMs))
+      return send(response, 401, { error: "Wrong password." })
+    }
+    loginLimiter.recordSuccess(address)
+    const maxAgeSeconds = Math.round((auth.sessionHours ?? 168) * 3600)
+    const cookie = signSession({ user: passwordUser, expiresAt: now() + maxAgeSeconds * 1000 }, auth.sessionSecret)
+    console.log(`[auth] login: ${address}`)
+    response.writeHead(204, { ...securityHeaders, "cache-control": "no-store", "set-cookie": sessionCookie(cookie, maxAgeSeconds, overHttps(request, auth)) })
+    return response.end()
+  }
+
   async function handlePost(request: IncomingMessage, response: ServerResponse, parts: string[]) {
     if (request.headers["x-agent-team"] !== "1") return send(response, 403, { error: "The x-agent-team header is missing." })
+    if (!allowedOrigin(request, extraHosts)) return send(response, 403, { error: "This origin is not allowed." })
     const body = await readJson(request)
+    if (parts[0] === "api" && parts[1] === "auth" && parts.length === 3) {
+      if (parts[2] === "login") return login(request, response, body)
+      if (parts[2] === "logout") {
+        response.writeHead(204, { ...securityHeaders, "cache-control": "no-store", "set-cookie": sessionCookie("", 0, overHttps(request, auth)) })
+        return response.end()
+      }
+      return send(response, 404, { error: "not found" })
+    }
     if (parts[0] !== "api" || parts[1] !== "projects") return send(response, 404, { error: "not found" })
 
     if (parts.length === 2) {
@@ -706,6 +786,12 @@ export function startUi(options: UiOptions) {
       if (!allowedHost(request, extraHosts)) return send(response, 403, { error: "This host name is not allowed. Add it to AGENT_TEAM_UI_HOSTS." })
       const url = new URL(request.url ?? "/", "http://localhost")
       const parts = url.pathname.split("/").filter(Boolean).map(decodeURIComponent)
+      const authRoute = parts[0] === "api" && parts[1] === "auth"
+      if (parts[0] === "api" && auth.mode !== "none" && !authRoute && !authenticate(request, auth, now())) return send(response, 401, { error: "Log in first." })
+      if (authRoute && parts[2] === "session" && parts.length === 3 && request.method === "GET") {
+        const user = auth.mode === "none" ? null : authenticate(request, auth, now())
+        return send(response, 200, { authenticated: auth.mode === "none" || user !== null, user: user?.user ?? null, source: user?.source ?? null, mode: auth.mode })
+      }
       if (request.method === "POST") return await handlePost(request, response, parts)
       if (request.method !== "GET") return send(response, 405, { error: "method not allowed" })
       if (parts[0] !== "api") return serveStatic(response, webDist, url.pathname)
@@ -742,7 +828,7 @@ export function startUi(options: UiOptions) {
           if (!type || !resolve(projectDir, relative).startsWith(projectDir + sep) || hidden) return send(response, 400, { error: "path not allowed" })
           const path = projectFile(projectDir, relative)
           if (!path || !statSync(path).isFile() || statSync(path).size > imageMaxBytes) return send(response, 404, { error: "not found" })
-          response.writeHead(200, { "content-type": type, "cache-control": "no-store", "x-content-type-options": "nosniff" })
+          response.writeHead(200, { ...securityHeaders, "content-type": type, "cache-control": "no-store" })
           return response.end(readFileSync(path))
         }
         const brandingRoute = parts[3] === "branding" || parts[3] === "mockups"
@@ -757,7 +843,7 @@ export function startUi(options: UiOptions) {
           const path = dir ? projectFile(projectDir, join(dir, parts[4])) : null
           if (!path || statSync(path).size > imageMaxBytes) return send(response, 404, { error: "not found" })
           const extension = parts[4].split(".").pop()!.toLowerCase()
-          response.writeHead(200, { "content-type": `image/${extension === "jpg" ? "jpeg" : extension}`, "cache-control": "no-store" })
+          response.writeHead(200, { ...securityHeaders, "content-type": `image/${extension === "jpg" ? "jpeg" : extension}`, "cache-control": "no-store" })
           return response.end(readFileSync(path))
         }
         if (parts[3] === "qa" && parts.length === 4) return send(response, 200, qaRounds(projectDir))
@@ -767,7 +853,7 @@ export function startUi(options: UiOptions) {
           if (!qaRoundPattern.test(round) || (!isImage && !qaJsonFiles.includes(file))) return send(response, 400, { error: "bad file name" })
           const path = projectFile(projectDir, join(qaRoundPath(round), file))
           if (!path || !statSync(path).isFile() || statSync(path).size > imageMaxBytes) return send(response, 404, { error: "not found" })
-          response.writeHead(200, { "content-type": isImage ? "image/png" : "application/json; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff" })
+          response.writeHead(200, { ...securityHeaders, "content-type": isImage ? "image/png" : "application/json; charset=utf-8", "cache-control": "no-store" })
           return response.end(readFileSync(path))
         }
         if (parts[3] === "file" && parts.length === 4) {
@@ -784,7 +870,7 @@ export function startUi(options: UiOptions) {
       if (parts[0] === "api" && parts[1] === "stream" && parts[2] && parts.length === 3) {
         const name = parts[2]
         if (!knownProject(name)) return send(response, 404, { error: "unknown project" })
-        response.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" })
+        response.writeHead(200, { ...securityHeaders, "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" })
         let previous = ""
         let closed = false
         let pushing = false
@@ -822,7 +908,6 @@ export function startUi(options: UiOptions) {
       send(response, 500, { error: (error as Error).message })
     }
   })
-  const host = options.host ?? "127.0.0.1"
   server.listen(options.port, host, () => {
     console.log(`agent-team ui on http://${host}:${(server.address() as import("node:net").AddressInfo).port} watching ${runsDir}`)
   })

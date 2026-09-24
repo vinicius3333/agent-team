@@ -25,7 +25,11 @@ services:
   ui:
     <<: *agent-team
     # The edge Caddy runs in a bridge container and cannot reach the host's loopback, so the UI binds to
-    # the docker0 gateway. That address is not reachable from the internet; Caddy adds the login.
+    # the docker0 gateway. That address is not reachable from the internet. The UI refuses a non-loopback
+    # bind without a login, so doctor.env must set AGENT_TEAM_UI_PASSWORD_HASH and
+    # AGENT_TEAM_UI_SESSION_SECRET (or AGENT_TEAM_UI_TRUSTED_PROXIES and AGENT_TEAM_UI_PROXY_USER_HEADER).
+    # The entrypoint sources that file with sh, which keeps them out of Dokploy. sh expands "$", so wrap
+    # the hash in single quotes there: AGENT_TEAM_UI_PASSWORD_HASH='scrypt$32768$8$1$...'
     environment:
       HOME: ${AGENT_TEAM_HOME:-/home/opc}
       AGENT_TEAM_UI_HOSTS: ${AGENT_TEAM_UI_HOSTS:-agent-team.137-131-153-58.sslip.io}
