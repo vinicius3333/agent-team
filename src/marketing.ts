@@ -2,13 +2,11 @@ import { execFile } from "node:child_process"
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { basename, join } from "node:path"
-import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 import { marketingFormats, type MarketingFormat } from "./config.ts"
 import { ensureScreenshotImage } from "./screenshots.ts"
 
 const execFileAsync = promisify(execFile)
-const renderScript = fileURLToPath(new URL("../docker/qa/render-marketing.mjs", import.meta.url))
 const renderTimeoutMs = 5 * 60_000
 
 export const marketingDir = "marketing"
@@ -198,7 +196,6 @@ export async function renderMarketing(options: { dir: string; productName: strin
         "--user", "1000:1000",
         "-e", "HOME=/tmp",
         "-e", `JOBS=${JSON.stringify(jobs)}`,
-        "-v", `${renderScript}:/opt/qa/render-marketing.mjs:ro`,
         "-v", `${stage}:/in:ro`,
         "-v", `${outDir}:/out`,
         image, "node", "/opt/qa/render-marketing.mjs",

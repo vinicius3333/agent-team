@@ -10,7 +10,6 @@ import type { QaScreen } from "./qa.ts"
 
 const execFileAsync = promisify(execFile)
 const qaContext = fileURLToPath(new URL("../docker/qa/", import.meta.url))
-const screenshotScript = join(qaContext, "screenshot.mjs")
 const screenshotTimeoutMs = 10 * 60_000
 
 export interface LayoutReport {
@@ -61,8 +60,10 @@ export function qaContainerNames(projectDir: string) {
 }
 
 export async function ensureScreenshotImage(): Promise<string> {
-  const dockerfile = readFileSync(join(qaContext, "Dockerfile"))
-  const tag = `agent-team-qa-shot:${createHash("sha256").update(dockerfile).digest("hex").slice(0, 12)}`
+  // The scripts are copied into the image, so they are part of what makes a build unique.
+  const hash = createHash("sha256")
+  for (const file of ["Dockerfile", "screenshot.mjs", "render-icons.mjs", "render-marketing.mjs"]) hash.update(readFileSync(join(qaContext, file)))
+  const tag = `agent-team-qa-shot:${hash.digest("hex").slice(0, 12)}`
   try {
     await execFileAsync("docker", ["image", "inspect", tag])
   } catch {
@@ -146,7 +147,6 @@ export async function captureApp(options: {
       "-e", `BASE_URL=${baseUrl}`,
       "-e", `ROUTES=${JSON.stringify(screens.map(({ route, slug, signedIn }) => ({ route, slug, signedIn: Boolean(signedIn) })))}`,
       ...(options.login?.route ? ["-e", `LOGIN=${JSON.stringify({ route: options.login.route, ...options.login.access })}`] : []),
-      "-v", `${screenshotScript}:/opt/qa/screenshot.mjs:ro`,
       "-v", `${outDir}:/out`,
       image, "node", "/opt/qa/screenshot.mjs",
     ],

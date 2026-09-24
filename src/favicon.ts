@@ -1,12 +1,10 @@
 import { execFile } from "node:child_process"
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 import { ensureScreenshotImage } from "./screenshots.ts"
 
 const execFileAsync = promisify(execFile)
-const renderScript = fileURLToPath(new URL("../docker/qa/render-icons.mjs", import.meta.url))
 const renderTimeoutMs = 5 * 60_000
 
 export const faviconDir = "design/favicon"
@@ -98,7 +96,6 @@ export async function generateFavicons(options: { dir: string; name: string; sig
       "--user", "1000:1000",
       "-e", "HOME=/tmp",
       "-e", `ICONS=${JSON.stringify(icons)}`,
-      "-v", `${renderScript}:/opt/qa/render-icons.mjs:ro`,
       "-v", `${join(dir, markPath)}:/in/mark.svg:ro`,
       "-v", `${outDir}:/out`,
       image, "node", "/opt/qa/render-icons.mjs",
