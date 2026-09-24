@@ -65,6 +65,8 @@ export interface Task {
   lastFailure: string | null
   // Why the orchestrator stopped and wants a person to decide (for example a replan that touches shared files).
   needsHuman: string | null
+  // The budget in USD the worker ran out of; the task waits until a person approves more.
+  budgetStopUsd: number | null
   issueNumber: number | null
   phase: string | null
   story: string | null

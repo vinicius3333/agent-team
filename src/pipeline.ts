@@ -20,7 +20,7 @@ import { decideReplan, formatBlock, normalizeFailure, parseBlock, parseReplanAct
 import { diffFileHashes, flaggedFiles } from "./reviews.ts"
 import { captureScreenshots, loginFailures, mobileFailures, type VisualReport } from "./screenshots.ts"
 import { runUiSmoke, type SmokeCheck } from "./smoke.ts"
-import type { Store } from "./store.ts"
+import { taskBudgetKey, taskBudgetStopKey, type Store } from "./store.ts"
 import { filesOutsideScope, loadTasks, pathsOverlap, type Task } from "./tasks.ts"
 
 const phaseAttempts = 2
@@ -298,6 +298,7 @@ type AttemptResult =
   | { kind: "failed"; reason: string; diff?: string }
   | { kind: "blocked"; reason: string; block: Block }
   | { kind: "infrastructure"; reason: string }
+  | { kind: "budget"; reason: string; limitUsd: number; diff: string }
 
 // "replanned" means tasks.json changed on main, so the caller reloads it before going on.
 type TaskOutcome = RunOutcome | "replanned"
@@ -685,6 +686,11 @@ async function runTask(context: PipelineContext, task: Task): Promise<TaskOutcom
         store.updateTask(task.id, "blocked", result.reason)
         store.log("task", `${task.id} blocked by worker: ${result.reason.slice(0, 300)}`)
         return handleBlock(context, task, result.block)
+      case "budget":
+        // Not counted: the worker ran out of money, not ideas. Its diff is saved under the current count so the next attempt resumes from it.
+        writeAttemptDiff(projectDir, task.id, attempts, result.reason, result.diff)
+        store.setMeta(taskBudgetStopKey(task.id), String(result.limitUsd))
+        return requireHuman(context, task, `${result.reason}. Approve more budget to continue.`)
       case "failed":
         store.countAttempt(task.id)
         writeAttemptDiff(projectDir, task.id, attempt, result.reason, result.diff ?? "")
@@ -821,6 +827,11 @@ function serializeSmoke<T>(check: () => Promise<T>): Promise<T> {
   return result
 }
 
+function workerBudget(context: PipelineContext, taskId: string): number {
+  const raised = Number(context.store.meta(taskBudgetKey(taskId)))
+  return raised > 0 ? raised : context.config.budget.perTaskUsd
+}
+
 async function attemptTask(context: PipelineContext, task: Task, attempt: number, previous: PreviousAttempt | null): Promise<AttemptResult> {
   const { projectDir, store } = context
   const workspace = createWorkspace(projectDir, `${task.id}-${attempt}`)
@@ -837,8 +848,10 @@ async function attemptTask(context: PipelineContext, task: Task, attempt: number
     const hasProgress = existsSync(join(workspace.path, progressPath))
     const dependencyFiles = dependencyChanges(store, task)
     const prompt = workerPrompt({ task, previous, codeMap: codeMap(files), dependencyFiles, hasProgress })
-    const worker = await runAgent(context, executor, "worker", `${task.id}-worker-${attempt}`, workerTools(task), prompt, { writablePaths: task.allowedPaths })
+    const budgetUsd = workerBudget(context, task.id)
+    const worker = await runAgent(context, executor, "worker", `${task.id}-worker-${attempt}`, workerTools(task), prompt, { writablePaths: task.allowedPaths, budgetUsd })
     if (isInfrastructureFailure(worker)) return { kind: "infrastructure", reason: `worker ${worker.failureClass}: ${worker.result.summary}` }
+    if (worker.failureClass === "budget") return { kind: "budget", reason: `worker reached its $${budgetUsd.toFixed(2)} budget`, limitUsd: budgetUsd, diff: stagedDiff(workspace.path) }
     if (worker.result.status !== "done") return rejected(`worker ${worker.result.status}: ${worker.result.summary}`)
     const block = parseBlock(worker.result.summary)
     if (block) return { kind: "blocked", reason: formatBlock(block), block }
@@ -1037,7 +1050,8 @@ function writeAttemptDiff(projectDir: string, taskId: string, attempt: number, r
 
 function readAttemptDiff(projectDir: string, taskId: string, attempt: number): string | null {
   const path = attemptDiffPath(projectDir, taskId, attempt)
-  if (attempt < 1 || !existsSync(path)) return null
+  // Attempt 0 holds the diff of a first attempt that stopped at its budget, which is not counted.
+  if (attempt < 0 || !existsSync(path)) return null
   const lines = readFileSync(path, "utf8").split("\n")
   const start = lines.findIndex((line) => !line.startsWith("#"))
   const diff = lines.slice(start === -1 ? lines.length : start).join("\n").trim()
@@ -1368,8 +1382,9 @@ function pullRequestBody(context: PipelineContext, task: Task, attempt: number, 
   ].join("\n")
 }
 
+// A spent budget is not infrastructure: pausing would let the doctor resume and spend again. Workers ask a person instead.
 function isInfrastructureFailure(outcome: HarnessOutcome): boolean {
-  return outcome.failureClass !== null && outcome.failureClass !== "agent_failure"
+  return outcome.failureClass !== null && outcome.failureClass !== "agent_failure" && outcome.failureClass !== "budget"
 }
 
 let egressProxy: ReturnType<typeof ensureEgressProxy> | null = null
@@ -1530,6 +1545,8 @@ export interface AgentOptions {
   promptName?: string
   // Values for {{name}} placeholders in the system prompt.
   promptVariables?: Record<string, string>
+  // Replaces budget.perTaskUsd for this call.
+  budgetUsd?: number
 }
 
 // Rereads pipeline.yaml so a budget raised from the dashboard applies to the live run.
@@ -1574,7 +1591,7 @@ export async function runAgent(context: PipelineContext, executor: Executor, rol
       taskPrompt,
       allowedTools,
       writablePaths: options.writablePaths,
-      budgetUsd: config.budget.perTaskUsd,
+      budgetUsd: options.budgetUsd ?? config.budget.perTaskUsd,
       transcriptPath: (candidate: Candidate, attempt: number) => transcriptPath(context, `${subject}-${candidate.runner}-${attempt}.log`),
     },
     executor,

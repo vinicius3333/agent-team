@@ -7,9 +7,11 @@ export type FailureClass =
   | "missing_binary" // CLI not installed where it runs: try the next candidate
   | "timeout" // agent ran too long: try the next candidate
   | "aborted" // operator stopped the run: stop everything
+  | "budget" // agent spent its whole per-call budget: hand back to the caller, a person decides whether to spend more
   | "agent_failure" // agent ran and failed on its own: hand back to the caller
 
 const patterns: [FailureClass, RegExp][] = [
+  ["budget", /reached maximum budget/i],
   ["auth", /not logged in|please run \/login|failed to authenticate|oauth session expired|invalid api key|api error: 401|refresh token/i],
   ["rate_limit", /rate limit (reached|exceeded)|usage limit|too many requests|api error: 429|quota exceeded|hit your limit|credit balance is too low/i],
   ["missing_binary", /spawn \S+ ENOENT|executable file not found/i],

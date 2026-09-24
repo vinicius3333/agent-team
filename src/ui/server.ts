@@ -10,7 +10,7 @@ import { parse as parseYaml } from "yaml"
 import { defaultLeadConfig, defaultRoles as laterRoleDefaults, defaultRunBudgetUsd, type LeadActionKind, loadConfig, normalizePhaseName, planningPhases, runnerNames, type PlanningPhase } from "../config.ts"
 import { demoAccessMetaKey, readDemoAccess } from "../access.ts"
 import { pendingFeedback } from "../feedback.ts"
-import { approvePhase, changeRoleModels, createProject, parseRoleModels, listProjects, ProjectError, raiseRunBudget, requestChanges, retryTask, runAlive, runLogPath, startRun as spawnRun, withProjectStore, type ProjectChoices } from "../project.ts"
+import { approvePhase, approveTaskBudget, changeRoleModels, createProject, parseRoleModels, listProjects, ProjectError, raiseRunBudget, requestChanges, retryTask, runAlive, runLogPath, startRun as spawnRun, withProjectStore, type ProjectChoices } from "../project.ts"
 import { listIncidents, openIncident, readIncident } from "../incidents.ts"
 import { askLead, chatMessageMaxLength, chatUploadsDir } from "../lead.ts"
 import { applyLeadAction, parseLeadSettings, saveLeadSettings } from "../lead-actions.ts"
@@ -18,6 +18,7 @@ import { trackedFiles } from "../git.ts"
 import { summarizeActivity } from "../activity.ts"
 import { liveAgentPrefix, type LiveAgent } from "../harness/harness.ts"
 import { reviewerMetrics, type ReviewRow } from "../reviews.ts"
+import { taskBudgetStopKey } from "../store.ts"
 
 const execFileAsync = promisify(execFile)
 const builtWebDir = fileURLToPath(new URL("../../web/dist/", import.meta.url))
@@ -466,10 +467,11 @@ async function detail(runsDir: string, name: string) {
   })
   const tasks = state.tasks.map((task: any) => {
     const definition = taskDefinitions.get(task.id) ?? {}
-    return { issueNumber: null, needsHuman: null, ...task, ...definitionFields(definition), title: definition.title ?? task.id }
+    const budgetStopUsd = Number(state.meta[taskBudgetStopKey(task.id)]) || null
+    return { issueNumber: null, needsHuman: null, ...task, ...definitionFields(definition), title: definition.title ?? task.id, budgetStopUsd }
   })
   for (const [id, definition] of taskDefinitions) {
-    if (!tasks.some((task: any) => task.id === id)) tasks.push({ id, status: "pending", attempts: 0, lastFailure: null, issueNumber: null, needsHuman: null, ...definitionFields(definition) })
+    if (!tasks.some((task: any) => task.id === id)) tasks.push({ id, status: "pending", attempts: 0, lastFailure: null, issueNumber: null, needsHuman: null, budgetStopUsd: null, ...definitionFields(definition) })
   }
   const config = readConfig(projectDir)
   const attempts = state.attempts.map(({ transcriptPath, ...attempt }: any) => ({ ...attempt, transcript: String(transcriptPath ?? "").split("/").pop() }))
@@ -761,6 +763,10 @@ export function startUi(options: UiOptions) {
       case "retry":
         withProjectStore(projectDir, (store) => retryTask(store, requireString(body, "taskId")))
         return send(response, 200, { started: startRunIfIdle(name) })
+      case "approve-task-budget": {
+        const budgetUsd = withProjectStore(projectDir, (store) => approveTaskBudget(store, requireString(body, "taskId")))
+        return send(response, 200, { budgetUsd, started: startRunIfIdle(name) })
+      }
       case "raise-budget": {
         if (body.runUsd !== undefined && typeof body.runUsd !== "number") return send(response, 400, { error: "runUsd must be a number." })
         const runUsd = withProjectStore(projectDir, (store) => raiseRunBudget(projectDir, store, body.runUsd as number | undefined))

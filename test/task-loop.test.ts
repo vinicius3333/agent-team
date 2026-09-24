@@ -11,8 +11,9 @@ import { createGitHub } from "../src/github.ts"
 import type { AgentJob, Harness, HarnessOutcome } from "../src/harness/harness.ts"
 import { extractJsonObject } from "../src/json.ts"
 import { parseVerdict, runPipeline, workerPrompt } from "../src/pipeline.ts"
-import { createProject } from "../src/project.ts"
+import { approveTaskBudget, createProject } from "../src/project.ts"
 import { decideReplan, normalizeFailure, parseBlock, parseReplanAction } from "../src/replan.ts"
+import { classifyFailure } from "../src/harness/classify.ts"
 import { toClaudeTools } from "../src/runners/claude.ts"
 import { openStore } from "../src/store.ts"
 import { pathsOverlap, type Task } from "../src/tasks.ts"
@@ -256,6 +257,43 @@ test("the same failure twice goes to the replanner, which may escalate", async (
   assert.equal(await run(harness), "awaiting_approval")
   assert.equal(jobs.filter((job) => job.role === "worker").length, 2, "stops after two identical failures, not three")
   assert.match(store.task("T001").humanReason ?? "", /escalated: the contract and the story disagree/)
+})
+
+test("classifyFailure spots a worker that spent its whole budget", () => {
+  const result = { status: "failed" as const, summary: "", costUsd: 2, tokens: null, durationMs: 1, exitCode: 1, diagnostics: "Reached maximum budget ($2)\n" }
+  assert.equal(classifyFailure(result), "budget")
+})
+
+test("a worker out of budget waits for approval, then resumes from its diff with double the budget", async () => {
+  const { projectDir, store, run } = setupProject("budget", [task("T001")])
+  const { harness: reviewers } = stubHarness({ reviewer: [pass] })
+  const workerJobs: AgentJob[] = []
+  const harness = {
+    async run(role: unknown, job: AgentJob, executor: { workdir: string }): Promise<HarnessOutcome> {
+      if (job.role !== "worker") return reviewers.run(role as never, job, executor as never)
+      workerJobs.push(job)
+      writeFile(executor.workdir, "src/t001/a.ts", `export const attempt = ${workerJobs.length}\n`)
+      if (workerJobs.length === 1) {
+        return { result: { status: "failed", summary: "", costUsd: 2, tokens: null, durationMs: 1, exitCode: 1, diagnostics: "Reached maximum budget ($2)" }, candidate: { runner: "claude", model: "stub" }, failureClass: "budget" }
+      }
+      return { result: { status: "done", summary: "done", costUsd: null, tokens: null, durationMs: 1, exitCode: 0, diagnostics: "" }, candidate: { runner: "claude", model: "stub" }, failureClass: null }
+    },
+  } as unknown as Harness
+
+  assert.equal(await run(harness), "awaiting_approval")
+  const stopped = store.task("T001")
+  assert.equal(stopped.status, "blocked")
+  assert.equal(stopped.attempts, 0, "running out of budget does not use up an attempt")
+  assert.match(stopped.humanReason ?? "", /reached its \$2\.00 budget/)
+  assert.throws(() => approveTaskBudget(store, "T002"), /unknown task/)
+
+  assert.equal(approveTaskBudget(store, "T001"), 4)
+  assert.throws(() => approveTaskBudget(store, "T001"), /not waiting for a budget approval/)
+  assert.equal(await run(harness), "completed")
+  assert.equal(workerJobs[1].budgetUsd, 4)
+  assert.match(workerJobs[1].taskPrompt, /\+export const attempt = 1/)
+  assert.equal(store.task("T001").status, "merged")
+  assert.ok(existsSync(join(projectDir, ".agent-team", "attempts", "T001-0.diff")))
 })
 
 test("pathsOverlap flags patterns that can match the same file", () => {

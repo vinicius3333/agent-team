@@ -6,7 +6,7 @@ import { parseDocument, type Document } from "yaml"
 import { loadConfig, normalizePhaseName, planningPhases, roles, runnerNames, type Candidate, type PipelineConfig, type PlanningPhase, type Role, type RunnerName } from "./config.ts"
 import { appendFeedback, archiveFeedback } from "./feedback.ts"
 import { commitAll, commitPaths, initRepository } from "./git.ts"
-import { openStore, type Store } from "./store.ts"
+import { openStore, taskBudgetKey, taskBudgetStopKey, type Store } from "./store.ts"
 
 export const cliPath = fileURLToPath(new URL("./cli.ts", import.meta.url))
 // The directory the CLI runs from; the doctor copies hotfixes here.
@@ -162,6 +162,22 @@ export function retryTask(store: Store, taskId: string | undefined): void {
   store.resetTask(taskId)
   store.resetReplans(taskId)
   store.log("task", `${taskId} reset for retry`)
+}
+
+const taskBudgetRaiseFactor = 2
+
+// Doubles the budget of one task that stopped at its limit and puts it back in the queue, keeping its attempts and saved diff.
+export function approveTaskBudget(store: Store, taskId: string | undefined): number {
+  if (!taskId) throw new ProjectError(400, "approving a budget needs a task id")
+  if (!store.task(taskId)) throw new ProjectError(404, `unknown task "${taskId}"`)
+  const stoppedAt = Number(store.meta(taskBudgetStopKey(taskId)))
+  if (!(stoppedAt > 0)) throw new ProjectError(409, `${taskId} is not waiting for a budget approval.`)
+  const raised = Math.round(stoppedAt * taskBudgetRaiseFactor * 100) / 100
+  store.setMeta(taskBudgetKey(taskId), String(raised))
+  store.deleteMeta(taskBudgetStopKey(taskId))
+  store.resumeTask(taskId)
+  store.log("budget", `${taskId} budget raised from $${stoppedAt.toFixed(2)} to $${raised.toFixed(2)}`)
+  return raised
 }
 
 const budgetRaiseFactor = 1.5

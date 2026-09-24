@@ -59,6 +59,10 @@ export interface TaskRow {
   humanReason: string | null
 }
 
+// A per-task budget raised by a person, and the limit a task stopped at while it waits for that approval.
+export const taskBudgetKey = (taskId: string) => `task.budgetUsd.${taskId}`
+export const taskBudgetStopKey = (taskId: string) => `task.budgetStop.${taskId}`
+
 export function openStore(path: string) {
   const db = new DatabaseSync(path)
   // WAL lets the dashboard read while a run writes; busy_timeout absorbs brief lock overlaps instead of crashing.
@@ -183,6 +187,10 @@ export function openStore(path: string) {
     },
     countReplan(id: string) {
       db.prepare("UPDATE tasks SET replans = replans + 1 WHERE id = ?").run(id)
+    },
+    // Back to pending with the attempt count and last failure kept, so the next attempt builds on the saved diff.
+    resumeTask(id: string) {
+      db.prepare("UPDATE tasks SET status = 'pending', human_reason = NULL WHERE id = ?").run(id)
     },
     requireHuman(id: string, reason: string) {
       db.prepare("UPDATE tasks SET status = 'blocked', last_failure = ?, human_reason = ? WHERE id = ?").run(reason, reason, id)

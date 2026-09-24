@@ -10,7 +10,7 @@ import { formatClock, formatDateTime, formatDuration, formatTokens } from "@/lib
 import { attemptNumber, deployState, qaState, describeCandidate, maxRetries, phaseDocuments, phaseOutputs, phaseRoles, skippedPhases, stepLabels, taskCounts } from "@/lib/pipeline"
 import { useProjectView, type Panel, type TranscriptRequest } from "./context"
 import { EventList, EventType } from "./events"
-import { RetryButton } from "./tasks-card"
+import { TaskAction } from "./tasks-card"
 import { runnerCooldown } from "./system-tab"
 import { transcriptRequest } from "./attempts-tab"
 
@@ -172,7 +172,7 @@ function taskPanel(detail: ProjectDetail, id: string): PanelContent {
         />
         {task.status === "blocked" && (
           <div>
-            <RetryButton task={task} size="default" />
+            <TaskAction task={task} size="default" />
           </div>
         )}
         <GithubLinks detail={detail} issueNumber={task.issueNumber} pr={pullRequestFor(detail, `feat(${id})`)} />

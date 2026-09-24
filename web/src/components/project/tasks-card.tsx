@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Loader2, RotateCcw } from "lucide-react"
+import { CircleDollarSign, Loader2, RotateCcw } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@/api/client"
 import type { Task } from "@/api/types"
@@ -40,6 +40,46 @@ export function RetryButton({ task, size = "sm" }: { task: Task; size?: "sm" | "
       {busy ? <Loader2 className="animate-spin" /> : <RotateCcw />} Retry
     </Button>
   )
+}
+
+// Matches taskBudgetRaiseFactor in src/project.ts.
+const taskBudgetRaiseFactor = 2
+
+export function ApproveBudgetButton({ task, size = "sm" }: { task: Task & { budgetStopUsd: number }; size?: "sm" | "default" }) {
+  const { name } = useProjectView()
+  const [busy, setBusy] = useState(false)
+  const raisedUsd = (task.budgetStopUsd * taskBudgetRaiseFactor).toFixed(2)
+  const approve = async () => {
+    setBusy(true)
+    try {
+      await api.approveTaskBudget(name, task.id)
+      toast.success(`${task.id} can now spend up to $${raisedUsd}`)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : `Could not approve the budget for ${task.id}.`)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Button
+      type="button"
+      size={size}
+      disabled={busy}
+      onClick={(event) => {
+        event.stopPropagation()
+        void approve()
+      }}
+      aria-label={`Approve a $${raisedUsd} budget for ${task.id}`}
+    >
+      {busy ? <Loader2 className="animate-spin" /> : <CircleDollarSign />} Approve ${raisedUsd}
+    </Button>
+  )
+}
+
+export function TaskAction({ task, size = "sm" }: { task: Task; size?: "sm" | "default" }) {
+  if (task.budgetStopUsd) return <ApproveBudgetButton task={{ ...task, budgetStopUsd: task.budgetStopUsd }} size={size} />
+  if (task.status === "blocked") return <RetryButton task={task} size={size} />
+  return null
 }
 
 export function TasksCard() {
@@ -95,14 +135,20 @@ export function TasksCard() {
                     <TableCell className="font-mono text-xs text-muted-foreground">{task.id}</TableCell>
                     <TableCell className="max-w-[12rem] whitespace-normal sm:max-w-none">
                       <div className="line-clamp-2">{task.title}</div>
-                      {task.lastFailure && task.status !== "merged" && <div className="text-xs text-destructive">Last attempt failed</div>}
+                      {task.budgetStopUsd ? (
+                        <div className="text-xs text-destructive">Budget reached (${task.budgetStopUsd.toFixed(2)}): approve more to continue</div>
+                      ) : (
+                        task.lastFailure && task.status !== "merged" && <div className="text-xs text-destructive">Last attempt failed</div>
+                      )}
                     </TableCell>
                     <TableCell className="hidden font-mono text-xs text-muted-foreground md:table-cell">{worker ? `${worker.runner} ${worker.model}` : "—"}</TableCell>
                     <TableCell>
                       <StatusBadge status={task.status} />
                     </TableCell>
                     <TableCell className="hidden text-right tabular-nums sm:table-cell">{task.attempts ? `${task.attempts} / ${limit}` : "—"}</TableCell>
-                    <TableCell className="text-right">{task.status === "blocked" && <RetryButton task={task} />}</TableCell>
+                    <TableCell className="text-right">
+                      <TaskAction task={task} />
+                    </TableCell>
                   </TableRow>
                 )
               })}
