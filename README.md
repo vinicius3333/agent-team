@@ -54,6 +54,12 @@ Most work happens in the dashboard. You type the brief in a form, and the agents
 
 4. Click **Start build**. The project page shows the pipeline, tasks, live events, agent calls, cost, and elapsed time (only while a run is active).
 
+![The New project form with the brief, target, agent models, and approval gates](docs/screenshots/02-new-project.png)
+
+![A running project: pipeline, cost, tasks, and live events](docs/screenshots/03-project-running.png)
+
+![A finished project with its live preview](docs/screenshots/04-project-live.png)
+
 ## Working with a run
 
 | Situation | What you see | What to do |
@@ -185,6 +191,8 @@ Commands: `agent-team reset-cooldowns <projectDir>` clears runner cooldowns afte
 ## Doctor
 
 `agent-team doctor <runsDir>` watches every project in `runsDir`. Every 60 seconds it checks each run. When a run stops for a reason a machine can fix, it opens an incident, asks a doctor agent to diagnose and fix it, and resumes the run. `--once` checks one time and exits, for cron and tests.
+
+![The Incidents page lists each incident with its status, cause, cost, PR, and issue](docs/screenshots/06-incidents.png)
 
 ### What counts as an incident
 
