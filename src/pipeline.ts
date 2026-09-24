@@ -17,6 +17,7 @@ import type { GitHub } from "./github.ts"
 import { designSystemRoute, parseArchitectureCommands, parseDesignScreens, parseLoginRoute, parseQaVerdict, runQaLoop, type QaRoundResult, type QaScreen } from "./qa.ts"
 import { extractJsonObject } from "./json.ts"
 import { decideReplan, formatBlock, normalizeFailure, parseBlock, parseReplanAction, type Block, type ReplanDecision } from "./replan.ts"
+import { budgetReachedPrefix, gateReadyText } from "./notify/events.ts"
 import { diffFileHashes, flaggedFiles } from "./reviews.ts"
 import { captureScreenshots, loginFailures, mobileFailures, type VisualReport } from "./screenshots.ts"
 import { runUiSmoke, type SmokeCheck } from "./smoke.ts"
@@ -376,7 +377,7 @@ async function runPlanningPhase(context: PipelineContext, phase: PlanningPhase):
     archiveFeedback(projectDir, phase)
     if (config.autonomy.gates.includes(phase)) {
       store.setPhase(phase, "awaiting_approval")
-      store.log("gate", `phase "${phase}" is ready for review: agent-team approve ${projectDir} ${phase}`)
+      store.log("gate", `phase "${phase}" ${gateReadyText}: agent-team approve ${projectDir} ${phase}`)
       return "awaiting_approval"
     }
     store.setPhase(phase, "approved")
@@ -1533,7 +1534,7 @@ function budgetStop(context: PipelineContext, subject: string): HarnessOutcome |
   if (!state.budgetExceeded) {
     state.budgetExceeded = true
     const codex = spent.unreportedCalls ? `; ${spent.unreportedCalls} calls (codex) reported no cost and are not counted` : ""
-    const message = `run budget reached: $${spent.usd.toFixed(2)} reported of $${config.budget.runUsd.toFixed(2)} (budget.runUsd)${codex}. Stopped before ${subject}. Raise budget.runUsd in pipeline.yaml, then resume`
+    const message = `${budgetReachedPrefix}: $${spent.usd.toFixed(2)} reported of $${config.budget.runUsd.toFixed(2)} (budget.runUsd)${codex}. Stopped before ${subject}. Raise budget.runUsd in pipeline.yaml, then resume`
     state.stopReason = message
     store.log("budget", message)
   }

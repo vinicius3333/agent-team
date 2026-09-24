@@ -51,7 +51,7 @@ export function incidentId(date: Date): string {
 }
 
 // The same stop, told apart from a new one: times, durations, temp paths, and dollar amounts removed.
-export function fingerprint(kind: IncidentKind, reason: string): string {
+export function fingerprint(kind: string, reason: string): string {
   const firstLine = reason.trim().split("\n")[0] ?? ""
   const normalized = normalizeFailure(firstLine).replace(/\$\d+(?:\.\d+)?/g, "<usd>")
   return `${kind}:${createHash("sha256").update(normalized).digest("hex").slice(0, 12)}`

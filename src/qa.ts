@@ -1,4 +1,5 @@
 import { extractJsonObject } from "./json.ts"
+import { qaStoppedPrefix } from "./notify/events.ts"
 import type { Store } from "./store.ts"
 import { validateTasks, type Task } from "./tasks.ts"
 
@@ -205,7 +206,7 @@ export async function runQaLoop(store: Store, maxRounds: number, steps: QaLoopSt
     }
     if (failures >= maxRounds) {
       store.setPhase("qa", "failed")
-      store.log("qa", `stopped after ${failures} failed rounds; the fix tasks from round ${round} are queued. Review them, then resume the run`)
+      store.log("qa", `${qaStoppedPrefix} ${failures} failed rounds; the fix tasks from round ${round} are queued. Review them, then resume the run`)
       return "failed"
     }
     const built = await steps.build()
