@@ -179,6 +179,18 @@ function ProjectViewContent({ phase, view, detail, stream, document, selectDocum
   }
 }
 
+// On Operate > Changes the selected change and task extend the breadcrumb, so each level links back up.
+function drillDownCrumbs(viewPath: string, viewLabel: string, params: URLSearchParams | null): { label: string; to?: string }[] {
+  const change = params?.get("change")
+  if (!change) return [{ label: viewLabel }]
+  const task = params?.get("task")
+  return [
+    { label: viewLabel, to: viewPath },
+    task ? { label: change, to: `${viewPath}?change=${encodeURIComponent(change)}` } : { label: change },
+    ...(task ? [{ label: task }] : []),
+  ]
+}
+
 function ProjectBody({ name, phase, view, detail, stream }: { name: string; phase: ProjectPhase; view: string; detail: ProjectDetail; stream: ReturnType<typeof useProjectStream>["state"] }) {
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
@@ -239,7 +251,7 @@ function ProjectBody({ name, phase, view, detail, stream }: { name: string; phas
         breadcrumbs={[
           { label: name, to: projectPath(name) },
           { label: phaseLabels[phase], to: projectPath(name, phase) },
-          { label: viewLabel },
+          ...drillDownCrumbs(projectPath(name, phase, view), viewLabel, drillDown ? searchParams : null),
         ]}
         title={name}
         badge={
