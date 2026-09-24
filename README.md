@@ -413,6 +413,26 @@ SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
 
 Secrets never go into `state.db`, the event log, the dashboard API, or git. The dashboard shows each channel's host only.
 
+## Evals
+
+The eval suite runs fixed reference briefs end to end, so you can tell whether a change to prompts, roles, or harness code made runs better, worse, or more expensive. The spec is in `docs/evals.md`.
+
+```sh
+node src/cli.ts eval run --tier smoke --label baseline
+node src/cli.ts eval compare evals/results/<a>.json evals/results/<b>.json
+```
+
+| Tier | Briefs | Settings | Planned maximum spend |
+| --- | --- | --- | --- |
+| smoke | `landing-page`, `notes-api` | no branding, no marketing, 1 QA round, 2 parallel tasks | $5 |
+| full | every brief in `evals/briefs/` | the settings in `pipeline.example.yaml` | sum of each brief's `budgetUsd` |
+
+- Every brief runs in a fresh project under `evals/runs/<resultId>/`, one after another. Gates, deploy, and GitHub publishing are always off.
+- Each brief's `budgetUsd` becomes its `budget.runUsd`. `--max-usd` caps the whole suite. The command shows the planned spend and asks before it starts, unless you pass `--yes`.
+- The result goes to `evals/results/<resultId>.json`: outcome, merged tasks, attempts, fallbacks, reviewer rejections, QA rounds, cost, tokens, and wall time for each brief. `--clean` deletes the project folders afterwards.
+- `eval compare` flags a regression when the outcome gets worse, fewer tasks merge, or cost or tokens rise by more than 25%. It exits with 1 when it finds one.
+- `--config <file>` replaces `pipeline.example.yaml` as the base, so you can compare two role or model setups.
+
 ## Limits
 
 - Tasks still run one at a time.
