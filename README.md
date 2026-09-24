@@ -424,7 +424,7 @@ node src/cli.ts eval compare evals/results/<a>.json evals/results/<b>.json
 
 | Tier | Briefs | Settings | Planned maximum spend |
 | --- | --- | --- | --- |
-| smoke | `landing-page`, `notes-api` | no branding, no marketing, 1 QA round, 2 parallel tasks | $5 |
+| smoke | `landing-page`, `notes-api` | no branding, no marketing, 1 QA round, 2 parallel tasks | $27 |
 | full | every brief in `evals/briefs/` | the settings in `pipeline.example.yaml` | sum of each brief's `budgetUsd` |
 
 - Every brief runs in a fresh project under `evals/runs/<resultId>/`, one after another. Gates, deploy, and GitHub publishing are always off.
