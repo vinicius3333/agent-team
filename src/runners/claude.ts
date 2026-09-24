@@ -40,6 +40,14 @@ export function claudeResult(stdout: string): Record<string, any> {
   throw new Error("no result event in the Claude output")
 }
 
+// Limit errors such as error_max_budget_usd carry their message in `errors`, not `result`.
+export function claudeErrorText(output: Record<string, any>): string {
+  const result = String(output.result ?? "").trim()
+  if (result) return result
+  const errors = Array.isArray(output.errors) ? output.errors.map(String).join("\n").trim() : ""
+  return errors || String(output.subtype ?? "unknown Claude error")
+}
+
 export const claudeRunner: AgentRunner = {
   name: "claude",
   async run(request: RunRequest): Promise<RunResult> {
@@ -76,7 +84,7 @@ export const claudeRunner: AgentRunner = {
         tokens: claudeTokens(output.usage),
         ...base,
         // A Claude error result is the CLI's own message (auth, limits), not the agent's work.
-        diagnostics: output.is_error ? `${String(output.result ?? "")}\n${base.diagnostics}` : base.diagnostics,
+        diagnostics: output.is_error ? `${claudeErrorText(output)}\n${base.diagnostics}` : base.diagnostics,
       }
     } catch {
       return {
