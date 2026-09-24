@@ -1,0 +1,201 @@
+import type { Store } from "./store.ts"
+import { validateTasks, type Task } from "./tasks.ts"
+
+export const designSystemRoute = "/design-system"
+
+export interface QaScreen {
+  route: string
+  slug: string
+  // Branding image file name (in design/branding/) the designer matched to this screen, if any.
+  branding: string | null
+}
+
+export interface QaFinding {
+  title: string
+  detail: string
+  screen: string
+}
+
+export type QaVerdict = { verdict: "pass"; findings: QaFinding[]; tasks: [] } | { verdict: "fail"; findings: QaFinding[]; tasks: Task[] }
+
+export type QaRoundResult =
+  | { kind: "pass"; findings: QaFinding[] }
+  | { kind: "fail"; findings: QaFinding[]; tasks: Task[] }
+  // The QA reviewer never produced a usable verdict; a human has to look.
+  | { kind: "invalid"; reason: string }
+  | { kind: "infrastructure"; reason: string }
+
+export type QaOutcome = "completed" | "paused" | "failed" | "awaiting_approval"
+
+const routeLinePattern = /^\s*(?:[-*+]\s*)?(?:\*\*|__)?\s*routes?\s*(?:\*\*|__)?\s*:\s*(?:\*\*|__)?(.*)$/i
+const brandingLinePattern = /^\s*(?:[-*+]\s*)?(?:\*\*|__)?\s*branding(?:\s+image)?\s*(?:\*\*|__)?\s*:\s*(?:\*\*|__)?(.*)$/i
+const brandingFilePattern = /([A-Za-z0-9._-]+\.(?:png|jpe?g|webp))/i
+// Static paths only: a route with a parameter (/tasks/:id, /tasks/[id], /tasks/{id}) has no single page to screenshot.
+const staticRoutePattern = /^\/[A-Za-z0-9\-._~/]*$/
+
+// Reads `Route: /path` lines from docs/design.md (bold, list bullets, backticks, and several routes per line are fine),
+// pairs each with the `Branding: 02-x.png` line of the same screen section, and always adds /design-system.
+export function parseDesignScreens(markdown: string): QaScreen[] {
+  const found: { route: string; branding: string | null }[] = []
+  let sectionStart = 0
+  let sectionBranding: string | null = null
+  const assignBranding = () => {
+    for (const screen of found.slice(sectionStart)) screen.branding ??= sectionBranding
+  }
+  for (const line of markdown.split("\n")) {
+    if (/^#{1,3}\s/.test(line)) {
+      assignBranding()
+      sectionStart = found.length
+      sectionBranding = null
+      continue
+    }
+    const branding = brandingLinePattern.exec(line)
+    if (branding) {
+      sectionBranding = brandingFilePattern.exec(branding[1])?.[1] ?? sectionBranding
+      continue
+    }
+    const route = routeLinePattern.exec(line)
+    if (!route) continue
+    for (const token of route[1].replace(/[`*_]/g, " ").split(/[\s,;|]+/)) {
+      const cleaned = token.replace(/[.)]+$/, "")
+      const normalized = cleaned.length > 1 ? cleaned.replace(/\/+$/, "") : cleaned
+      if (staticRoutePattern.test(normalized) && !found.some((screen) => screen.route === normalized)) found.push({ route: normalized, branding: null })
+    }
+  }
+  assignBranding()
+  if (!found.some((screen) => screen.route === designSystemRoute)) found.push({ route: designSystemRoute, branding: null })
+  const slugs = new Set<string>()
+  return found.map((screen) => {
+    const base = routeSlug(screen.route)
+    let slug = base
+    for (let suffix = 2; slugs.has(slug); suffix++) slug = `${base}-${suffix}`
+    slugs.add(slug)
+    return { ...screen, slug }
+  })
+}
+
+export function routeSlug(route: string): string {
+  const slug = route.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")
+  return slug || "root"
+}
+
+// Reads `- install: <cmd>` and `- test: <cmd>` from the `## Commands` section the architect writes.
+export function parseArchitectureCommands(markdown: string): { install: string | null; test: string | null } {
+  const commands: { install: string | null; test: string | null } = { install: null, test: null }
+  let inSection = false
+  for (const line of markdown.split("\n")) {
+    if (/^##\s/.test(line)) {
+      inSection = /^##\s+Commands\s*$/i.test(line.trim())
+      continue
+    }
+    if (!inSection) continue
+    const match = /^\s*[-*]?\s*(install|test)\s*:\s*`?(.+?)`?\s*$/i.exec(line)
+    if (match) commands[match[1].toLowerCase() as "install" | "test"] = match[2].trim()
+  }
+  return commands
+}
+
+// Fix tasks may only touch app code: docs, contracts, and design are inputs owned by the planning phases.
+const protectedPrefixes = ["docs/", "contracts/", "design/"]
+
+export function parseQaVerdict(text: string, round: number, existing: Task[]): QaVerdict {
+  const match = text.match(/\{[\s\S]*\}/)
+  let parsed: any
+  try {
+    parsed = JSON.parse(match?.[0] ?? "")
+  } catch {
+    throw new Error("the final message is not one JSON object")
+  }
+  if (parsed?.verdict !== "pass" && parsed?.verdict !== "fail") throw new Error('verdict must be "pass" or "fail"')
+  if (!Array.isArray(parsed.findings ?? [])) throw new Error("findings must be an array")
+  const findings: QaFinding[] = (parsed.findings ?? []).map((finding: any) => ({
+    title: String(finding?.title ?? ""),
+    detail: String(finding?.detail ?? ""),
+    screen: String(finding?.screen ?? ""),
+  }))
+  if (parsed.verdict === "pass") return { verdict: "pass", findings, tasks: [] }
+  if (!findings.length) throw new Error("a fail verdict needs at least one finding")
+  return { verdict: "fail", findings, tasks: validateFixTasks(parsed.tasks, round, existing) }
+}
+
+export function validateFixTasks(value: unknown, round: number, existing: Task[]): Task[] {
+  if (!Array.isArray(value) || value.length === 0) throw new Error("a fail verdict needs at least one fix task")
+  const idPattern = new RegExp(`^Q${round}\\d{2}$`)
+  const existingIds = new Set(existing.map((task) => task.id))
+  const errors: string[] = []
+  for (const [index, task] of value.entries()) {
+    const label = task?.id ?? `#${index}`
+    if (typeof task?.id === "string" && !idPattern.test(task.id)) errors.push(`${label}: id must look like Q${round}01`)
+    if (existingIds.has(task?.id)) errors.push(`${label}: id already exists in tasks.json`)
+    for (const dependency of Array.isArray(task?.dependsOn) ? task.dependsOn : []) {
+      if (!existingIds.has(dependency)) errors.push(`${label}: may depend only on existing tasks, not ${dependency}`)
+    }
+    for (const path of Array.isArray(task?.allowedPaths) ? task.allowedPaths : []) {
+      if (typeof path !== "string" || protectedPrefixes.some((prefix) => path.startsWith(prefix))) errors.push(`${label}: allowedPaths may not include ${path}`)
+    }
+  }
+  if (errors.length) throw new Error(`invalid fix tasks:\n- ${errors.join("\n- ")}`)
+  validateTasks([...existing, ...value])
+  return value as Task[]
+}
+
+export function formatFindings(findings: QaFinding[]): string {
+  return findings.map((finding) => `${finding.screen ? `[${finding.screen}] ` : ""}${finding.title}: ${finding.detail}`).join("\n")
+}
+
+export interface QaLoopSteps {
+  runRound(round: number): Promise<QaRoundResult>
+  // Appends the fix tasks to tasks.json on main.
+  applyFixes(round: number, tasks: Task[]): Promise<void>
+  // Runs every pending task through the worker and reviewer.
+  build(): Promise<QaOutcome>
+  deploy(): Promise<QaOutcome>
+}
+
+// Rounds are numbered across runs (meta qa.round), but maxRounds counts failures in this run only,
+// so resuming after "failed" gives QA a fresh set of rounds.
+export async function runQaLoop(store: Store, maxRounds: number, steps: QaLoopSteps): Promise<QaOutcome> {
+  if (store.phaseStatus("qa") === "approved") return steps.deploy()
+  store.setPhase("qa", "running")
+  for (let failures = 0; ; ) {
+    const round = Number(store.meta("qa.round") ?? 0) + 1
+    store.setMeta("qa.round", String(round))
+    store.log("qa", `round ${round}: running tests and screenshots`)
+    const result = await steps.runRound(round)
+    if (result.kind === "infrastructure") {
+      store.setPhase("qa", "pending")
+      store.log("qa", `round ${round}: paused: ${result.reason.slice(0, 300)}`)
+      return "paused"
+    }
+    if (result.kind === "invalid") {
+      store.setPhase("qa", "failed")
+      store.log("qa", `round ${round}: no usable verdict: ${result.reason.slice(0, 500)}`)
+      return "failed"
+    }
+    if (result.kind === "pass") {
+      store.setPhase("qa", "approved")
+      store.log("qa", `round ${round}: pass`)
+      return steps.deploy()
+    }
+    failures += 1
+    store.log("qa", `round ${round}: fail, ${result.findings.length} findings, ${result.tasks.length} fix tasks (${result.tasks.map((task) => task.id).join(", ")})\n${formatFindings(result.findings).slice(0, 3000)}`)
+    // The fix tasks are recorded even on the last round, so a resumed run builds them before QA runs again.
+    try {
+      await steps.applyFixes(round, result.tasks)
+    } catch (error) {
+      store.setPhase("qa", "pending")
+      store.log("qa", `round ${round}: could not add the fix tasks: ${(error as Error).message.slice(0, 300)}`)
+      return "paused"
+    }
+    if (failures >= maxRounds) {
+      store.setPhase("qa", "failed")
+      store.log("qa", `stopped after ${failures} failed rounds; the fix tasks from round ${round} are queued. Review them, then resume the run`)
+      return "failed"
+    }
+    const built = await steps.build()
+    if (built !== "completed") {
+      store.setPhase("qa", "pending")
+      return built
+    }
+  }
+}

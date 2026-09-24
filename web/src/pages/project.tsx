@@ -17,6 +17,7 @@ import { EventsCard } from "@/components/project/events"
 import { GatePanel } from "@/components/project/gate-panel"
 import { GithubCard } from "@/components/project/github-card"
 import { ProjectBranding } from "@/components/project/branding"
+import { QaSection } from "@/components/project/qa-section"
 import { StatCards } from "@/components/project/stat-cards"
 import { PipelineStepper } from "@/components/project/stepper"
 import { RunnerHealthCard, runnerCooldown } from "@/components/project/system-tab"
@@ -35,6 +36,7 @@ const tabs = [
   { id: "overview", label: "Overview" },
   { id: "docs", label: "Docs" },
   { id: "branding", label: "Branding" },
+  { id: "qa", label: "QA" },
   { id: "attempts", label: "Agent calls" },
   { id: "system", label: "System" },
   { id: "config", label: "Config" },
@@ -211,6 +213,11 @@ function ProjectBody({ name, detail, stream }: { name: string; detail: ProjectDe
           <TabsContent value="branding" className="mt-2">
             <Card className="p-4">
               <ProjectBranding version={detail.phases.find((phase) => phase.name === "branding")?.updatedAt ?? ""} />
+            </Card>
+          </TabsContent>
+          <TabsContent value="qa" className="mt-2">
+            <Card className="p-4">
+              <QaSection />
             </Card>
           </TabsContent>
           <TabsContent value="attempts" className="mt-2">

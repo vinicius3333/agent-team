@@ -1,4 +1,4 @@
-import type { Defaults, NewProjectRequest, ProjectDetail, ProjectSummary } from "@/api/types"
+import type { Defaults, NewProjectRequest, ProjectDetail, ProjectSummary, QaRound } from "@/api/types"
 
 export class ApiError extends Error {
   status: number
@@ -50,6 +50,7 @@ export const api = {
   project: (name: string) => getJson<ProjectDetail>(projectPath(name)),
   markdownFiles: (name: string) => getJson<string[]>(`${projectPath(name)}/markdown`),
   branding: (name: string) => getJson<string[]>(`${projectPath(name)}/branding`),
+  qa: (name: string) => getJson<QaRound[]>(`${projectPath(name)}/qa`),
   file: (name: string, path: string) => getText(`${projectPath(name)}/file?path=${encodeURIComponent(path)}`),
   transcript: (name: string, file: string) => getText(`${projectPath(name)}/transcript/${encodeURIComponent(file)}`),
 
@@ -63,6 +64,7 @@ export const api = {
 export const urls = {
   stream: (name: string) => `/api/stream/${encodeURIComponent(name)}`,
   brandingImage: (name: string, file: string) => `${projectPath(name)}/branding/${encodeURIComponent(file)}`,
+  qaFile: (name: string, round: number, file: string) => `${projectPath(name)}/qa/${round}/${encodeURIComponent(file)}`,
   raw: (name: string, path: string) => `${projectPath(name)}/raw?path=${encodeURIComponent(path)}`,
   file: (name: string, path: string) => `${projectPath(name)}/file?path=${encodeURIComponent(path)}`,
 }

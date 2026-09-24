@@ -10,13 +10,13 @@ import type { Store } from "./store.ts"
 
 const appImage = "node:22-bookworm-slim"
 const tunnelImage = "cloudflare/cloudflared:latest"
-const appNetwork = "agent-team-apps"
+export const appNetwork = "agent-team-apps"
 const defaultPort = 3000
 const startTimeoutMs = 4 * 60_000
 const tunnelTimeoutMs = 90_000
 const tunnelUrlPattern = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/
 
-interface DeployPlan {
+export interface DeployPlan {
   install: string | null
   start: string
   port: number
@@ -26,8 +26,12 @@ function run(command: string, args: string[], cwd?: string): string {
   return execFileSync(command, args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 64 * 1024 * 1024 }).trim()
 }
 
+export function projectSlug(projectDir: string): string {
+  return basename(projectDir).toLowerCase().replace(/[^a-z0-9-]/g, "-")
+}
+
 function names(projectDir: string) {
-  const slug = basename(projectDir).toLowerCase().replace(/[^a-z0-9-]/g, "-")
+  const slug = projectSlug(projectDir)
   return { app: `agent-team-app-${slug}`, tunnel: `agent-team-tunnel-${slug}` }
 }
 
@@ -53,7 +57,7 @@ export function detectDeployPlan(dir: string): DeployPlan | null {
   return null
 }
 
-function removeContainers(...containers: string[]): void {
+export function removeContainers(...containers: string[]): void {
   for (const container of containers) {
     try {
       run("docker", ["rm", "-f", container])
@@ -61,23 +65,30 @@ function removeContainers(...containers: string[]): void {
   }
 }
 
-function ensureNetwork(): void {
+export function ensureNetwork(name = appNetwork, options: { internal?: boolean } = {}): void {
   try {
-    run("docker", ["network", "inspect", appNetwork])
+    run("docker", ["network", "inspect", name])
   } catch {
-    run("docker", ["network", "create", appNetwork])
+    run("docker", ["network", "create", ...(options.internal ? ["--internal", "--label", "agent-team-network=1"] : []), name])
   }
 }
 
-function snapshot(projectDir: string): string {
-  const dir = join(projectDir, ".agent-team", "deploy", "app")
+export function removeNetwork(name: string): void {
+  try {
+    run("docker", ["network", "rm", name])
+  } catch {}
+}
+
+// Copies main (committed files only) to .agent-team/<purpose>/app, so the app never runs from a worktree agents edit.
+export function snapshotMain(projectDir: string, purpose: "deploy" | "qa"): string {
+  const dir = join(projectDir, ".agent-team", purpose, "app")
   rmSync(dir, { recursive: true, force: true })
   mkdirSync(dir, { recursive: true })
   execFileSync("sh", ["-c", `git archive main | tar -x -C "${dir}"`], { cwd: projectDir, stdio: ["ignore", "pipe", "pipe"] })
   return dir
 }
 
-async function waitForApp(container: string, port: number): Promise<void> {
+export async function waitForApp(container: string, port: number): Promise<void> {
   const probe = `fetch("http://127.0.0.1:${port}").then(() => process.exit(0), () => process.exit(1))`
   const deadline = Date.now() + startTimeoutMs
   while (Date.now() < deadline) {
@@ -110,6 +121,29 @@ async function waitForTunnelUrl(projectDir: string): Promise<string> {
   throw new Error("tunnel did not report a URL")
 }
 
+export function startAppContainer(options: { name: string; dir: string; plan: DeployPlan; label: string; restart: boolean }): void {
+  const { name, dir, plan } = options
+  const command = [plan.install, plan.start].filter(Boolean).join(" && ")
+  run("docker", [
+    "run", "-d",
+    "--name", name,
+    "--label", options.label,
+    "--network", appNetwork,
+    ...(options.restart ? ["--restart", "unless-stopped"] : []),
+    "--memory", "512m", "--cpus", "1", "--pids-limit", "256",
+    "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+    "--user", "1000:1000",
+    "-e", "HOME=/tmp", "-e", `PORT=${plan.port}`, "-e", "HOST=0.0.0.0", "-e", "NODE_ENV=production",
+    "-v", `${dir}:/app`, "-w", "/app",
+    appImage, "sh", "-c", command,
+  ])
+}
+
+export function commandFailure(error: unknown): string {
+  const failure = error as { stderr?: string; message: string }
+  return (failure.stderr || failure.message).trim()
+}
+
 export type DeployResult = { url: string; error: null } | { url: null; error: string }
 
 // A fresh quick-tunnel hostname can take a few seconds to resolve; wait so the URL we report works.
@@ -128,7 +162,7 @@ async function waitForPublicUrl(url: string): Promise<void> {
 export async function deployProject(projectDir: string, store: Store): Promise<DeployResult> {
   const { app, tunnel } = names(projectDir)
   try {
-    const dir = snapshot(projectDir)
+    const dir = snapshotMain(projectDir, "deploy")
     const plan = detectDeployPlan(dir)
     if (!plan) {
       const error = "no deploy.json, npm start script, or index.html to serve"
@@ -138,20 +172,7 @@ export async function deployProject(projectDir: string, store: Store): Promise<D
     store.log("deploy", `starting app: ${plan.install ? `${plan.install} && ` : ""}${plan.start} (port ${plan.port})`)
     ensureNetwork()
     removeContainers(app, tunnel)
-    const command = [plan.install, plan.start].filter(Boolean).join(" && ")
-    run("docker", [
-      "run", "-d",
-      "--name", app,
-      "--label", "agent-team-app=1",
-      "--network", appNetwork,
-      "--restart", "unless-stopped",
-      "--memory", "512m", "--cpus", "1", "--pids-limit", "256",
-      "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
-      "--user", "1000:1000",
-      "-e", "HOME=/tmp", "-e", `PORT=${plan.port}`, "-e", "HOST=0.0.0.0", "-e", "NODE_ENV=production",
-      "-v", `${dir}:/app`, "-w", "/app",
-      appImage, "sh", "-c", command,
-    ])
+    startAppContainer({ name: app, dir, plan, label: "agent-team-app=1", restart: true })
     await waitForApp(app, plan.port)
     run("docker", [
       "run", "-d",
@@ -168,8 +189,7 @@ export async function deployProject(projectDir: string, store: Store): Promise<D
     store.log("deploy", `live at ${url}`)
     return { url, error: null }
   } catch (error) {
-    const failure = error as { stderr?: string; message: string }
-    const reason = (failure.stderr || failure.message).trim()
+    const reason = commandFailure(error)
     store.log("deploy", `failed: ${reason.slice(0, 500)}`)
     return { url: null, error: reason.slice(0, 4000) }
   }

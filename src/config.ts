@@ -11,7 +11,7 @@ export function normalizePhaseName(name: string): string {
   return legacyPhaseNames[name] ?? name
 }
 
-export const roles = ["pm", "architect", "illustrator", "designer", "planner", "worker", "reviewer"] as const
+export const roles = ["pm", "architect", "illustrator", "designer", "planner", "worker", "reviewer", "qa"] as const
 export type Role = (typeof roles)[number]
 
 export const runnerNames = ["claude", "codex"] as const
@@ -47,6 +47,7 @@ export interface PipelineConfig {
   branding: { enabled: boolean; count: number }
   publish: PublishConfig
   deploy: { enabled: boolean }
+  qa: { enabled: boolean; maxRounds: number }
   budget: { perTaskUsd: number }
   roles: Record<Role, RoleConfig>
   stackHints: { prefer: string[]; avoid: string[] }
@@ -61,6 +62,7 @@ export function loadConfig(path: string): PipelineConfig {
     autonomy: { gates: normalizeGates(raw.autonomy?.gates) },
     branding: normalizeBranding(raw.branding ?? raw.mockups),
     deploy: { enabled: raw.deploy?.enabled ?? false },
+    qa: { enabled: raw.qa?.enabled ?? true, maxRounds: raw.qa?.maxRounds ?? 3 },
     publish: {
       github: {
         enabled: raw.publish?.github?.enabled ?? false,
@@ -106,6 +108,7 @@ function normalizeBranding(raw: { enabled?: boolean; count?: number } | undefine
 // Roles added after a project was created get a default, so older pipeline.yaml files keep working.
 const defaultRoles: Partial<Record<Role, Candidate>> = {
   illustrator: { runner: "codex", model: "gpt-6-astra" },
+  qa: { runner: "claude", model: "opus" },
 }
 
 function normalizeRoles(rawRoles: Record<string, any> | undefined): Record<Role, RoleConfig> {
@@ -124,6 +127,7 @@ function validateConfig(config: PipelineConfig): void {
   if (!["none", "docker"].includes(config.harness.isolation)) errors.push("harness.isolation must be none or docker")
   if (!["private", "public"].includes(config.publish.github.visibility)) errors.push("publish.github.visibility must be private or public")
   if (config.branding.count < 2 || config.branding.count > 6) errors.push("branding.count must be between 2 and 6")
+  if (!Number.isInteger(config.qa.maxRounds) || config.qa.maxRounds < 1) errors.push("qa.maxRounds must be a whole number of 1 or more")
   if (!["web", "api", "web+api"].includes(config.target)) errors.push(`target must be web, api, or web+api`)
   for (const gate of config.autonomy.gates) {
     if (!planningPhases.includes(gate)) errors.push(`unknown gate "${gate}"`)

@@ -24,7 +24,8 @@ Write these files:
 4. `docs/design.md` with these sections, referencing the design system instead of repeating it:
    - `## Screens`: one subsection per screen. For each screen give:
      - the user stories it serves (`US-01`, `US-04`)
-     - the route, for example `/settings`. Automated QA screenshots every route listed here, so list real routes.
+     - a line `Route: /settings` with the screen's real path. Automated QA screenshots every route listed this way, so use static paths (`/tasks`, not `/tasks/:id`) and one `Route:` line per screen.
+     - a line `Branding: 02-<screen>.png` naming the branding image this screen follows, if one does. QA shows them side by side.
      - the layout at 1280px wide, as an ASCII sketch in a code block
      - how the layout changes at 768px and 360px, in one or two lines
      - the states: empty, loading, error, and success

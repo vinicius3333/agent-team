@@ -8,6 +8,7 @@ export const stepLabels: Record<PipelineStep, string> = {
   design: "Design",
   plan: "Plan",
   build: "Build",
+  qa: "QA",
   deploy: "Deploy",
 }
 
@@ -17,6 +18,7 @@ export const phaseRoles: Record<string, string> = {
   branding: "illustrator",
   design: "designer",
   plan: "planner",
+  qa: "qa",
 }
 
 export const phaseOutputs: Record<string, string[]> = {
@@ -26,6 +28,7 @@ export const phaseOutputs: Record<string, string[]> = {
   design: ["design/tokens.css", "design/logo.svg", "design/logo-mark.svg", "docs/design-system.md", "docs/design.md"],
   plan: ["tasks.json"],
   build: ["code and tests, one merge per task"],
+  qa: [".agent-team/qa/round-<n>/: tests.json, report.json, <route>.png, verdict.json"],
 }
 
 export const phaseDocuments: Record<string, string[]> = {
@@ -105,6 +108,14 @@ export function deployState(detail: ProjectDetail): { status: StepStatus; note: 
   return { status: "pending", note: "" }
 }
 
+export function qaState(detail: ProjectDetail): { status: StepStatus; note: string } {
+  if (skippedPhases(detail).has("qa") || detail.config?.qa.enabled === false) return { status: "skipped", note: "skipped" }
+  const status = detail.phases.find((phase) => phase.name === "qa")?.status ?? "pending"
+  const round = detail.qa?.round
+  const notes: Partial<Record<PhaseStatus, string>> = { running: round ? `round ${round}` : "working", approved: "passed", failed: "failed", pending: round ? `round ${round}` : "" }
+  return { status, note: notes[status] ?? "" }
+}
+
 export function stepStates(detail: ProjectDetail): StepState[] {
   const byName = new Map(detail.phases.map((phase) => [phase.name, phase.status]))
   const skipped = skippedPhases(detail)
@@ -112,7 +123,7 @@ export function stepStates(detail: ProjectDetail): StepState[] {
   const total = detail.tasks.length
   return pipelineSteps.map((step) => {
     if (step === "build") {
-      const planningDone = detail.phases.filter((phase) => phase.name !== "deploy").every((phase) => phase.status === "approved" || phase.status === "skipped")
+      const planningDone = detail.phases.filter((phase) => phase.name !== "deploy" && phase.name !== "qa").every((phase) => phase.status === "approved" || phase.status === "skipped")
       const status: StepStatus = !total
         ? "pending"
         : counts.merged === total
@@ -125,6 +136,7 @@ export function stepStates(detail: ProjectDetail): StepState[] {
       return { step, status, note: total ? `${counts.merged}/${total} tasks` : "" }
     }
     if (step === "deploy") return { step, ...deployState(detail) }
+    if (step === "qa") return { step, ...qaState(detail) }
     if (skipped.has(step)) return { step, status: "skipped", note: "skipped" }
     const status = byName.get(step) ?? "pending"
     const notes: Partial<Record<PhaseStatus, string>> = { awaiting_approval: "needs approval", running: "working", approved: "done", failed: "failed" }

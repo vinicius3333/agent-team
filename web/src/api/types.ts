@@ -1,7 +1,7 @@
 export const planningPhases = ["spec", "architecture", "branding", "design", "plan"] as const
 export type PlanningPhase = (typeof planningPhases)[number]
 
-export const pipelineSteps = [...planningPhases, "build", "deploy"] as const
+export const pipelineSteps = [...planningPhases, "build", "qa", "deploy"] as const
 export type PipelineStep = (typeof pipelineSteps)[number]
 
 export type PhaseStatus = "pending" | "running" | "awaiting_approval" | "approved" | "failed" | "skipped"
@@ -94,6 +94,7 @@ export interface ProjectConfig {
   gates: PlanningPhase[]
   roles: Record<string, RoleConfig>
   branding: { enabled?: boolean; count?: number } | null
+  qa: { enabled: boolean; maxRounds: number }
   publish: { github: { enabled: boolean } }
 }
 
@@ -139,7 +140,32 @@ export interface ProjectDetail extends Omit<ProjectSummary, "live" | "liveUrl"> 
   worktrees: string[]
   containers: Container[]
   deploy: DeployInfo | null
+  qa?: { round: number | null }
   feedback?: Partial<Record<string, string>>
+}
+
+export interface QaFinding {
+  title: string
+  detail: string
+  screen: string
+}
+
+export interface QaRouteReport {
+  route: string
+  slug: string
+  file: string | null
+  status: number | null
+  consoleErrors: string[]
+  error: string | null
+  branding: string | null
+}
+
+export interface QaRound {
+  round: number
+  tests: { install: string | null; command: string | null; passed: boolean; output: string } | null
+  report: { baseUrl: string | null; viewport: { width: number; height: number }; startError: string | null; routes: QaRouteReport[] } | null
+  verdict: { verdict: "pass" | "fail" | "invalid"; reason?: string | null; findings: QaFinding[]; tasks: { id: string; title: string }[] } | null
+  images: string[]
 }
 
 export interface NewProjectRequest {

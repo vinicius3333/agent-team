@@ -7,7 +7,7 @@ import { StatusBadge } from "@/components/status-badge"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { formatClock, formatCost, formatDateTime, formatDuration } from "@/lib/format"
-import { attemptNumber, deployState, describeCandidate, maxRetries, phaseDocuments, phaseOutputs, phaseRoles, skippedPhases, stepLabels, taskCounts } from "@/lib/pipeline"
+import { attemptNumber, deployState, qaState, describeCandidate, maxRetries, phaseDocuments, phaseOutputs, phaseRoles, skippedPhases, stepLabels, taskCounts } from "@/lib/pipeline"
 import { useProjectView, type Panel, type TranscriptRequest } from "./context"
 import { DocumentView } from "./document-view"
 import { EventList, EventType } from "./events"
@@ -284,6 +284,50 @@ function deployPanel(detail: ProjectDetail): PanelContent {
   }
 }
 
+function qaPanel(detail: ProjectDetail, view: ReturnType<typeof useProjectView>): PanelContent {
+  const state = qaState(detail)
+  const calls = detail.attempts.filter((attempt) => attempt.role === "qa").slice().reverse()
+  const events = detail.events.filter((event) => event.type === "qa" || (event.type === "phase" && /^qa\b/.test(event.message)))
+  return {
+    title: "QA",
+    subtitle: state.note || state.status,
+    body: (
+      <>
+        <Facts
+          rows={[
+            ["Status", <StatusBadge status={state.status} label={state.note || undefined} />],
+            ["Round", detail.qa?.round ?? ""],
+            ["Max rounds", detail.config?.qa.maxRounds ?? ""],
+            ["Model", <Candidate role={detail.config?.roles.qa} />],
+          ]}
+        />
+        <Section title="Outputs">
+          <Paths list={phaseOutputs.qa} />
+          <div>
+            <Button variant="outline" size="sm" onClick={() => view.showTab("qa")}>
+              Open QA results
+            </Button>
+          </div>
+        </Section>
+        <Section title="Agent calls">
+          {calls.length ? (
+            <div className="flex flex-col gap-1.5">
+              {calls.map((attempt) => (
+                <CallButton key={attempt.id} attempt={attempt} label={attempt.subject} />
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">No agent calls yet.</p>
+          )}
+        </Section>
+        <Section title="QA events">
+          <EventList events={events.slice(-40)} />
+        </Section>
+      </>
+    ),
+  }
+}
+
 function buildPanel(detail: ProjectDetail, openPanel: (panel: Panel) => void): PanelContent {
   const counts = taskCounts(detail.tasks)
   return {
@@ -326,6 +370,7 @@ function buildPanel(detail: ProjectDetail, openPanel: (panel: Panel) => void): P
 function phasePanel(detail: ProjectDetail, phase: string, view: ReturnType<typeof useProjectView>): PanelContent {
   if (phase === "deploy") return deployPanel(detail)
   if (phase === "build") return buildPanel(detail, view.openPanel)
+  if (phase === "qa") return qaPanel(detail, view)
   const role = phaseRoles[phase] ?? phase
   const row = detail.phases.find((entry) => entry.name === phase)
   const status = skippedPhases(detail).has(phase) ? "skipped" : (row?.status ?? "pending")

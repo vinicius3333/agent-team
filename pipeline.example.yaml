@@ -10,6 +10,10 @@ branding:
   enabled: true        # the illustrator draws the logo and desktop screens before the design phase
   count: 4             # total images, logo included (2 to 6). The old key "mockups:" still works
 
+qa:
+  enabled: true        # after the build: run the tests, screenshot every route, and compare them with the branding
+  maxRounds: 3         # fix rounds before the run stops for a human
+
 deploy:
   enabled: true        # after the build, run the app in a container and expose it at a random https://*.trycloudflare.com URL
 
@@ -36,6 +40,7 @@ roles:
     runner: claude
     model: opus          # a stronger model than the worker, since both use claude
     fallbacks: []
+  qa:        { runner: claude, model: opus }   # reads screenshots and branding images; read-only
 
 allowSameVendorReview: true   # worker and reviewer both run on claude
 

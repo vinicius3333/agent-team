@@ -103,12 +103,34 @@ Do not expose the port to the internet. Anyone who reaches it can start paid age
 | design | Designer | `design/tokens.css`, `design/logo.svg`, `design/logo-mark.svg`, `docs/design-system.md`, `docs/design.md` |
 | plan | Planner | `tasks.json` |
 | build | Worker, then Reviewer | code and tests, one commit per task |
+| qa | QA | `.agent-team/qa/round-<n>/`: test output, screenshots, `report.json`, verdict; fix tasks `Q<round><n>` in `tasks.json` |
+| deploy | none | live preview URL |
 
 `branding.count` (default 4, 2 to 6) sets the number of branding images, logo included. Set `branding.enabled: false` to skip the phase. Older `pipeline.yaml` files with a `mockups:` key, and `mockups` in `autonomy.gates`, still work.
 
 Role prompts live in `prompts/`. Edit them to tune behavior.
 
 State lives in `<projectDir>/.agent-team/`: `state.db` (SQLite) and agent transcripts.
+
+## QA
+
+After every task is merged and before deploy, QA checks the build. Configure it in `pipeline.yaml`:
+
+```yaml
+qa:
+  enabled: true
+  maxRounds: 3   # failed rounds before the run stops for a human
+```
+
+Each round:
+
+1. **Tests.** Runs the `install` and `test` commands from `## Commands` in `docs/architecture.md` on a fresh worktree of `main`, in the same sandbox as workers.
+2. **Screenshots.** Starts `main` the way deploy does, in container `agent-team-qa-<project>` with no tunnel. A Playwright container (`agent-team-qa-shot-<project>`, built from `mcr.microsoft.com/playwright`) loads every `Route:` line in `docs/design.md` plus `/design-system` at 1440x900, full page, and records the HTTP status and console errors. The browser joins only a per-project internal network, so it reaches the app and not the internet. Both containers and the network are removed after the round. Skipped for `api` targets.
+3. **Review.** The `qa` role (default `claude opus`, read-only) compares the screenshots with the branding images and `docs/design-system.md`, and answers `pass` or `fail` with findings and fix tasks.
+
+On pass, deploy runs. On fail, the fix tasks are added to `tasks.json`, built by the worker and reviewer, and QA runs again. After `maxRounds` failed rounds, the run stops with the last fix tasks queued; "Resume run" builds them and starts a new round. A failed test run, an app that does not start, or a route that does not load always fails the round.
+
+The dashboard's QA tab shows each round: verdict, findings, test output, and every screenshot next to its branding image.
 
 ## Live preview
 

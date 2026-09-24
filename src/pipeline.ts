@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs"
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import type { Candidate, PipelineConfig, PlanningPhase, Role } from "./config.ts"
 import { changedFiles, stagedDiff } from "./git.ts"
@@ -10,6 +10,8 @@ import { commitAndRebase, createWorkspace, detectSetupCommand, fastForwardMain, 
 import { deployProject } from "./deploy.ts"
 import { archiveFeedback, readFeedback } from "./feedback.ts"
 import type { GitHub } from "./github.ts"
+import { parseArchitectureCommands, parseDesignScreens, parseQaVerdict, runQaLoop, type QaRoundResult, type QaScreen } from "./qa.ts"
+import { captureScreenshots, type VisualReport } from "./screenshots.ts"
 import type { Store } from "./store.ts"
 import { filesOutsideScope, loadTasks, type Task } from "./tasks.ts"
 
@@ -18,6 +20,7 @@ const deployAttempts = 3
 const commandTimeoutMs = 10 * 60 * 1000
 const planningTools = ["read", "edit", "write", "bash:mkdir", "bash:ls"]
 const reviewerTools = ["read"]
+const qaTools = ["read"]
 // Workers start their final message with this when the task cannot be done within its scope.
 const blockedPrefix = "BLOCKED:"
 
@@ -213,6 +216,22 @@ export function phasePrompt(context: Pick<PipelineContext, "projectDir" | "confi
 }
 
 async function runTasks(context: PipelineContext): Promise<RunOutcome> {
+  const built = await buildTasks(context)
+  if (built !== "completed") return built
+  let deployUrl: string | null = null
+  const deploy = async () => {
+    const result = await runDeployPhase(context)
+    deployUrl = result.url
+    return result.outcome
+  }
+  const outcome = await runQaPhase(context, deploy)
+  if (outcome !== "completed") return outcome
+  context.github.runCompleted(deployUrl)
+  return "completed"
+}
+
+// Runs every task in tasks.json that is not merged yet. QA fix tasks are appended to the same file.
+async function buildTasks(context: PipelineContext): Promise<RunOutcome> {
   const { projectDir, store } = context
   const tasks = loadTasks(join(projectDir, "tasks.json"))
   store.syncTasks(tasks.map((task) => task.id))
@@ -228,9 +247,6 @@ async function runTasks(context: PipelineContext): Promise<RunOutcome> {
     if (outcome !== "completed") return outcome
   }
   store.log("run", "all tasks merged")
-  const deploy = await runDeployPhase(context)
-  if (deploy.outcome !== "completed") return deploy.outcome
-  context.github.runCompleted(deploy.url)
   return "completed"
 }
 
@@ -327,6 +343,191 @@ async function attemptTask(context: PipelineContext, task: Task, attempt: number
     await executor.dispose()
     removeWorkspace(projectDir, workspace)
   }
+}
+
+async function runQaPhase(context: PipelineContext, deploy: () => Promise<RunOutcome>): Promise<RunOutcome> {
+  const { config, store } = context
+  if (!config.qa.enabled) {
+    if (store.phaseStatus("qa") !== "approved") {
+      store.setPhase("qa", "approved")
+      store.log("phase", "qa skipped: disabled in pipeline.yaml")
+    }
+    return deploy()
+  }
+  return runQaLoop(store, config.qa.maxRounds, {
+    runRound: (round) => runQaRound(context, round),
+    applyFixes: (round, tasks) => appendFixTasks(context, round, tasks),
+    build: () => buildTasks(context),
+    deploy,
+  })
+}
+
+interface TestGateResult {
+  install: string | null
+  command: string | null
+  passed: boolean
+  output: string
+}
+
+// Round artifacts go to .agent-team/qa/round-<n>/: tests.json, report.json, <route-slug>.png, verdict.json.
+async function runQaRound(context: PipelineContext, round: number): Promise<QaRoundResult> {
+  const { projectDir, config, store } = context
+  const roundPath = join(".agent-team", "qa", `round-${round}`)
+  const outDir = join(projectDir, roundPath)
+  rmSync(outDir, { recursive: true, force: true })
+  mkdirSync(outDir, { recursive: true })
+  const name = `qa-${round}`
+  const workspace = createWorkspace(projectDir, name)
+  const executor = await createExecutor(context, workspace.path, name)
+  try {
+    const tests = await runTestGate(context, executor, workspace.path, name)
+    writeJson(join(outDir, "tests.json"), tests)
+    store.log("qa", `round ${round}: tests ${tests.command ? (tests.passed ? "passed" : "failed") : "not found"}`)
+
+    let visual: VisualReport | null = null
+    let screens: QaScreen[] = []
+    if (config.target === "api") {
+      store.log("qa", `round ${round}: visual gate skipped: api-only target`)
+    } else {
+      const designPath = join(workspace.path, "docs/design.md")
+      screens = parseDesignScreens(existsSync(designPath) ? readFileSync(designPath, "utf8") : "")
+      visual = await captureScreenshots({ projectDir, outDir, screens, signal: context.signal })
+      const broken = visual.routes.filter((route) => route.error || (route.status ?? 0) >= 400).length
+      store.log("qa", visual.startError ? `round ${round}: app did not start: ${visual.startError.slice(0, 300)}` : `round ${round}: ${visual.routes.length} screenshots, ${broken} broken routes`)
+      // The reviewer sees only its worktree, so the round's files are copied in at the same relative path.
+      cpSync(outDir, join(workspace.path, roundPath), { recursive: true })
+    }
+
+    const existing = loadTasks(join(workspace.path, "tasks.json"))
+    const hardFailures = qaHardFailures(tests, visual)
+    let previousError: string | null = null
+    for (let attempt = 1; attempt <= phaseAttempts; attempt++) {
+      const prompt = qaPrompt({ round, roundPath, target: config.target, tests, visual, screens, brandingImages: listBrandingImages(workspace.path), existing, hardFailures, previousError })
+      const outcome = await runAgent(context, executor, "qa", `qa-${round}-review-${attempt}`, qaTools, prompt)
+      if (isInfrastructureFailure(outcome)) return { kind: "infrastructure", reason: `qa ${outcome.failureClass}: ${outcome.result.summary}` }
+      if (outcome.result.status !== "done") {
+        previousError = `agent ${outcome.result.status}: ${outcome.result.summary}`
+        continue
+      }
+      try {
+        const verdict = parseQaVerdict(outcome.result.summary, round, existing)
+        if (verdict.verdict === "pass" && hardFailures.length) throw new Error(`the verdict cannot be pass while these gates fail: ${hardFailures.join("; ")}`)
+        writeJson(join(outDir, "verdict.json"), { round, ...verdict })
+        return verdict.verdict === "pass" ? { kind: "pass", findings: verdict.findings } : { kind: "fail", findings: verdict.findings, tasks: verdict.tasks }
+      } catch (error) {
+        previousError = (error as Error).message
+        store.log("qa", `round ${round}: verdict rejected: ${previousError.slice(0, 300)}`)
+      }
+    }
+    writeJson(join(outDir, "verdict.json"), { round, verdict: "invalid", reason: previousError, findings: [], tasks: [] })
+    return { kind: "invalid", reason: previousError ?? "no verdict" }
+  } catch (error) {
+    return { kind: "infrastructure", reason: (error as Error).message }
+  } finally {
+    await executor.dispose()
+    removeWorkspace(projectDir, workspace)
+  }
+}
+
+async function runTestGate(context: PipelineContext, executor: Executor, dir: string, subject: string): Promise<TestGateResult> {
+  const architecturePath = join(dir, "docs/architecture.md")
+  const commands = parseArchitectureCommands(existsSync(architecturePath) ? readFileSync(architecturePath, "utf8") : "")
+  const packagePath = join(dir, "package.json")
+  const hasTestScript = existsSync(packagePath) && Boolean(JSON.parse(readFileSync(packagePath, "utf8")).scripts?.test)
+  const install = commands.install ?? detectSetupCommand(dir)
+  const command = commands.test ?? (hasTestScript ? "npm test" : null)
+  if (!command) return { install, command, passed: true, output: "No test command in docs/architecture.md or package.json." }
+  if (install) {
+    const setup = await runCommand(context, executor, install, `${subject}-install`)
+    if (!setup.passed) return { install, command, passed: false, output: `install failed (${install}):\n${setup.output}` }
+  }
+  const result = await runCommand(context, executor, command, `${subject}-test`)
+  return { install, command, passed: result.passed, output: result.output }
+}
+
+export function qaHardFailures(tests: TestGateResult, visual: VisualReport | null): string[] {
+  const failures: string[] = []
+  if (!tests.passed) failures.push(`tests failed (${tests.command})`)
+  if (visual?.startError) failures.push("the app did not start")
+  for (const route of visual?.routes ?? []) {
+    if (route.error) failures.push(`${route.route} did not load: ${route.error}`)
+    else if ((route.status ?? 0) >= 400) failures.push(`${route.route} answered HTTP ${route.status}`)
+  }
+  return failures
+}
+
+function listBrandingImages(dir: string): string[] {
+  for (const brandingDir of ["design/branding", "design/mockups"]) {
+    const path = join(dir, brandingDir)
+    if (existsSync(path)) return readdirSync(path).filter((file) => imagePattern.test(file)).sort().map((file) => `${brandingDir}/${file}`)
+  }
+  return []
+}
+
+function qaPrompt(input: {
+  round: number
+  roundPath: string
+  target: PipelineConfig["target"]
+  tests: TestGateResult
+  visual: VisualReport | null
+  screens: QaScreen[]
+  brandingImages: string[]
+  existing: Task[]
+  hardFailures: string[]
+  previousError: string | null
+}): string {
+  const { round, roundPath, tests, visual } = input
+  const lines = [`QA round ${round}. Project target: ${input.target}.`, "", "## Gate 1: tests", ""]
+  if (tests.command) lines.push(`Install: \`${tests.install ?? "none"}\`. Test: \`${tests.command}\`. Result: ${tests.passed ? "passed" : "FAILED"}.`, "", "```", tests.output.trim(), "```")
+  else lines.push(tests.output)
+  lines.push("", "## Gate 2: screenshots", "")
+  if (!visual) lines.push("Skipped: the target is api only.")
+  else if (visual.startError) lines.push("The app did not start, so there are no screenshots:", "", "```", visual.startError, "```")
+  else {
+    lines.push(`Each route was loaded at ${visual.viewport.width}x${visual.viewport.height} and captured full page. Full report: ${roundPath}/report.json.`, "")
+    for (const route of visual.routes) {
+      const shot = route.file ? `${roundPath}/${route.file}` : "no screenshot"
+      const status = route.error ? `error: ${route.error}` : `HTTP ${route.status ?? "unknown"}`
+      const errors = route.consoleErrors.length ? `; console errors: ${route.consoleErrors.slice(0, 5).join(" | ")}` : "; no console errors"
+      const branding = route.branding ? `; compare with design/branding/${route.branding}` : ""
+      lines.push(`- \`${route.route}\`: ${shot}, ${status}${errors}${branding}`)
+    }
+  }
+  lines.push("", "## References", "")
+  lines.push(`Branding images: ${input.brandingImages.join(", ") || "none"}.`)
+  lines.push("Read docs/spec.md, docs/design.md, docs/design-system.md, and design/tokens.css.")
+  lines.push("", "## Tasks", "")
+  lines.push(`Existing task ids (all merged): ${input.existing.map((task) => task.id).join(", ")}.`)
+  lines.push(`Name fix tasks Q${round}01, Q${round}02, and so on.`)
+  if (input.hardFailures.length) lines.push("", "These gates failed, so the verdict must be fail with a fix task for each:", ...input.hardFailures.map((failure) => `- ${failure}`))
+  if (input.previousError) lines.push("", `Your previous answer was rejected. Fix this: ${input.previousError}`)
+  return lines.join("\n")
+}
+
+async function appendFixTasks(context: PipelineContext, round: number, tasks: Task[]): Promise<void> {
+  const { projectDir } = context
+  const workspace = createWorkspace(projectDir, `qa-fixes-${round}`)
+  try {
+    const path = join(workspace.path, "tasks.json")
+    const current = JSON.parse(readFileSync(path, "utf8")) as Task[]
+    const added = tasks.filter((task) => !current.some((existing) => existing.id === task.id))
+    writeJson(path, [...current, ...added])
+    loadTasks(path)
+    const title = `chore(qa): add round ${round} fix tasks`
+    commitAndRebase(workspace, title)
+    context.github.land({
+      branch: workspace.branch,
+      title,
+      body: [`QA round ${round} failed. The QA agent added these fix tasks:`, "", ...added.map((task) => `- ${task.id}: ${task.title}`)].join("\n"),
+      localMerge: () => fastForwardMain(projectDir, workspace.branch),
+    })
+  } finally {
+    removeWorkspace(projectDir, workspace)
+  }
+}
+
+function writeJson(path: string, value: unknown): void {
+  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`)
 }
 
 // Deploy is the last phase. When the app does not come up, a worker agent gets the failure and fixes

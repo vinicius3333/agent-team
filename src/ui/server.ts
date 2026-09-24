@@ -40,6 +40,10 @@ const brandingImagePattern = /^[A-Za-z0-9._-]+\.(png|jpe?g|webp)$/
 const phaseNameColumn = "CASE name WHEN 'mockups' THEN 'branding' ELSE name END AS name"
 // Projects created before the rename keep their images in design/mockups/.
 const brandingDirectories = [join("design", "branding"), join("design", "mockups")]
+const qaRoundDirectoryPattern = /^round-(\d{1,4})$/
+const qaRoundPattern = /^\d{1,4}$/
+const qaImagePattern = /^[a-z0-9-]+\.png$/
+const qaJsonFiles = ["tests.json", "report.json", "verdict.json"]
 const activeWindowMs = 2 * 60_000
 const projectNamePattern = /^[A-Za-z0-9._-]+$/
 const transcriptNamePattern = /^[A-Za-z0-9._-]+\.log$/
@@ -172,6 +176,41 @@ function brandingDirectory(projectDir: string): string | null {
   return brandingDirectories.find((dir) => existsSync(join(projectDir, dir))) ?? null
 }
 
+function qaRoundPath(round: number | string): string {
+  return join(".agent-team", "qa", `round-${round}`)
+}
+
+function readQaJson(projectDir: string, relative: string): unknown {
+  const path = projectFile(projectDir, relative)
+  if (!path || !statSync(path).isFile() || statSync(path).size > artifactMaxBytes) return null
+  try {
+    return JSON.parse(readFileSync(path, "utf8"))
+  } catch {
+    return null
+  }
+}
+
+// Newest round first. Every path goes through projectFile, so a symlink in .agent-team/qa cannot leave the project.
+function qaRounds(projectDir: string) {
+  const base = projectFile(projectDir, join(".agent-team", "qa"))
+  if (!base || !statSync(base).isDirectory()) return []
+  return readdirSync(base)
+    .map((entry) => Number(qaRoundDirectoryPattern.exec(entry)?.[1] ?? NaN))
+    .filter((round) => Number.isInteger(round))
+    .sort((a, b) => b - a)
+    .map((round) => {
+      const dir = projectFile(projectDir, qaRoundPath(round))
+      const images = dir && statSync(dir).isDirectory() ? readdirSync(dir).filter((file) => qaImagePattern.test(file) && projectFile(projectDir, join(qaRoundPath(round), file))).sort() : []
+      return {
+        round,
+        tests: readQaJson(projectDir, join(qaRoundPath(round), "tests.json")),
+        report: readQaJson(projectDir, join(qaRoundPath(round), "report.json")),
+        verdict: readQaJson(projectDir, join(qaRoundPath(round), "verdict.json")),
+        images,
+      }
+    })
+}
+
 function readConfig(projectDir: string) {
   try {
     const raw = parseYaml(readFileSync(join(projectDir, "pipeline.yaml"), "utf8")) ?? {}
@@ -184,6 +223,7 @@ function readConfig(projectDir: string) {
       gates: Array.isArray(raw.autonomy?.gates) ? raw.autonomy.gates.map((gate: unknown) => normalizePhaseName(String(gate))) : [],
       roles,
       branding: raw.branding ?? raw.mockups ?? null,
+      qa: { enabled: raw.qa?.enabled ?? true, maxRounds: raw.qa?.maxRounds ?? 3 },
       publish: { github: { enabled: Boolean(raw.publish?.github?.enabled) } },
     }
   } catch {
@@ -348,6 +388,7 @@ async function detail(runsDir: string, name: string) {
     worktrees: worktrees.split("\n").filter(Boolean),
     containers,
     deploy,
+    qa: { round: meta["qa.round"] ? Number(meta["qa.round"]) : null },
     feedback: pendingFeedback(projectDir),
   }
 }
@@ -553,6 +594,16 @@ export function startUi(options: UiOptions) {
           if (!path || statSync(path).size > imageMaxBytes) return send(response, 404, { error: "not found" })
           const extension = parts[4].split(".").pop()!.toLowerCase()
           response.writeHead(200, { "content-type": `image/${extension === "jpg" ? "jpeg" : extension}`, "cache-control": "no-store" })
+          return response.end(readFileSync(path))
+        }
+        if (parts[3] === "qa" && parts.length === 4) return send(response, 200, qaRounds(projectDir))
+        if (parts[3] === "qa" && parts.length === 6) {
+          const [round, file] = [parts[4], parts[5]]
+          const isImage = qaImagePattern.test(file)
+          if (!qaRoundPattern.test(round) || (!isImage && !qaJsonFiles.includes(file))) return send(response, 400, { error: "bad file name" })
+          const path = projectFile(projectDir, join(qaRoundPath(round), file))
+          if (!path || !statSync(path).isFile() || statSync(path).size > imageMaxBytes) return send(response, 404, { error: "not found" })
+          response.writeHead(200, { "content-type": isImage ? "image/png" : "application/json; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff" })
           return response.end(readFileSync(path))
         }
         if (parts[3] === "file" && parts.length === 4) {
