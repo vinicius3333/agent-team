@@ -62,6 +62,10 @@ test("decideReplan applies safe changes and sends risky ones to a human", () => 
   const owned = decideReplan(tasks, "T002", { action: "rebind", allowedPaths: ["src/t003/**"] })
   assert.equal(owned.kind, "human")
   assert.match(owned.kind === "human" ? owned.reason : "", /owned by T003/)
+  const freed = decideReplan(tasks, "T002", { action: "rebind", allowedPaths: ["src/t003/**"] }, new Set(["T003"]))
+  assert.equal(freed.kind, "apply")
+  const mergedManifest = decideReplan(tasks, "T002", { action: "rebind", allowedPaths: ["package.json"] }, new Set(["T001"]))
+  assert.match(mergedManifest.kind === "human" ? mergedManifest.reason : "", /shared foundation file/)
   const manifest = decideReplan(tasks, "T002", { action: "rebind", allowedPaths: ["package.json"] })
   assert.match(manifest.kind === "human" ? manifest.reason : "", /shared foundation file/)
 
@@ -194,23 +198,23 @@ test("a scope block is replanned by rebinding, then the task merges", async () =
   assert.deepEqual(jobs.filter((job) => job.role === "worker").at(-1)?.writablePaths, ["src/t001/**", "src/extra/**"])
 })
 
-test("a replan that touches another task's files stops for a human", async () => {
-  const { store, run } = setupProject("human", [task("T001", { phase: "foundation" }), task("T002", { dependsOn: ["T001"] })])
+test("a replan that touches an unfinished task's files stops for a human", async () => {
+  const { store, run } = setupProject("human", [task("T001", { phase: "foundation" }), task("T002", { dependsOn: ["T001"] }), task("T003", { dependsOn: ["T002"] })])
   const { harness } = stubHarness({
     worker: [
       (job, workdir) => {
-        if (job.subject.startsWith("T002")) return 'BLOCKED: {"kind":"scope","needPaths":["src/t001/a.ts"],"reason":"shared helper"}'
+        if (job.subject.startsWith("T002")) return 'BLOCKED: {"kind":"scope","needPaths":["src/t003/a.ts"],"reason":"shared helper"}'
         writeFile(workdir, "src/t001/a.ts")
         return "done"
       },
     ],
-    replanner: ['```json\n{"action":"rebind","allowedPaths":["src/t002/**","src/t001/**"]}\n```'],
+    replanner: ['```json\n{"action":"rebind","allowedPaths":["src/t002/**","src/t003/**"]}\n```'],
     reviewer: [pass],
   })
   assert.equal(await run(harness), "awaiting_approval")
   const row = store.task("T002")
   assert.equal(row.status, "blocked")
-  assert.match(row.humanReason ?? "", /owned by T001/)
+  assert.match(row.humanReason ?? "", /owned by T003/)
   assert.equal(await run(stubHarness({}).harness), "awaiting_approval", "a resumed run stops at the same decision")
 })
 

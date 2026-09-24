@@ -444,6 +444,10 @@ function requireHuman(context: PipelineContext, task: Task, reason: string): Run
   return "awaiting_approval"
 }
 
+function mergedTaskIds(statuses: Record<string, string>): Set<string> {
+  return new Set(Object.keys(statuses).filter((id) => statuses[id] === "merged"))
+}
+
 type ReplanResult = ReplanDecision | { kind: "infrastructure"; reason: string }
 
 // The planner gets the blocked task, the block, every task with its status, and the tracked files,
@@ -468,7 +472,7 @@ async function replanTask(context: PipelineContext, task: Task, block: Block): P
       }
       let decision: ReplanDecision
       try {
-        decision = decideReplan(tasks, task.id, parseReplanAction(outcome.result.summary))
+        decision = decideReplan(tasks, task.id, parseReplanAction(outcome.result.summary), mergedTaskIds(statuses))
       } catch (error) {
         previousError = (error as Error).message
         store.log("replan", `${task.id}: answer rejected: ${previousError.slice(0, 300)}`)

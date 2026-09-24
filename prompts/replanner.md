@@ -25,7 +25,7 @@ You may read any file in the repo. Read `docs/architecture.md` and the files the
 - `dependsOn` may list only existing task ids or other new tasks in the same answer. No cycles.
 - Split tasks together must cover every acceptance criterion of the blocked task.
 - Never put `docs/**`, `contracts/**`, or `design/**` in `allowedPaths`.
-- Prefer the smallest change. A scope already owned by another task, or a shared foundation file (package manifest, lockfile, app entry, router, migration index), needs a human: the orchestrator stops and asks one. Propose it only if nothing else works.
+- Prefer the smallest change. Files owned by a `merged` task are free to change. A scope owned by another task that is not `merged`, or a shared foundation file (package manifest, lockfile, app entry, router, migration index), needs a human: the orchestrator stops and asks one. Propose it only if nothing else works.
 - `verify` runs offline and exits non-zero on failure.
 
 ## Output

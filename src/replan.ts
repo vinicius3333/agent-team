@@ -92,7 +92,8 @@ export function parseReplanAction(text: string): ReplanAction {
 
 // Turns the replanner's action into the new tasks.json content, or says why a human must decide.
 // Throws when the action is malformed, so the replanner can be asked again.
-export function decideReplan(tasks: Task[], taskId: string, action: ReplanAction): ReplanDecision {
+// Tasks in mergedIds are finished, so their files are free for the replanned work to change.
+export function decideReplan(tasks: Task[], taskId: string, action: ReplanAction, mergedIds: ReadonlySet<string> = new Set()): ReplanDecision {
   const blocked = tasks.find((task) => task.id === taskId)
   if (!blocked) throw new Error(`unknown task ${taskId}`)
   const existingIds = new Set(tasks.map((task) => task.id))
@@ -102,7 +103,7 @@ export function decideReplan(tasks: Task[], taskId: string, action: ReplanAction
       return { kind: "human", reason: `the replanner escalated: ${action.reason}` }
     case "rebind": {
       const added = action.allowedPaths.filter((path) => !blocked.allowedPaths.includes(path))
-      const conflict = scopeConflict(added, tasks, [taskId])
+      const conflict = scopeConflict(added, tasks, [taskId, ...mergedIds])
       if (conflict) return { kind: "human", reason: `the replanner wants to widen ${taskId} to ${added.join(", ")}, but ${conflict}` }
       const allowedPaths = [...new Set([...blocked.allowedPaths, ...action.allowedPaths])]
       return apply(
@@ -113,7 +114,7 @@ export function decideReplan(tasks: Task[], taskId: string, action: ReplanAction
     case "prereq": {
       const prereq = action.task
       if (existingIds.has(prereq.id)) throw new Error(`prereq id ${prereq.id} already exists`)
-      const conflict = scopeConflict(newPaths(prereq, blocked), tasks, [taskId])
+      const conflict = scopeConflict(newPaths(prereq, blocked), tasks, [taskId, ...mergedIds])
       if (conflict) return { kind: "human", reason: `the replanner wants a prerequisite task ${prereq.id} for ${taskId}, but ${conflict}` }
       const index = tasks.findIndex((task) => task.id === taskId)
       const updated = tasks.map((task) => (task.id === taskId ? { ...task, dependsOn: [...task.dependsOn, prereq.id] } : task))
@@ -124,7 +125,7 @@ export function decideReplan(tasks: Task[], taskId: string, action: ReplanAction
       const reused = action.tasks.filter((task) => existingIds.has(task?.id))
       if (reused.length) throw new Error(`split task ids must be new: ${reused.map((task) => task.id).join(", ")}`)
       for (const part of action.tasks) {
-        const conflict = scopeConflict(newPaths(part, blocked), tasks, [taskId])
+        const conflict = scopeConflict(newPaths(part, blocked), tasks, [taskId, ...mergedIds])
         if (conflict) return { kind: "human", reason: `the replanner wants to split ${taskId}, but ${conflict}` }
       }
       const partIds = action.tasks.map((task) => task.id)
@@ -148,7 +149,7 @@ function newPaths(task: Task, blocked: Task): string[] {
   return task.allowedPaths.filter((path) => !blocked.allowedPaths.includes(path))
 }
 
-// Paths already owned by the blocked task are fine; anything else another task owns, a shared foundation file,
+// Paths owned by the blocked task or a merged task are fine; anything else an active task owns, a shared foundation file,
 // or a planning output needs a human.
 export function scopeConflict(paths: string[], tasks: Task[], exceptIds: string[]): string | null {
   for (const path of paths) {

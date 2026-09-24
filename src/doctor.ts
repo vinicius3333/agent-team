@@ -500,7 +500,9 @@ function editTask(projectDir: string, store: Store, taskId: string, allowedPaths
   const config = loadConfig(join(projectDir, "pipeline.yaml"))
   const workspace = createWorkspace(projectDir, `doctor-edit-${taskId}`)
   try {
-    const decision = decideReplan(loadTasks(join(workspace.path, "tasks.json")), taskId, { action: "rebind", allowedPaths })
+    const tasks = loadTasks(join(workspace.path, "tasks.json"))
+    const mergedIds = new Set(tasks.filter((task) => store.task(task.id)?.status === "merged").map((task) => task.id))
+    const decision = decideReplan(tasks, taskId, { action: "rebind", allowedPaths }, mergedIds)
     if (decision.kind === "human") {
       store.requireHuman(taskId, `the doctor asked for this change: ${decision.reason}`)
       return `edit of ${taskId} needs a human: ${decision.reason}`
