@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url"
 import { parse as parseYaml } from "yaml"
 import { defaultRunBudgetUsd, loadConfig, normalizePhaseName, planningPhases, runnerNames, type PlanningPhase } from "../config.ts"
 import { pendingFeedback } from "../feedback.ts"
-import { approvePhase, createProject, listProjects, ProjectError, raiseRunBudget, requestChanges, retryTask, runAlive, runLogPath, startRun as spawnRun, withProjectStore, type ProjectChoices } from "../project.ts"
+import { approvePhase, changeRoleModels, createProject, parseRoleModels, listProjects, ProjectError, raiseRunBudget, requestChanges, retryTask, runAlive, runLogPath, startRun as spawnRun, withProjectStore, type ProjectChoices } from "../project.ts"
 import { listIncidents, openIncident, readIncident } from "../incidents.ts"
 import { reviewerMetrics, type ReviewRow } from "../reviews.ts"
 
@@ -532,7 +532,7 @@ function parseChoices(body: Record<string, unknown>): { name: string; brief: str
   }
   if (typeof brief !== "string" || !brief.trim()) throw new ProjectError(400, "The brief is empty.")
   if (typeof target !== "string" || !targets.includes(target)) throw new ProjectError(400, "The target must be web, api, or web+api.")
-  if (typeof workerRunner !== "string" || !(runnerNames as readonly string[]).includes(workerRunner)) throw new ProjectError(400, "The worker provider must be claude or codex.")
+  if (workerRunner !== undefined && (typeof workerRunner !== "string" || !(runnerNames as readonly string[]).includes(workerRunner))) throw new ProjectError(400, "The worker provider must be claude or codex.")
   if (!Array.isArray(gates) || !gates.every((gate) => (planningPhases as readonly unknown[]).includes(gate))) {
     throw new ProjectError(400, `Each gate must be one of ${planningPhases.join(", ")}.`)
   }
@@ -545,6 +545,7 @@ function parseChoices(body: Record<string, unknown>): { name: string; brief: str
     choices: {
       target: target as ProjectChoices["target"],
       workerRunner: workerRunner as ProjectChoices["workerRunner"],
+      roles: body.roles === undefined ? undefined : parseRoleModels(body.roles),
       gates: [...new Set(gates as PlanningPhase[])],
       github: github as boolean,
       deploy: deploy as boolean,
@@ -615,6 +616,12 @@ export function startUi(options: UiOptions) {
         if (runAlive(projectDir)) return send(response, 409, { error: "A run is already in progress." })
         const runUsd = withProjectStore(projectDir, (store) => raiseRunBudget(projectDir, store))
         return send(response, 200, { runUsd, started: startRunIfIdle(name) })
+      }
+      case "roles": {
+        const models = parseRoleModels(body.roles)
+        if (runAlive(projectDir)) return send(response, 409, { error: "A run is in progress. Change models after it stops." })
+        changeRoleModels(projectDir, models)
+        return send(response, 200, { saved: true })
       }
       default:
         return send(response, 404, { error: "not found" })

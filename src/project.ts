@@ -2,10 +2,10 @@ import { spawn } from "node:child_process"
 import { existsSync, mkdirSync, openSync, closeSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { parseDocument } from "yaml"
-import { loadConfig, normalizePhaseName, planningPhases, type PipelineConfig, type PlanningPhase, type RunnerName } from "./config.ts"
+import { parseDocument, type Document } from "yaml"
+import { loadConfig, normalizePhaseName, planningPhases, roles, runnerNames, type Candidate, type PipelineConfig, type PlanningPhase, type Role, type RunnerName } from "./config.ts"
 import { appendFeedback, archiveFeedback } from "./feedback.ts"
-import { commitAll, initRepository } from "./git.ts"
+import { commitAll, commitPaths, initRepository } from "./git.ts"
 import { openStore, type Store } from "./store.ts"
 
 export const cliPath = fileURLToPath(new URL("./cli.ts", import.meta.url))
@@ -23,9 +23,54 @@ export class ProjectError extends Error {
   }
 }
 
+export type RoleModels = Partial<Record<Role, Candidate>>
+
+const modelPattern = /^[A-Za-z0-9._:-]{1,64}$/
+
+// Checks a { role: { runner, model } } object from a request and returns it typed.
+export function parseRoleModels(raw: unknown): RoleModels {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new ProjectError(400, "The roles field must be an object of role names.")
+  const parsed: RoleModels = {}
+  for (const [role, value] of Object.entries(raw)) {
+    if (!(roles as readonly string[]).includes(role)) throw new ProjectError(400, `Unknown role "${role}". Roles are ${roles.join(", ")}.`)
+    const { runner, model } = (value ?? {}) as Record<string, unknown>
+    if (typeof runner !== "string" || !(runnerNames as readonly string[]).includes(runner)) throw new ProjectError(400, `The runner for ${role} must be ${runnerNames.join(" or ")}.`)
+    if (typeof model !== "string" || !modelPattern.test(model)) throw new ProjectError(400, `The model for ${role} must be 1 to 64 characters: letters, digits, dots, dashes, underscores, or colons.`)
+    if (role === "illustrator" && runner !== "codex") throw new ProjectError(400, "The illustrator must run on codex, because image generation needs codex.")
+    parsed[role as Role] = { runner: runner as RunnerName, model }
+  }
+  return parsed
+}
+
+// Keeps comments and other keys; the review check fails to load when worker and reviewer share a runner without the flag.
+function applyRoleModels(document: Document, models: RoleModels): void {
+  for (const [role, candidate] of Object.entries(models)) {
+    document.setIn(["roles", role, "runner"], candidate.runner)
+    document.setIn(["roles", role, "model"], candidate.model)
+  }
+  const workerRunner = document.getIn(["roles", "worker", "runner"])
+  if (workerRunner !== undefined && workerRunner === document.getIn(["roles", "reviewer", "runner"])) document.set("allowSameVendorReview", true)
+}
+
+export function changeRoleModels(projectDir: string, models: RoleModels): void {
+  const path = join(projectDir, "pipeline.yaml")
+  const original = readFileSync(path, "utf8")
+  const document = parseDocument(original)
+  applyRoleModels(document, models)
+  writeFileSync(path, document.toString())
+  try {
+    loadConfig(path)
+  } catch (error) {
+    writeFileSync(path, original)
+    throw new ProjectError(400, error instanceof Error ? error.message : String(error))
+  }
+  commitPaths(projectDir, ["pipeline.yaml"], "chore: change agent models")
+}
+
 export interface ProjectChoices {
   target: PipelineConfig["target"]
-  workerRunner: RunnerName
+  workerRunner?: RunnerName
+  roles?: RoleModels
   gates: PlanningPhase[]
   github: boolean
   deploy: boolean
@@ -52,10 +97,8 @@ function applyChoices(pipelineYaml: string, choices: ProjectChoices): string {
   document.setIn(["publish", "github", "enabled"], choices.github)
   document.setIn(["deploy", "enabled"], choices.deploy)
   document.setIn(["branding", "enabled"], choices.branding)
-  if (choices.workerRunner === "codex") {
-    document.setIn(["roles", "worker", "runner"], "codex")
-    document.setIn(["roles", "worker", "model"], "gpt-5.5")
-  }
+  const workerModels: RoleModels = choices.workerRunner === "codex" ? { worker: { runner: "codex", model: "gpt-5.5" } } : {}
+  applyRoleModels(document, { ...workerModels, ...choices.roles })
   return document.toString()
 }
 

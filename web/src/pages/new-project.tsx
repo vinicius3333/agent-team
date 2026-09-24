@@ -1,12 +1,13 @@
-import { useState, type FormEvent } from "react"
+import { useMemo, useState, type FormEvent } from "react"
 import { useNavigate } from "react-router"
-import { Bot, Boxes, Cloud, Code2, Globe, Image, Layers, ListTodo, Loader2, Palette, Play, ShieldCheck, User, Users, Zap } from "lucide-react"
+import { Boxes, ChevronDown, Cloud, Code2, Globe, Image, Layers, ListTodo, Loader2, Palette, Play, ShieldCheck, User, Users, Zap } from "lucide-react"
 import { toast } from "sonner"
 import { ApiError, api } from "@/api/client"
 import { useAsync } from "@/api/hooks"
 import { useProjectList } from "@/api/projects-context"
-import { planningPhases, type Defaults, type PlanningPhase, type RunnerName, type Target } from "@/api/types"
+import { planningPhases, type PlanningPhase, type Target } from "@/api/types"
 import { PageHeader } from "@/components/page-header"
+import { invalidRoles, pickEditable, RoleModelsEditor, type RoleModels } from "@/components/role-models-editor"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -47,15 +48,6 @@ const targets: {
     label: "Web + API",
     hint: "A website with its own backend API.",
     icon: Layers,
-  },
-]
-
-const providers: { value: RunnerName; label: string; hint: string }[] = [
-  { value: "claude", label: "Claude", hint: "Workers run on Claude Sonnet." },
-  {
-    value: "codex",
-    label: "Codex",
-    hint: "Workers run on Codex GPT-5.5. Codex reports no cost.",
   },
 ]
 
@@ -126,14 +118,10 @@ const teamRoles = [
   },
 ]
 
-// The server writes this worker model into pipeline.yaml when the user picks Codex (src/project.ts).
-const codexWorker = "codex gpt-5.5"
-
-function roleModel(role: string, workerRunner: RunnerName, defaults: Defaults | null): string | null {
+function roleModel(role: string, models: RoleModels): string | null {
   if (role === "deploy") return "this server"
-  if (role === "worker" && workerRunner === "codex") return codexWorker
-  const config = defaults?.roles[role]
-  return config ? `${config.runner} ${config.model}` : null
+  const config = models[role]
+  return config ? `${config.runner} ${config.model || "…"}` : null
 }
 
 interface FormErrors {
@@ -156,7 +144,8 @@ export function NewProjectPage() {
   const [name, setName] = useState("")
   const [brief, setBrief] = useState("")
   const [target, setTarget] = useState<Target>("web")
-  const [workerRunner, setWorkerRunner] = useState<RunnerName>("claude")
+  const [roleEdits, setRoleEdits] = useState<RoleModels>({})
+  const [customizing, setCustomizing] = useState(false)
   const [gates, setGates] = useState<PlanningPhase[]>(["spec", "design"])
   const [github, setGithub] = useState(false)
   const [deploy, setDeploy] = useState(true)
@@ -165,6 +154,9 @@ export function NewProjectPage() {
   const [touched, setTouched] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const defaults = useAsync(api.defaults, [])
+  const defaultModels = useMemo(() => (defaults.value ? pickEditable(defaults.value.roles) : {}), [defaults.value])
+  const models: RoleModels = { ...defaultModels, ...roleEdits }
+  const fallbacks = Object.fromEntries(Object.entries(defaults.value?.roles ?? {}).map(([role, config]) => [role, config.fallbacks]))
 
   const liveErrors = touched ? validate(name, brief) : {}
   const shownErrors = { ...errors, ...liveErrors }
@@ -177,6 +169,11 @@ export function NewProjectPage() {
     const found = validate(name, brief)
     setErrors(found)
     if (Object.keys(found).length) return
+    if (invalidRoles(models).length) {
+      setCustomizing(true)
+      setErrors({ form: "Fix the model names under Agent models." })
+      return
+    }
     setSubmitting(true)
     try {
       const orderedGates = planningPhases.filter((phase) => gates.includes(phase) && (branding || phase !== "branding"))
@@ -184,7 +181,7 @@ export function NewProjectPage() {
         name,
         brief,
         target,
-        workerRunner,
+        roles: models,
         gates: orderedGates,
         github,
         deploy,
@@ -202,7 +199,6 @@ export function NewProjectPage() {
   }
 
   const targetHint = targets.find((option) => option.value === target)?.hint
-  const providerHint = providers.find((option) => option.value === workerRunner)?.hint
 
   return (
     <>
@@ -265,19 +261,25 @@ export function NewProjectPage() {
                   {targetHint}
                 </p>
               </fieldset>
-              <fieldset className="grid gap-2">
-                <legend className="mb-2 text-sm font-medium">Worker provider</legend>
-                <ToggleGroup type="single" variant="outline" value={workerRunner} onValueChange={(value) => value && setWorkerRunner(value as RunnerName)} className="w-full sm:w-fit" aria-describedby="provider-help">
-                  {providers.map((option) => (
-                    <ToggleGroupItem key={option.value} value={option.value} className="flex-1 px-5 data-[state=on]:bg-accent data-[state=on]:text-accent-foreground sm:flex-none">
-                      {option.value === "claude" ? <Zap /> : <Bot />} {option.label}
-                    </ToggleGroupItem>
-                  ))}
-                </ToggleGroup>
-                <p id="provider-help" className="text-xs text-muted-foreground">
-                  {providerHint}
-                </p>
-              </fieldset>
+              <section className="grid gap-2" aria-labelledby="models-heading">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h2 id="models-heading" className="text-sm font-medium">
+                      Agent models
+                    </h2>
+                    <p className="text-xs text-muted-foreground">The defaults work well. Change a role only if you need to.</p>
+                  </div>
+                  <Button type="button" variant="outline" size="sm" onClick={() => setCustomizing((open) => !open)} aria-expanded={customizing} aria-controls="models-editor" disabled={!defaults.value}>
+                    Customize <ChevronDown className={cn("transition-transform", customizing && "rotate-180")} />
+                  </Button>
+                </div>
+                {customizing && defaults.value && (
+                  <div id="models-editor">
+                    <RoleModelsEditor value={models} fallbacks={fallbacks} onChange={setRoleEdits} />
+                    <p className="text-xs text-muted-foreground">Codex reports no cost, so the run budget does not count it.</p>
+                  </div>
+                )}
+              </section>
               <fieldset>
                 <legend className="mb-1 text-sm font-medium">Approval gates</legend>
                 <p className="mb-3 text-xs text-muted-foreground">The build pauses after each checked step until you approve it.</p>
@@ -360,7 +362,7 @@ export function NewProjectPage() {
           <CardContent>
             <ul className="flex flex-col divide-y">
               {teamRoles.map((role) => {
-                const model = roleModel(role.role, workerRunner, defaults.value)
+                const model = roleModel(role.role, models)
                 return (
                   <li key={role.role} className="flex items-center gap-3 py-2.5">
                     <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-full", role.color)}>
@@ -385,7 +387,7 @@ export function NewProjectPage() {
             </ul>
             <div className="mt-4 flex gap-3 rounded-lg bg-accent p-3 text-accent-foreground">
               <Zap className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-              <p className="text-xs">You can change models later in the project's pipeline.yaml.</p>
+              <p className="text-xs">You can change models later on the project's Config tab.</p>
             </div>
           </CardContent>
         </Card>

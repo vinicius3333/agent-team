@@ -38,6 +38,13 @@ export function commitAll(dir: string, message: string): boolean {
   return hasChanges
 }
 
+export function commitPaths(dir: string, paths: string[], message: string): boolean {
+  git(dir, ["add", "--", ...paths])
+  const hasChanges = git(dir, ["diff", "--cached", "--name-only", "--", ...paths]).trim().length > 0
+  if (hasChanges) git(dir, ["commit", "-q", "-m", message, "--", ...paths])
+  return hasChanges
+}
+
 export function trackedFiles(dir: string): string[] {
   return git(dir, ["ls-files"]).split("\n").filter(Boolean)
 }

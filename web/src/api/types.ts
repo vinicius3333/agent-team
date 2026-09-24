@@ -203,7 +203,7 @@ export interface NewProjectRequest {
   name: string
   brief: string
   target: Target
-  workerRunner: RunnerName
+  roles: Record<string, RoleCandidate>
   gates: PlanningPhase[]
   github: boolean
   deploy: boolean

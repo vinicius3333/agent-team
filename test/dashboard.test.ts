@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
 import { once } from "node:events"
+import { execFileSync } from "node:child_process"
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import type { AddressInfo } from "node:net"
 import { tmpdir } from "node:os"
@@ -105,6 +106,53 @@ test("server write endpoints validate and start runs", async (t) => {
   assert.equal(page.status, webBuilt ? 200 : 503)
   assert.equal((await fetch(`${base}/api/nope`)).status, 404)
   assert.ok(readdirSync(runsDir).includes("todo-app"))
+})
+
+test("POST /api/projects writes role models and POST /roles changes them", async (t) => {
+  const runsDir = join(scratch, "roles-runs")
+  const server = startUi({ runsDir, port: 0, startRun: () => {} })
+  await once(server, "listening")
+  t.after(() => server.close())
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  const post = (path: string, body: unknown, headers: Record<string, string> = { "x-agent-team": "1" }) =>
+    fetch(`${base}${path}`, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) })
+  const { workerRunner: _, ...rest } = choices
+  const valid = { name: "models-app", brief: "Build it", ...rest }
+
+  assert.equal((await post("/api/projects", { ...valid, roles: { boss: { runner: "claude", model: "opus" } } })).status, 400)
+  assert.equal((await post("/api/projects", { ...valid, roles: { pm: { runner: "gemini", model: "x" } } })).status, 400)
+  assert.equal((await post("/api/projects", { ...valid, roles: { pm: { runner: "claude", model: "bad model!" } } })).status, 400)
+  assert.equal((await post("/api/projects", { ...valid, roles: { illustrator: { runner: "claude", model: "opus" } } })).status, 400)
+  assert.equal((await post("/api/projects", { ...valid, roles: [] })).status, 400)
+
+  const roles = { pm: { runner: "codex", model: "gpt-6-sol" }, worker: { runner: "codex", model: "gpt-6-luna" }, reviewer: { runner: "codex", model: "my-model:v2" } }
+  assert.equal((await post("/api/projects", { ...valid, roles })).status, 201)
+  const projectDir = join(runsDir, "models-app")
+  const path = join(projectDir, "pipeline.yaml")
+  assert.match(readFileSync(path, "utf8"), /# image generation needs codex/)
+  let config = loadConfig(path)
+  assert.deepEqual([config.roles.pm.runner, config.roles.pm.model], ["codex", "gpt-6-sol"])
+  assert.equal(config.roles.reviewer.model, "my-model:v2")
+  assert.equal(config.roles.worker.maxRetries, 3)
+  assert.equal(config.allowSameVendorReview, true)
+
+  const change = { roles: { designer: { runner: "codex", model: "gpt-5.5" }, worker: { runner: "claude", model: "haiku" } } }
+  assert.equal((await post("/api/projects/models-app/roles", change, {})).status, 403)
+  assert.equal((await post("/api/projects/missing/roles", change)).status, 404)
+  assert.equal((await post("/api/projects/models-app/roles", { roles: { qa: { runner: "claude", model: "" } } })).status, 400)
+  withProjectStore(projectDir, (store) => store.setMeta("run.pid", String(process.pid)))
+  assert.equal((await post("/api/projects/models-app/roles", change)).status, 409)
+  withProjectStore(projectDir, (store) => store.setMeta("run.pid", ""))
+
+  writeFileSync(join(projectDir, "notes.md"), "human edit")
+  assert.equal((await post("/api/projects/models-app/roles", change)).status, 200)
+  config = loadConfig(path)
+  assert.deepEqual([config.roles.designer.runner, config.roles.designer.model], ["codex", "gpt-5.5"])
+  assert.equal(config.roles.worker.model, "haiku")
+  assert.match(readFileSync(path, "utf8"), /# image generation needs codex/)
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: projectDir, encoding: "utf8" })
+  assert.equal(git("log", "-1", "--format=%s").trim(), "chore: change agent models")
+  assert.match(git("status", "--porcelain"), /\?\? notes\.md/)
 })
 
 test("GET /api/defaults returns the roles from pipeline.example.yaml", async (t) => {
