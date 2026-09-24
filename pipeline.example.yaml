@@ -28,6 +28,20 @@ qa:
 deploy:
   enabled: true        # after the build, run the app in a container and expose it at a random https://*.trycloudflare.com URL
 
+operate:               # after deploy: agents watch the live app and write findings; a person approves each one as a change
+  enabled: true        # false turns off every Operate agent and the health probe
+  healthPath: /        # probed on the live URL every 5 minutes
+  schedule:            # hours between runs; 0 turns an agent off
+    monitoring: 24
+    analytics: 24
+    research: 168
+  # posthog:           # analytics; without it the analytics agent asks you to set it up
+  #   host: https://us.posthog.com
+  #   projectId: "12345"
+  #   publicKey: phc_xxx          # passed to the app as POSTHOG_KEY and VITE_POSTHOG_KEY
+  #   apiKeyEnv: POSTHOG_API_KEY  # name of the env var with the personal API key; never the key itself
+  competitors: []      # e.g. [https://example.com]; the research agent compares the app with them
+
 publish:
   github:
     enabled: false     # repo, issues per task, a pull request per phase and task, and a Projects board
@@ -55,6 +69,9 @@ roles:
   design-reviewer: { runner: claude, model: opus }   # approves branding, design, and UI task screenshots; read-only
   qa:        { runner: claude, model: opus }   # reads screenshots and branding images; read-only
   lead:      { runner: claude, model: opus }   # answers the project chat; read-only, suggests actions
+  monitor:   { runner: claude, model: sonnet } # Operate: reads health checks, logs, and incidents; writes findings
+  analyst:   { runner: claude, model: sonnet } # Operate: reads PostHog numbers; writes findings
+  researcher: { runner: claude, model: sonnet } # Operate: searches the web for competitors; writes findings
 
 allowSameVendorReview: true   # worker and reviewer both run on claude
 

@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs"
 import { dirname } from "node:path"
 import { parse } from "yaml"
+import { findingSources, type FindingSource } from "./store.ts"
 import { customTemplate, findTemplate, readStack, type StackManifest } from "./templates.ts"
 
 export const planningPhases = ["spec", "architecture", "branding", "design", "marketing", "plan"] as const
@@ -13,7 +14,7 @@ export function normalizePhaseName(name: string): string {
   return legacyPhaseNames[name] ?? name
 }
 
-export const roles = ["pm", "architect", "illustrator", "designer", "marketer", "planner", "worker", "reviewer", "qa", "doctor", "lead", "design-reviewer"] as const
+export const roles = ["pm", "architect", "illustrator", "designer", "marketer", "planner", "worker", "reviewer", "qa", "doctor", "lead", "design-reviewer", "monitor", "analyst", "researcher"] as const
 export type Role = (typeof roles)[number]
 
 export const runnerNames = ["claude", "codex"] as const
@@ -43,6 +44,27 @@ export interface PublishConfig {
   github: { enabled: boolean; owner: string | null; visibility: "private" | "public"; name: string | null }
 }
 
+export type InsightAgent = FindingSource
+export const insightAgents = findingSources
+export const insightAgentRoles: Record<InsightAgent, Role> = { monitoring: "monitor", analytics: "analyst", research: "researcher" }
+
+export interface PosthogConfig {
+  host: string
+  projectId: string
+  publicKey: string | null
+  // The name of the env var that holds the personal API key; the key itself never goes in pipeline.yaml.
+  apiKeyEnv: string
+}
+
+export interface OperateConfig {
+  enabled: boolean
+  healthPath: string
+  // Hours between runs; 0 turns the agent off.
+  schedule: Record<InsightAgent, number>
+  posthog: PosthogConfig | null
+  competitors: string[]
+}
+
 export interface PipelineConfig {
   target: "web" | "api" | "web+api"
   // changeMerge "manual" stops a change before its final merge into main until a person approves it.
@@ -63,6 +85,7 @@ export interface PipelineConfig {
   template: TemplatePin | null
   allowSameVendorReview: boolean
   harness: HarnessConfig
+  operate: OperateConfig
 }
 
 export interface TemplatePin {
@@ -124,9 +147,48 @@ export function loadConfig(path: string): PipelineConfig {
       cooldownMs: raw.harness?.cooldownMs ?? 15 * 60_000,
       agentTimeoutMs: raw.harness?.agentTimeoutMs ?? 30 * 60_000,
     },
+    operate: normalizeOperate(raw.operate),
   }
   validateConfig(config, dirname(path))
   return config
+}
+
+export const defaultSchedule: Record<InsightAgent, number> = { monitoring: 24, analytics: 24, research: 168 }
+
+function normalizeOperate(raw: any): OperateConfig {
+  const posthog = raw?.posthog
+  return {
+    enabled: raw?.enabled ?? true,
+    healthPath: raw?.healthPath ?? "/",
+    schedule: { ...defaultSchedule, ...raw?.schedule },
+    posthog: posthog?.projectId
+      ? {
+          host: String(posthog.host ?? "https://us.posthog.com").replace(/\/+$/, ""),
+          projectId: String(posthog.projectId),
+          publicKey: posthog.publicKey ? String(posthog.publicKey) : null,
+          apiKeyEnv: posthog.apiKeyEnv ?? "POSTHOG_API_KEY",
+        }
+      : null,
+    competitors: raw?.competitors ?? [],
+  }
+}
+
+function operateProblems(operate: OperateConfig): string[] {
+  const problems: string[] = []
+  if (typeof operate.enabled !== "boolean") problems.push("operate.enabled must be true or false")
+  if (typeof operate.healthPath !== "string" || !operate.healthPath.startsWith("/")) problems.push("operate.healthPath must start with /")
+  for (const [agent, hours] of Object.entries(operate.schedule)) {
+    if (!(insightAgents as readonly string[]).includes(agent)) problems.push(`unknown operate.schedule agent "${agent}"; use ${insightAgents.join(", ")}`)
+    else if (typeof hours !== "number" || !(hours >= 0)) problems.push(`operate.schedule.${agent} must be a number of hours, 0 or more`)
+  }
+  if (operate.posthog) {
+    if (!/^https?:\/\//.test(operate.posthog.host)) problems.push("operate.posthog.host must be an http(s) URL")
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(operate.posthog.apiKeyEnv)) problems.push("operate.posthog.apiKeyEnv must be the name of an environment variable, not the key")
+  }
+  if (!Array.isArray(operate.competitors) || !operate.competitors.every((url) => typeof url === "string" && /^https?:\/\//.test(url))) {
+    problems.push("operate.competitors must be a list of http(s) URLs")
+  }
+  return problems
 }
 
 // `template: <name>` pins the version in the project's stack.json, else the current version of the template.
@@ -176,6 +238,9 @@ export const defaultRoles: Partial<Record<Role, Candidate>> = {
   doctor: { runner: "claude", model: "opus" },
   lead: { runner: "claude", model: "opus" },
   "design-reviewer": { runner: "claude", model: "opus" },
+  monitor: { runner: "claude", model: "sonnet" },
+  analyst: { runner: "claude", model: "sonnet" },
+  researcher: { runner: "claude", model: "sonnet" },
 }
 
 function normalizeRoles(rawRoles: Record<string, any> | undefined): Record<Role, RoleConfig> {
@@ -190,7 +255,7 @@ function normalizeRoles(rawRoles: Record<string, any> | undefined): Record<Role,
 }
 
 function validateConfig(config: PipelineConfig, projectDir: string): void {
-  const errors: string[] = templateProblems(config, projectDir)
+  const errors: string[] = [...templateProblems(config, projectDir), ...operateProblems(config.operate)]
   if (!["none", "docker"].includes(config.harness.isolation)) errors.push("harness.isolation must be none or docker")
   if (!["private", "public"].includes(config.publish.github.visibility)) errors.push("publish.github.visibility must be private or public")
   if (config.branding.count < 2 || config.branding.count > 6) errors.push("branding.count must be between 2 and 6")

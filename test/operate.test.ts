@@ -1,8 +1,9 @@
 import assert from "node:assert/strict"
-import { mkdtempSync, rmSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { after, test } from "node:test"
+import { loadConfig } from "../src/config.ts"
 import { openStore } from "../src/store.ts"
 
 const scratch = mkdtempSync(join(tmpdir(), "agent-team-operate-"))
@@ -90,4 +91,30 @@ test("insight runs report the last run per agent", () => {
   assert.equal(store.lastInsightRun("monitoring")?.status, "running")
   assert.deepEqual(store.lastInsightRuns().map((run) => run.agent), ["monitoring", "research"])
   store.close()
+})
+
+const examplePipeline = readFileSync(new URL("../pipeline.example.yaml", import.meta.url), "utf8")
+
+function writePipeline(name: string, operateYaml: string): string {
+  const dir = join(scratch, name)
+  mkdirSync(dir, { recursive: true })
+  const path = join(dir, "pipeline.yaml")
+  writeFileSync(path, `${examplePipeline.replace(/^operate:[\s\S]*?\n\n/m, "")}\n${operateYaml}`)
+  return path
+}
+
+test("loadConfig reads the operate block and fills defaults", () => {
+  const defaults = loadConfig(writePipeline("operate-defaults", "")).operate
+  assert.deepEqual(defaults, { enabled: true, healthPath: "/", schedule: { monitoring: 24, analytics: 24, research: 168 }, posthog: null, competitors: [] })
+  const config = loadConfig(
+    writePipeline(
+      "operate-full",
+      "operate:\n  schedule: { research: 0 }\n  posthog: { projectId: 12345, publicKey: phc_x }\n  competitors: [https://example.com]\n",
+    ),
+  )
+  assert.deepEqual(config.operate.schedule, { monitoring: 24, analytics: 24, research: 0 })
+  assert.deepEqual(config.operate.posthog, { host: "https://us.posthog.com", projectId: "12345", publicKey: "phc_x", apiKeyEnv: "POSTHOG_API_KEY" })
+  assert.equal(config.roles.monitor.model, "sonnet")
+  assert.equal(config.roles.researcher.runner, "claude")
+  assert.throws(() => loadConfig(writePipeline("operate-bad", "operate:\n  healthPath: health\n  schedule: { monitoring: -1 }\n  competitors: [example.com]\n")), /healthPath[\s\S]*monitoring[\s\S]*competitors/)
 })
