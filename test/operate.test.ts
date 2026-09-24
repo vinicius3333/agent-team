@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { after, test } from "node:test"
 import { loadConfig } from "../src/config.ts"
 import { healthSummary, percentile, probe, probeProject } from "../src/operate/health.ts"
+import { fetchPosthogData, posthogMetrics, PosthogError } from "../src/operate/posthog.ts"
 import { openStore } from "../src/store.ts"
 
 const scratch = mkdtempSync(join(tmpdir(), "agent-team-operate-"))
@@ -171,4 +172,54 @@ test("probeProject waits 5 minutes between probes and logs down after 3 failures
   const messages = store.recentEvents(10).map((event) => `${event.type}: ${event.message}`).reverse()
   assert.deepEqual(messages, ["operate: health: down (HTTP 502)", "operate: health: recovered"])
   store.close()
+})
+
+const posthogConfig = { host: "https://ph.example", projectId: "12345", publicKey: null, apiKeyEnv: "TEST_POSTHOG_KEY" }
+
+function posthogStub(queries: string[], funnelEvents: [string, number][]) {
+  return stubFetch((url, init) => {
+    assert.equal(url, "https://ph.example/api/projects/12345/query/")
+    assert.equal((init?.headers as Record<string, string>).authorization, "Bearer secret")
+    const hogql = JSON.parse(String(init?.body)).query.query as string
+    queries.push(hogql)
+    const results = hogql.includes("countDistinctIf")
+      ? [[1284, 1146]]
+      : hogql.includes("toDate")
+        ? [["2026-09-23", 400], ["2026-09-24", 420]]
+        : hogql.includes("LIMIT 10")
+          ? [["signed_up", 50], ["joke_voted", 300]]
+          : funnelEvents
+    return Response.json({ results })
+  })
+}
+
+test("fetchPosthogData queries HogQL and falls back to the default funnel", async () => {
+  const queries: string[] = []
+  const projectDir = join(scratch, "posthog-default")
+  mkdirSync(projectDir, { recursive: true })
+  const data = await fetchPosthogData({ projectDir, config: posthogConfig, env: { TEST_POSTHOG_KEY: "secret" }, fetch: posthogStub(queries, [["$pageview", 1000], ["signed_up", 31]]) })
+  assert.deepEqual(data.wau, { thisWeek: 1284, lastWeek: 1146 })
+  assert.deepEqual(data.pageviews, [{ day: "2026-09-23", count: 400 }, { day: "2026-09-24", count: 420 }])
+  assert.deepEqual(data.funnel, [{ step: "$pageview", count: 1000 }, { step: "signed_up", count: 31 }, { step: "joke_voted", count: 0 }])
+  assert.match(queries.at(-1)!, /event IN \('\$pageview', 'signed_up', 'joke_voted'\)/)
+  const metrics = posthogMetrics(data, new Date("2026-09-24T15:00:00Z"))
+  assert.deepEqual(metrics.find((metric) => metric.key === "signup_conversion"), { at: "2026-09-24T00:00:00.000Z", key: "signup_conversion", value: 3.1 })
+  assert.deepEqual(metrics.filter((metric) => metric.key === "wau").map((metric) => [metric.at.slice(0, 10), metric.value]), [["2026-09-17", 1146], ["2026-09-24", 1284]])
+})
+
+test("fetchPosthogData reads funnel steps from docs/analytics.md", async () => {
+  const projectDir = join(scratch, "posthog-docs")
+  mkdirSync(join(projectDir, "docs"), { recursive: true })
+  writeFileSync(join(projectDir, "docs", "analytics.md"), "# Analytics\n\n## Events\n\n- `joke_viewed`\n\n## Funnel\n\n1. `landing_viewed`\n2. `signup_started`\n3. `signed_up`\n\n## Notes\n\n`ignored`\n")
+  const data = await fetchPosthogData({ projectDir, config: posthogConfig, env: { TEST_POSTHOG_KEY: "secret" }, fetch: posthogStub([], [["landing_viewed", 100]]) })
+  assert.deepEqual(data.funnel.map((step) => step.step), ["landing_viewed", "signup_started", "signed_up"])
+})
+
+test("fetchPosthogData fails with the HTTP status or a missing key", async () => {
+  const projectDir = join(scratch, "posthog-default")
+  await assert.rejects(fetchPosthogData({ projectDir, config: posthogConfig, env: {}, fetch: posthogStub([], []) }), /TEST_POSTHOG_KEY environment variable is not set/)
+  await assert.rejects(
+    fetchPosthogData({ projectDir, config: posthogConfig, env: { TEST_POSTHOG_KEY: "secret" }, fetch: stubFetch(() => new Response("bad key", { status: 401 })) }),
+    (error: unknown) => error instanceof PosthogError && error.status === 401 && /HTTP 401: bad key/.test(error.message),
+  )
 })
