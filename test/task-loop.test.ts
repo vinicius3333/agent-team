@@ -32,6 +32,11 @@ test("extractJsonObject prefers the last json fence, else the last balanced obje
   assert.throws(() => extractJsonObject("```json\n{broken\n```"), /not valid JSON/)
 })
 
+test("parseVerdict reads a fenced verdict after prose that quotes braces", () => {
+  const text = "I'm passing T005.\n\n- It throws `ApiError` with fields taken from `{ error }` and handles `{ status }`.\n\n```json\n{\"verdict\":\"pass\",\"reasons\":[],\"fixes\":[]}\n```"
+  assert.deepEqual(parseVerdict(text), { verdict: "pass", reasons: [], fixes: [] })
+})
+
 test("parseVerdict validates the shape and fails loudly", () => {
   assert.deepEqual(parseVerdict('Looks fine {mostly}.\n```json\n{"verdict":"pass","reasons":[],"fixes":[]}\n```'), { verdict: "pass", reasons: [], fixes: [] })
   assert.deepEqual(parseVerdict('{"verdict":"fail","reasons":["no test"],"fixes":["add one"]}').reasons, ["no test"])
