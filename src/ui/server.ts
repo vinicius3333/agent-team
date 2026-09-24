@@ -9,6 +9,8 @@ const execFileAsync = promisify(execFile)
 const pagePath = new URL("./index.html", import.meta.url)
 const transcriptMaxBytes = 200 * 1024
 const artifactMaxBytes = 500 * 1024
+const mockupMaxBytes = 20 * 1024 * 1024
+const mockupPattern = /^[A-Za-z0-9._-]+\.(png|jpe?g|webp)$/
 const activeWindowMs = 2 * 60_000
 const projectNamePattern = /^[A-Za-z0-9._-]+$/
 const transcriptNamePattern = /^[A-Za-z0-9._-]+\.log$/
@@ -20,6 +22,7 @@ function withDatabase<T>(projectDir: string, read: (db: DatabaseSync) => T, fall
     let db: DatabaseSync | null = null
     try {
       db = new DatabaseSync(path, { readOnly: true })
+      db.exec("PRAGMA busy_timeout = 2000")
       return read(db)
     } catch (error) {
       if (!/SQLITE_BUSY|database is locked/i.test(String(error))) return fallback
@@ -178,6 +181,19 @@ export function startUi(options: { runsDir: string; port: number }) {
           const path = join(projectDir, ".agent-team", "transcripts", parts[4])
           if (!existsSync(path)) return send(response, 404, { error: "not found" })
           return send(response, 200, readTail(path, transcriptMaxBytes), "text/plain")
+        }
+        if (parts[3] === "mockups" && parts.length === 4) {
+          const dir = join(projectDir, "design", "mockups")
+          const images = existsSync(dir) ? readdirSync(dir).filter((file) => mockupPattern.test(file)).sort() : []
+          return send(response, 200, images)
+        }
+        if (parts[3] === "mockups" && parts[4] && parts.length === 5) {
+          if (!mockupPattern.test(parts[4])) return send(response, 400, { error: "bad file name" })
+          const path = join(projectDir, "design", "mockups", parts[4])
+          if (!existsSync(path) || statSync(path).size > mockupMaxBytes) return send(response, 404, { error: "not found" })
+          const extension = parts[4].split(".").pop()!.toLowerCase()
+          response.writeHead(200, { "content-type": `image/${extension === "jpg" ? "jpeg" : extension}`, "cache-control": "no-store" })
+          return response.end(readFileSync(path))
         }
         if (parts[3] === "file" && parts.length === 4) {
           const relative = url.searchParams.get("path") ?? ""

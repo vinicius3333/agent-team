@@ -12,6 +12,8 @@ export interface TaskRow {
 
 export function openStore(path: string) {
   const db = new DatabaseSync(path)
+  // WAL lets the dashboard read while a run writes; busy_timeout absorbs brief lock overlaps instead of crashing.
+  db.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;")
   db.exec(`
     CREATE TABLE IF NOT EXISTS phases (
       name TEXT PRIMARY KEY,
