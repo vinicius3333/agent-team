@@ -1,0 +1,4 @@
+tier: smoke
+target: api
+budgetUsd: 2
+timeoutMinutes: 45
