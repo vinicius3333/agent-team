@@ -190,6 +190,8 @@ export interface ProjectDetail extends Omit<ProjectSummary, "live" | "liveUrl"> 
   worktrees: string[]
   containers: Container[]
   deploy: DeployInfo | null
+  // The demo account the app seeds from DEMO_EMAIL and DEMO_PASSWORD.
+  access?: { email: string; password: string } | null
   qa?: { round: number | null }
   feedback?: Partial<Record<string, string>>
   budget?: RunBudget

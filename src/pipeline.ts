@@ -1,6 +1,9 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
-import { join } from "node:path"
+import { basename, join } from "node:path"
+import { ensureDemoAccess } from "./access.ts"
 import type { Candidate, PipelineConfig, PlanningPhase, Role } from "./config.ts"
+import { groupPhaseFiles, parseCommitPlan, type PhaseCommit } from "./commits.ts"
+import { faviconDir, faviconFiles, generateFavicons, markPath, validateMark } from "./favicon.ts"
 import { changedFiles, stagedDiff, trackedFiles } from "./git.ts"
 import { createDockerExecutor, ensureImage } from "./harness/docker.ts"
 import { hostExecutor, type Executor } from "./harness/executor.ts"
@@ -10,11 +13,11 @@ import { amendCommit, commitAndRebase, createWorkspace, detectSetupCommand, fast
 import { deployProject } from "./deploy.ts"
 import { archiveFeedback, readFeedback } from "./feedback.ts"
 import type { GitHub } from "./github.ts"
-import { parseArchitectureCommands, parseDesignScreens, parseQaVerdict, runQaLoop, type QaRoundResult, type QaScreen } from "./qa.ts"
+import { designSystemRoute, parseArchitectureCommands, parseDesignScreens, parseLoginRoute, parseQaVerdict, runQaLoop, type QaRoundResult, type QaScreen } from "./qa.ts"
 import { extractJsonObject } from "./json.ts"
 import { decideReplan, formatBlock, normalizeFailure, parseBlock, parseReplanAction, type Block, type ReplanDecision } from "./replan.ts"
 import { diffFileHashes, flaggedFiles } from "./reviews.ts"
-import { captureScreenshots, type VisualReport } from "./screenshots.ts"
+import { captureScreenshots, loginFailures, mobileFailures, type VisualReport } from "./screenshots.ts"
 import { runUiSmoke, type SmokeCheck } from "./smoke.ts"
 import type { Store } from "./store.ts"
 import { filesOutsideScope, loadTasks, pathsOverlap, type Task } from "./tasks.ts"
@@ -27,6 +30,8 @@ const reviewerTools = ["read"]
 const qaTools = ["read"]
 const replannerTools = ["read"]
 const reviewAttempts = 2
+// Design review rounds per phase attempt: review, fix, review again.
+const designReviewRounds = 2
 const maxReplansPerTask = 1
 const maxAttemptDiffLength = 40_000
 const maxListedFiles = 300
@@ -43,6 +48,19 @@ interface PhaseDefinition {
   inputs: string[]
   outputs: string[]
   validate: (projectDir: string, config: PipelineConfig) => void
+  // One commit per entry, in order; files no entry matches land in the phase commit.
+  commits?: PhaseCommit[]
+  // The design reviewer approves the output before it lands; on a rejection the phase agent fixes it in place.
+  reviewed?: boolean
+}
+
+// A phase agent run that writes part of the outputs. Phases without steps run their agent once.
+interface PhaseStep {
+  name: string
+  instructions: string
+  validate: (dir: string, config: PipelineConfig) => void
+  // Runs after the step's output is valid, for work the orchestrator does itself.
+  after?: (context: PipelineContext, dir: string) => Promise<void>
 }
 
 const phaseDefinitions: Record<PlanningPhase, PhaseDefinition> = {
@@ -65,8 +83,19 @@ const phaseDefinitions: Record<PlanningPhase, PhaseDefinition> = {
   branding: {
     role: "illustrator",
     inputs: ["input.md", "docs/spec.md", "docs/architecture.md"],
-    outputs: ["design/branding/01-logo.png", "design/branding/02-<screen>.png and later screens", "design/branding/README.md"],
-    validate: (dir, config) => validateBranding(dir, config.branding.count),
+    outputs: [
+      "design/branding/01-logo.png",
+      "design/branding/02-<screen>.png and later desktop screens",
+      "design/branding/02-<screen>.mobile.png and so on, when mobile screens are on",
+      "design/branding/README.md",
+    ],
+    validate: (dir, config) => validateBranding(dir, config.branding.count, config.branding.mobile),
+    commits: [
+      { message: "design(branding): add the logo", matches: ["design/branding/01-logo.*"] },
+      { message: "design(branding): add the desktop screens", matches: ["design/branding/*"], exclude: ["design/branding/*.mobile.*", "design/branding/*.md"] },
+      { message: "design(branding): add the mobile screens", matches: ["design/branding/*.mobile.*"] },
+    ],
+    reviewed: true,
   },
   design: {
     role: "designer",
@@ -74,16 +103,22 @@ const phaseDefinitions: Record<PlanningPhase, PhaseDefinition> = {
       "docs/spec.md",
       "docs/architecture.md",
       "contracts/",
-      "design/branding/ (logo and desktop screen images: open and study every one, build the design system from them)",
+      "design/branding/ (logo, desktop and mobile screen images: open and study every one, build the design system from them)",
     ],
     outputs: ["design/tokens.css", "design/logo.svg", "design/logo-mark.svg", "docs/design-system.md", "docs/design.md"],
-    validate: (dir) => {
-      const tokens = readFileSync(requireFile(join(dir, "design/tokens.css")), "utf8")
-      if (!tokens.includes("--primary:")) throw new Error("design/tokens.css has no --primary variable")
-      for (const logo of ["design/logo.svg", "design/logo-mark.svg"]) requireSvg(join(dir, logo))
-      requireHeadings(join(dir, "docs/design-system.md"), designSystemHeadings)
-      requireFile(join(dir, "docs/design.md"))
+    validate: (dir, config) => {
+      validateDesignSystem(dir)
+      for (const file of faviconFiles) requireFile(join(dir, faviconDir, file))
+      validateScreens(dir, config)
     },
+    commits: [
+      { message: "design(tokens): add the theme tokens", matches: ["design/tokens.css"] },
+      { message: "design(logo): add the logo and the mark", matches: ["design/logo.svg", "design/logo-mark.svg"] },
+      { message: "design(favicon): add the favicon set", matches: [`${faviconDir}/**`] },
+      { message: "docs(design): add the design system", matches: ["docs/design-system.md"] },
+      { message: "docs(design): add the screen designs", matches: ["docs/design.md"] },
+    ],
+    reviewed: true,
   },
   plan: {
     role: "planner",
@@ -93,15 +128,71 @@ const phaseDefinitions: Record<PlanningPhase, PhaseDefinition> = {
   },
 }
 
+const designSteps: PhaseStep[] = [
+  {
+    name: "system",
+    instructions: [
+      "Step 1 of 2: the design system.",
+      "Write design/tokens.css, design/logo.svg, design/logo-mark.svg, and docs/design-system.md. Do not write docs/design.md yet.",
+      `After this step the orchestrator renders the favicon set in ${faviconDir}/ from design/logo-mark.svg.`,
+    ].join("\n"),
+    validate: validateDesignSystem,
+    after: async (context, dir) => {
+      await (context.renderFavicons ?? generateFavicons)({ dir, name: productName(context.projectDir, dir), signal: context.signal })
+      context.store.log("phase", `design: rendered ${faviconFiles.length} favicon files from ${markPath}`)
+    },
+  },
+  {
+    name: "screens",
+    instructions: [
+      "Step 2 of 2: the screens.",
+      `design/tokens.css, the logos, docs/design-system.md, and ${faviconDir}/ exist. Read them, then write docs/design.md.`,
+      "Change the step 1 files only to fix a real mistake.",
+    ].join("\n"),
+    validate: validateScreens,
+  },
+]
+
+function validateDesignSystem(dir: string): void {
+  const tokens = readFileSync(requireFile(join(dir, "design/tokens.css")), "utf8")
+  if (!tokens.includes("--primary:")) throw new Error("design/tokens.css has no --primary variable")
+  for (const logo of ["design/logo.svg", markPath]) requireSvg(join(dir, logo))
+  validateMark(dir)
+  requireHeadings(join(dir, "docs/design-system.md"), designSystemHeadings)
+}
+
+function validateScreens(dir: string, config: PipelineConfig): void {
+  const design = readFileSync(requireFile(join(dir, "docs/design.md")), "utf8")
+  if (config.target === "api") return
+  if (!parseDesignScreens(design).some((screen) => screen.route !== designSystemRoute)) throw new Error("docs/design.md lists no `Route: /path` line")
+}
+
+// The spec's first heading names the product; the project folder is the fallback.
+function productName(projectDir: string, dir: string): string {
+  const specPath = join(dir, "docs/spec.md")
+  const heading = existsSync(specPath) ? /^#\s+(.+)$/m.exec(readFileSync(specPath, "utf8"))?.[1].trim() : null
+  return heading || basename(projectDir)
+}
+
 const designSystemHeadings = ["## Principles", "## Color", "## Typography", "## Spacing and radius", "## Components", "## Icons", "## Logo"]
 const imagePattern = /\.(png|jpe?g|webp)$/i
 
-export function validateBranding(dir: string, count: number): void {
+export function validateBranding(dir: string, count: number, mobile = false): void {
   const brandingDir = join(dir, "design/branding")
   requireFile(join(brandingDir, "01-logo.png"))
   requireFile(join(brandingDir, "README.md"))
-  const screens = readdirSync(brandingDir).filter((file) => imagePattern.test(file) && file !== "01-logo.png")
-  if (screens.length < count - 1) throw new Error(`design/branding/ has ${screens.length} screen images; expected at least ${count - 1}`)
+  const images = readdirSync(brandingDir).filter((file) => imagePattern.test(file) && file !== "01-logo.png")
+  const screens = images.filter((file) => !mobileImagePattern.test(file))
+  if (screens.length < count - 1) throw new Error(`design/branding/ has ${screens.length} desktop screen images; expected at least ${count - 1}`)
+  if (!mobile) return
+  const missing = screens.filter((file) => !images.includes(mobileImageName(file)))
+  if (missing.length) throw new Error(`design/branding/ has no mobile version of: ${missing.join(", ")} (expected ${missing.map(mobileImageName).join(", ")})`)
+}
+
+const mobileImagePattern = /\.mobile\.(png|jpe?g|webp)$/i
+
+export function mobileImageName(file: string): string {
+  return file.replace(/\.(png|jpe?g|webp)$/i, ".mobile.$1")
 }
 
 function requireSvg(path: string): void {
@@ -122,6 +213,8 @@ export interface PipelineContext {
   signal: AbortSignal
   // Replaces the per-task UI smoke check (tests use a stub instead of Docker).
   smokeCheck?: SmokeCheck
+  // Replaces the Docker favicon render, the same way.
+  renderFavicons?: typeof generateFavicons
 }
 
 // Why the run stopped, shown on the dashboard. kind "budget" offers to raise the budget.
@@ -257,22 +350,75 @@ async function runPlanningPhase(context: PipelineContext, phase: PlanningPhase):
 }
 
 // Planning agents also work in a throwaway worktree, so they never see the orchestrator state or write to main's .git.
+// The phase runs its steps in order, then the design reviewer (for reviewed phases), and lands as one commit per group.
 async function attemptPhase(context: PipelineContext, phase: PlanningPhase, definition: PhaseDefinition, attempt: number, previousError: string | null): Promise<AttemptResult> {
-  const { projectDir } = context
-  const workspace = createWorkspace(projectDir, `phase-${phase}-${attempt}`)
-  const executor = await createExecutor(context, workspace.path, `phase-${phase}-${attempt}`)
-  try {
-    const outcome = await runAgent(context, executor, definition.role, `phase-${phase}-${attempt}`, planningTools, phasePrompt(context, phase, previousError))
+  const { projectDir, config, store } = context
+  const name = `phase-${phase}-${attempt}`
+  const workspace = createWorkspace(projectDir, name)
+  const executor = await createExecutor(context, workspace.path, name)
+  const runPhaseAgent = async (subject: string, notes: string[]): Promise<AttemptResult | null> => {
+    const outcome = await runAgent(context, executor, definition.role, subject, planningTools, phasePrompt(context, phase, previousError, notes))
     if (isInfrastructureFailure(outcome)) return { kind: "infrastructure", reason: `${outcome.failureClass}: ${outcome.result.summary}` }
     if (outcome.result.status !== "done") return { kind: "failed", reason: `agent ${outcome.result.status}: ${outcome.result.summary}` }
+    return null
+  }
+  const validate = (check: (dir: string, config: PipelineConfig) => void): AttemptResult | null => {
     try {
-      definition.validate(workspace.path, context.config)
+      check(workspace.path, config)
+      return null
     } catch (error) {
       return { kind: "failed", reason: (error as Error).message }
     }
+  }
+  // The orchestrator's own steps (the favicon render) need Docker, not an agent, so a failure pauses the run.
+  const runAfter = async (step: PhaseStep): Promise<AttemptResult | null> => {
+    if (!step.after) return null
+    try {
+      await step.after(context, workspace.path)
+      return null
+    } catch (error) {
+      return { kind: "infrastructure", reason: `${phase} ${step.name}: ${(error as Error).message}` }
+    }
+  }
+  const steps: PhaseStep[] = phase === "design" ? designSteps : [{ name: phase, instructions: "", validate: definition.validate }]
+  // A fix may change the logo mark, so the favicon set is rendered again.
+  const rerunOrchestratorSteps = async (): Promise<AttemptResult | null> => {
+    for (const step of steps) {
+      const failure = await runAfter(step)
+      if (failure) return failure
+    }
+    return null
+  }
+  try {
+    for (const step of steps) {
+      const subject = steps.length > 1 ? `${name}-${step.name}` : name
+      const failure = (await runPhaseAgent(subject, step.instructions ? [step.instructions] : [])) ?? validate(step.validate) ?? (await runAfter(step))
+      if (failure) return failure
+    }
+    const invalid = validate(definition.validate)
+    if (invalid) return invalid
+
+    if (definition.reviewed) {
+      for (let round = 1; ; round++) {
+        const review = await reviewPhase(context, executor, workspace.path, phase, `${name}-review-${round}`)
+        if (review.kind !== "verdict") return review.result
+        const { verdict } = review
+        store.log("review", `${phase}: design review ${round}: ${verdict.verdict}${verdict.reasons.length ? `: ${verdict.reasons.join("; ").slice(0, 500)}` : ""}`)
+        if (verdict.verdict === "pass") break
+        const rejection = `the design reviewer rejected the ${phase} output.\nReasons: ${verdict.reasons.join("; ")}\nFixes: ${verdict.fixes.join("; ")}`
+        if (round >= designReviewRounds) return { kind: "failed", reason: rejection }
+        const fixNotes = [`The design reviewer rejected your output. Edit your existing files to fix every problem below. Do not start over.`, ...verdict.fixes.map((fix) => `- ${fix}`)]
+        const failure =
+          (await runPhaseAgent(`${name}-fix-${round}`, fixNotes)) ??
+          validate(definition.validate) ??
+          (await rerunOrchestratorSteps())
+        if (failure) return failure
+      }
+    }
+
     if (phase === "architecture") ensureClaudeMemoryFile(context, workspace.path)
     const title = `docs(${phase}): add ${phase} artifacts`
-    commitAndRebase(workspace, title)
+    commitAndRebase(workspace, title, groupPhaseFiles(changedFiles(workspace.path), definition.commits ?? []))
     context.github.land({
       branch: workspace.branch,
       title,
@@ -288,6 +434,55 @@ async function attemptPhase(context: PipelineContext, phase: PlanningPhase, defi
   }
 }
 
+type ReviewOutcome = { kind: "verdict"; verdict: ReviewVerdict } | { kind: "stopped"; result: AttemptResult }
+
+async function reviewPhase(context: PipelineContext, executor: Executor, dir: string, phase: PlanningPhase, subject: string): Promise<ReviewOutcome> {
+  const prompt = (previousError: string | null) => designReviewPrompt({ phase, config: context.config, files: trackedAndNewFiles(dir), previousError })
+  return reviewWithRetries(context, executor, subject, "design-reviewer", prompt)
+}
+
+// Runs a read-only reviewer until it gives a valid verdict, at most reviewAttempts times.
+async function reviewWithRetries(context: PipelineContext, executor: Executor, subject: string, promptName: string, prompt: (previousError: string | null) => string): Promise<ReviewOutcome> {
+  let previousError: string | null = null
+  for (let attempt = 1; attempt <= reviewAttempts; attempt++) {
+    const outcome = await runAgent(context, executor, "design-reviewer", attempt === 1 ? subject : `${subject}-${attempt}`, reviewerTools, prompt(previousError), { promptName })
+    if (isInfrastructureFailure(outcome)) return { kind: "stopped", result: { kind: "infrastructure", reason: `design reviewer ${outcome.failureClass}: ${outcome.result.summary}` } }
+    if (outcome.result.status !== "done") return { kind: "stopped", result: { kind: "failed", reason: `design reviewer ${outcome.result.status}: ${outcome.result.summary}` } }
+    try {
+      return { kind: "verdict", verdict: parseVerdict(outcome.result.summary) }
+    } catch (error) {
+      previousError = (error as Error).message
+      context.store.log("review", `${subject}: verdict rejected: ${previousError.slice(0, 300)}`)
+    }
+  }
+  return { kind: "stopped", result: { kind: "failed", reason: `the design reviewer gave no valid verdict: ${previousError}` } }
+}
+
+function trackedAndNewFiles(dir: string): string[] {
+  return [...new Set([...trackedFiles(dir), ...changedFiles(dir)])].filter((file) => existsSync(join(dir, file))).sort()
+}
+
+export function designReviewPrompt(input: { phase: PlanningPhase; config: PipelineConfig; files: string[]; previousError: string | null }): string {
+  const { phase, files } = input
+  const images = files.filter((file) => file.startsWith("design/") && imagePattern.test(file))
+  const lines = [`Review the ${phase} phase output. Project target: ${input.config.target}.`, ""]
+  if (phase === "branding") {
+    lines.push(
+      `Expected: the logo, ${input.config.branding.count - 1} desktop screens${input.config.branding.mobile ? ", and a mobile version of each screen" : ""}, and design/branding/README.md.`,
+      "Read input.md and docs/spec.md for what the product must show.",
+    )
+  } else {
+    lines.push(
+      "Check design/tokens.css, design/logo.svg, design/logo-mark.svg, docs/design-system.md, and docs/design.md.",
+      `The favicon set in ${faviconDir}/ was rendered from design/logo-mark.svg by the orchestrator. Judge the rendered PNGs, not only the SVG.`,
+      "Read docs/spec.md for the user stories.",
+    )
+  }
+  lines.push("", "## Images to open", "", ...(images.length ? images.map((file) => `- ${file}`) : ["none"]))
+  if (input.previousError) lines.push("", `Your previous answer was rejected. Fix this: ${input.previousError}`)
+  return lines.join("\n")
+}
+
 // Claude Code reads CLAUDE.md, Codex reads AGENTS.md; the import keeps one source of truth.
 function ensureClaudeMemoryFile(context: PipelineContext, dir: string): void {
   const path = join(dir, "CLAUDE.md")
@@ -296,7 +491,7 @@ function ensureClaudeMemoryFile(context: PipelineContext, dir: string): void {
   context.store.log("phase", "architecture: created CLAUDE.md that imports AGENTS.md")
 }
 
-export function phasePrompt(context: Pick<PipelineContext, "projectDir" | "config">, phase: PlanningPhase, previousError: string | null): string {
+export function phasePrompt(context: Pick<PipelineContext, "projectDir" | "config">, phase: PlanningPhase, previousError: string | null, notes: string[] = []): string {
   const { config, projectDir } = context
   const definition = phaseDefinitions[phase]
   const lines = [
@@ -304,7 +499,10 @@ export function phasePrompt(context: Pick<PipelineContext, "projectDir" | "confi
     `Read these inputs: ${definition.inputs.join(", ")}.`,
     `Write these outputs: ${definition.outputs.join(", ")}.`,
   ]
-  if (definition.role === "illustrator") lines.push(`Generate ${config.branding.count} images in total: the logo first, then ${config.branding.count - 1} desktop screens.`)
+  if (definition.role === "illustrator") {
+    lines.push(`Generate ${config.branding.count} images in total: the logo first, then ${config.branding.count - 1} desktop screens.`)
+    lines.push(config.branding.mobile ? "Then draw a mobile version of every desktop screen, named like the desktop file with .mobile before the extension." : "Do not draw mobile screens.")
+  }
   if (config.stackHints.prefer.length) lines.push(`Preferred technologies: ${config.stackHints.prefer.join(", ")}.`)
   if (config.stackHints.avoid.length) lines.push(`Avoid: ${config.stackHints.avoid.join(", ")}.`)
   const feedback = readFeedback(projectDir, phase)
@@ -313,6 +511,7 @@ export function phasePrompt(context: Pick<PipelineContext, "projectDir" | "confi
     lines.push("Edit your existing outputs to address this feedback. Do not start over.")
   }
   if (previousError) lines.push(`Your previous output was rejected. Fix this: ${previousError}`)
+  lines.push(...notes)
   return lines.join("\n")
 }
 
@@ -327,6 +526,8 @@ async function runTasks(context: PipelineContext): Promise<RunOutcome> {
   }
   const outcome = await runQaPhase(context, deploy)
   if (outcome !== "completed") return outcome
+  const access = ensureDemoAccess(context.store)
+  if (deployUrl) context.store.log("deploy", `live at ${deployUrl}; log in as ${access.email} (the password is on the dashboard)`)
   context.github.runCompleted(deployUrl)
   return "completed"
 }
@@ -596,11 +797,15 @@ async function attemptTask(context: PipelineContext, task: Task, attempt: number
     const verification = await runCheck(context, executor, task.verify, `${task.id}-${attempt}-verify`, `${task.id} verify`)
     if (!verification.passed) return rejected(`verify command failed:\n${verification.output}`)
 
+    let screenshotsDir: string | null = null
     if (task.ui) {
-      const smoke = await serializeSmoke(() => (context.smokeCheck ?? runUiSmoke)({ projectDir, worktree: workspace.path, task, attempt, signal: context.signal }))
+      const access = ensureDemoAccess(store)
+      const smoke = await serializeSmoke(() => (context.smokeCheck ?? runUiSmoke)({ projectDir, worktree: workspace.path, task, attempt, signal: context.signal, access }))
       if (smoke.kind === "skipped") store.log("smoke", `${task.id} attempt ${attempt}: UI smoke check skipped: ${smoke.reason.slice(0, 500)}`)
-      else if (smoke.kind === "passed") store.log("smoke", `${task.id} attempt ${attempt}: UI smoke check passed on ${smoke.routes} routes`)
-      else {
+      else if (smoke.kind === "passed") {
+        store.log("smoke", `${task.id} attempt ${attempt}: UI smoke check passed on ${smoke.routes} routes, desktop and mobile`)
+        screenshotsDir = smoke.outDir ?? null
+      } else {
         store.log("smoke", `${task.id} attempt ${attempt}: UI smoke check failed:\n${smoke.reason.slice(0, 1500)}`)
         return rejected(`UI smoke check failed:\n${smoke.reason}`)
       }
@@ -638,10 +843,22 @@ async function attemptTask(context: PipelineContext, task: Task, attempt: number
       return { kind: "failed", reason: `reviewer rejected the change.\nReasons: ${verdict.reasons.join("; ")}\nFixes: ${verdict.fixes.join("; ")}`, diff }
     }
 
+    if (screenshotsDir && existsSync(join(screenshotsDir, "report.json"))) {
+      const review = await reviewScreens(context, executor, workspace.path, task, attempt, screenshotsDir)
+      if (review.kind === "stopped") return review.result.kind === "failed" ? { ...review.result, diff } : review.result
+      const { verdict: design } = review
+      store.log("review", `${task.id} attempt ${attempt}: UI review ${design.verdict}${design.reasons.length ? `: ${design.reasons.join("; ").slice(0, 500)}` : ""}`)
+      if (design.verdict !== "pass") {
+        return { kind: "failed", reason: `the design reviewer rejected the screens.\nReasons: ${design.reasons.join("; ")}\nFixes: ${design.fixes.join("; ")}`, diff }
+      }
+    }
+
     const title = `feat(${task.id}): ${task.title}`
+    const plan = parseCommitPlan(worker.result.summary, changed)
+    if (plan.kind === "invalid") store.log("task", `${task.id} attempt ${attempt}: commit plan ignored, landing one commit: ${plan.reason}`)
     try {
       // Tasks run in parallel, so the progress entry goes on after the rebase; appending first would conflict on every merge.
-      commitAndRebase(workspace, title)
+      commitAndRebase(workspace, title, plan.kind === "groups" ? plan.groups : [])
       appendProgress(workspace.path, task, changed, worker.result.summary)
       amendCommit(workspace, title)
       context.github.land({
@@ -663,6 +880,49 @@ async function attemptTask(context: PipelineContext, task: Task, attempt: number
     await executor.dispose()
     removeWorkspace(projectDir, workspace)
   }
+}
+
+// The reviewer sees only its worktree, so the screenshots are copied in, and removed again before the commit.
+async function reviewScreens(context: PipelineContext, executor: Executor, dir: string, task: Task, attempt: number, screenshotsDir: string): Promise<ReviewOutcome> {
+  const reviewPath = join(".agent-team", "ui-review", `${task.id}-${attempt}`)
+  const target = join(dir, reviewPath)
+  cpSync(screenshotsDir, target, { recursive: true })
+  try {
+    const report = JSON.parse(readFileSync(join(target, "report.json"), "utf8")) as VisualReport
+    const screens = parseDesignScreens(existsSync(join(dir, "docs/design.md")) ? readFileSync(join(dir, "docs/design.md"), "utf8") : "")
+    const prompt = (previousError: string | null) => uiReviewPrompt({ task, report, reviewPath, screens, brandingImages: listBrandingImages(dir), previousError })
+    return await reviewWithRetries(context, executor, `${task.id}-ui-review-${attempt}`, "ui-reviewer", prompt)
+  } finally {
+    rmSync(join(dir, ".agent-team", "ui-review"), { recursive: true, force: true })
+  }
+}
+
+export function uiReviewPrompt(input: { task: Task; report: VisualReport; reviewPath: string; screens: QaScreen[]; brandingImages: string[]; previousError: string | null }): string {
+  const { task, report, reviewPath } = input
+  const mobile = report.mobileViewport ? `${report.mobileViewport.width}x${report.mobileViewport.height}` : "phone size"
+  const lines = [
+    `Review the screens of task ${task.id} "${task.title}".`,
+    "",
+    "## Task",
+    "",
+    ...task.acceptance.map((criterion) => `- ${criterion}`),
+    "",
+    `## Screenshots (desktop ${report.viewport.width}x${report.viewport.height}, mobile ${mobile})`,
+    "",
+  ]
+  for (const route of report.routes) {
+    const screen = input.screens.find((entry) => entry.route === route.route)
+    const branding = screen?.branding ? `; branding design/branding/${screen.branding}` : ""
+    const mobileBranding = screen?.branding && input.brandingImages.includes(`design/branding/${mobileImageName(screen.branding)}`) ? `, mobile branding design/branding/${mobileImageName(screen.branding)}` : ""
+    const desktopShot = route.file ? `${reviewPath}/${route.file}` : "no screenshot"
+    const mobileShot = route.mobile?.file ? `${reviewPath}/${route.mobile.file}` : "no screenshot"
+    lines.push(`- \`${route.route}\`: desktop ${desktopShot}, mobile ${mobileShot}${branding}${mobileBranding}`)
+    const tight = route.mobile?.layout?.tightTargets ?? []
+    if (tight.length) lines.push(`  Tap targets under 44px on mobile: ${tight.join("; ")}`)
+  }
+  lines.push("", "Read docs/design.md, docs/design-system.md, and design/tokens.css.")
+  if (input.previousError) lines.push("", `Your previous answer was rejected. Fix this: ${input.previousError}`)
+  return lines.join("\n")
 }
 
 // Files merged by the tasks this one depends on, oldest dependency first.
@@ -783,8 +1043,9 @@ async function runQaRound(context: PipelineContext, round: number): Promise<QaRo
       store.log("qa", `round ${round}: visual gate skipped: api-only target`)
     } else {
       const designPath = join(workspace.path, "docs/design.md")
-      screens = parseDesignScreens(existsSync(designPath) ? readFileSync(designPath, "utf8") : "")
-      visual = await captureScreenshots({ projectDir, outDir, screens, signal: context.signal })
+      const design = existsSync(designPath) ? readFileSync(designPath, "utf8") : ""
+      screens = parseDesignScreens(design)
+      visual = await captureScreenshots({ projectDir, outDir, screens, signal: context.signal, login: { route: parseLoginRoute(design), access: ensureDemoAccess(store) } })
       const broken = visual.routes.filter((route) => route.error || (route.status ?? 0) >= 400).length
       store.log("qa", visual.startError ? `round ${round}: app did not start: ${visual.startError.slice(0, 300)}` : `round ${round}: ${visual.routes.length} screenshots, ${broken} broken routes`)
       // The reviewer sees only its worktree, so the round's files are copied in at the same relative path.
@@ -846,6 +1107,7 @@ export function qaHardFailures(tests: TestGateResult, visual: VisualReport | nul
     if (route.error) failures.push(`${route.route} did not load: ${route.error}`)
     else if ((route.status ?? 0) >= 400) failures.push(`${route.route} answered HTTP ${route.status}`)
   }
+  if (visual) failures.push(...loginFailures(visual), ...mobileFailures(visual))
   return failures
 }
 
@@ -877,13 +1139,20 @@ function qaPrompt(input: {
   if (!visual) lines.push("Skipped: the target is api only.")
   else if (visual.startError) lines.push("The app did not start, so there are no screenshots:", "", "```", visual.startError, "```")
   else {
-    lines.push(`Each route was loaded at ${visual.viewport.width}x${visual.viewport.height} and captured full page. Full report: ${roundPath}/report.json.`, "")
+    if (visual.login) lines.push(visual.login.ok ? `Signed-in routes were captured after logging in at ${visual.login.route} with the demo account.` : `The demo account could not log in at ${visual.login.route}: ${visual.login.error}`, "")
+    const mobile = visual.mobileViewport ? ` and on a phone at ${visual.mobileViewport.width}x${visual.mobileViewport.height}` : ""
+    lines.push(`Each route was loaded at ${visual.viewport.width}x${visual.viewport.height}${mobile} and captured full page. Full report: ${roundPath}/report.json.`, "")
     for (const route of visual.routes) {
       const shot = route.file ? `${roundPath}/${route.file}` : "no screenshot"
       const status = route.error ? `error: ${route.error}` : `HTTP ${route.status ?? "unknown"}`
       const errors = route.consoleErrors.length ? `; console errors: ${route.consoleErrors.slice(0, 5).join(" | ")}` : "; no console errors"
       const branding = route.branding ? `; compare with design/branding/${route.branding}` : ""
-      lines.push(`- \`${route.route}\`: ${shot}, ${status}${errors}${branding}`)
+      lines.push(`- \`${route.route}\`${route.signedIn ? " (signed in)" : ""}: ${shot}, ${status}${errors}${branding}`)
+      if (!route.mobile) continue
+      const mobileShot = route.mobile.file ? `${roundPath}/${route.mobile.file}` : `no screenshot (${route.mobile.error ?? "unknown error"})`
+      const mobileBranding = route.branding && input.brandingImages.includes(`design/branding/${mobileImageName(route.branding)}`) ? `; compare with design/branding/${mobileImageName(route.branding)}` : ""
+      const tight = route.mobile.layout?.tightTargets.length ? `; tap targets under 44px: ${route.mobile.layout.tightTargets.join(" | ")}` : ""
+      lines.push(`  - mobile: ${mobileShot}${mobileBranding}${tight}`)
     }
   }
   lines.push("", "## References", "")

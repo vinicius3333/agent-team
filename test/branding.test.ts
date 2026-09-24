@@ -25,13 +25,13 @@ test("the old mockups key and gate map to branding", () => {
     .replace("gates: [spec, architecture]", "gates: [spec, mockups, branding]")
   assert.match(legacy, /^mockups:/m)
   const config = loadConfig(writePipeline("legacy", legacy))
-  assert.deepEqual(config.branding, { enabled: false, count: 5 })
+  assert.deepEqual(config.branding, { enabled: false, count: 5, mobile: true })
   assert.deepEqual(config.autonomy.gates, ["spec", "branding"])
 })
 
 test("the branding key wins over mockups and defaults to 4 images", () => {
   const config = loadConfig(writePipeline("current", examplePipeline))
-  assert.deepEqual(config.branding, { enabled: true, count: 4 })
+  assert.deepEqual(config.branding, { enabled: true, count: 4, mobile: true })
   const both = loadConfig(writePipeline("both", `${examplePipeline}\nmockups:\n  count: 6\n`))
   assert.equal(both.branding.count, 4)
 })

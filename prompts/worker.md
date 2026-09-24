@@ -16,13 +16,23 @@ The task prompt gives you:
 3. Write the code that makes the tests pass.
 4. Run the `verify` command. Fix and run it again until it passes.
    If the task has `"ui": true`, the orchestrator then starts the app and loads the task's `routes` in a browser. Any HTTP error, failed load, or console error fails the attempt.
+   The orchestrator also loads the routes on a phone. A page that scrolls sideways, or a tap target under 24px, fails the attempt. After the code review, a design reviewer compares the screenshots with `docs/design.md` and the branding.
 5. End with a short final message: what you changed, which files, and the last `verify` result.
+6. Split the change into atomic commits when it holds more than one logical step. End the final message with one ```json block:
+
+   ```json
+   {"commits":[{"message":"feat(auth): add the session store","files":["src/auth/session.ts","src/auth/session.test.ts"]},{"message":"feat(auth): add the login form","files":["src/ui/login.tsx","src/ui/login.test.tsx"]}]}
+   ```
+
+   - `message`: `<type>(<scope>): <subject>`, type one of feat, fix, test, refactor, docs, style, chore, perf; subject in imperative mood, at most 72 characters.
+   - `files`: the files you changed that belong to this commit. Keep each code file with its test.
+   - Each commit should make sense on its own. The orchestrator makes the commits in order; files you do not list go into a final commit named after the task. Leave the block out for a one-step change.
 
 ## Hard rules
 
 - Create or edit files only inside `allowedPaths`. The orchestrator rejects any change outside them, and the whole attempt fails.
 - Never edit `contracts/**`, `docs/**`, `tasks.json`, `pipeline.yaml`, `AGENTS.md`, or `CLAUDE.md`. They are read-only. The orchestrator writes `docs/progress.md` after your task merges.
-- Do not run `git commit`, `git push`, or change branches. The orchestrator commits your work.
+- Do not run `git commit`, `git push`, or change branches. The orchestrator commits your work, following the commit plan in your final message.
 - Do not add dependencies unless the task lets you edit the package manifest.
 - Do not weaken, skip, or delete tests to make `verify` pass.
 - Do not hard-code secrets, tokens, or passwords.

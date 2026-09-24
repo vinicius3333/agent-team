@@ -9,6 +9,8 @@ export interface QaScreen {
   slug: string
   // Branding image file name (in design/branding/) the designer matched to this screen, if any.
   branding: string | null
+  // From an `Access: signed in` line: the screenshot logs in with the demo account first.
+  signedIn: boolean
 }
 
 export interface QaFinding {
@@ -30,6 +32,8 @@ export type QaOutcome = "completed" | "paused" | "failed" | "awaiting_approval"
 
 const routeLinePattern = /^\s*(?:[-*+]\s*)?(?:\*\*|__)?\s*routes?\s*(?:\*\*|__)?\s*:\s*(?:\*\*|__)?(.*)$/i
 const brandingLinePattern = /^\s*(?:[-*+]\s*)?(?:\*\*|__)?\s*branding(?:\s+image)?\s*(?:\*\*|__)?\s*:\s*(?:\*\*|__)?(.*)$/i
+const accessLinePattern = /^\s*(?:[-*+]\s*)?(?:\*\*|__)?\s*access\s*(?:\*\*|__)?\s*:\s*(?:\*\*|__)?(.*)$/i
+const loginLinePattern = /^\s*(?:[-*+]\s*)?(?:\*\*|__)?\s*login(?:\s+route)?\s*(?:\*\*|__)?\s*:\s*(?:\*\*|__)?\s*`?(\/[A-Za-z0-9\-._~/]*)`?/i
 const brandingFilePattern = /([A-Za-z0-9._-]+\.(?:png|jpe?g|webp))/i
 // Static paths only: a route with a parameter (/tasks/:id, /tasks/[id], /tasks/{id}) has no single page to screenshot.
 const staticRoutePattern = /^\/[A-Za-z0-9\-._~/]*$/
@@ -37,17 +41,27 @@ const staticRoutePattern = /^\/[A-Za-z0-9\-._~/]*$/
 // Reads `Route: /path` lines from docs/design.md (bold, list bullets, backticks, and several routes per line are fine),
 // pairs each with the `Branding: 02-x.png` line of the same screen section, and always adds /design-system.
 export function parseDesignScreens(markdown: string): QaScreen[] {
-  const found: { route: string; branding: string | null }[] = []
+  const found: { route: string; branding: string | null; signedIn: boolean }[] = []
   let sectionStart = 0
   let sectionBranding: string | null = null
+  let sectionSignedIn = false
   const assignBranding = () => {
-    for (const screen of found.slice(sectionStart)) screen.branding ??= sectionBranding
+    for (const screen of found.slice(sectionStart)) {
+      screen.branding ??= sectionBranding
+      screen.signedIn ||= sectionSignedIn
+    }
   }
   for (const line of markdown.split("\n")) {
     if (/^#{1,3}\s/.test(line)) {
       assignBranding()
       sectionStart = found.length
       sectionBranding = null
+      sectionSignedIn = false
+      continue
+    }
+    const access = accessLinePattern.exec(line)
+    if (access) {
+      sectionSignedIn = /signed[\s-]*in|logged[\s-]*in|auth|private|protected/i.test(access[1]) && !/public/i.test(access[1])
       continue
     }
     const branding = brandingLinePattern.exec(line)
@@ -60,11 +74,11 @@ export function parseDesignScreens(markdown: string): QaScreen[] {
     for (const token of route[1].replace(/[`*_]/g, " ").split(/[\s,;|]+/)) {
       const cleaned = token.replace(/[.)]+$/, "")
       const normalized = cleaned.length > 1 ? cleaned.replace(/\/+$/, "") : cleaned
-      if (staticRoutePattern.test(normalized) && !found.some((screen) => screen.route === normalized)) found.push({ route: normalized, branding: null })
+      if (staticRoutePattern.test(normalized) && !found.some((screen) => screen.route === normalized)) found.push({ route: normalized, branding: null, signedIn: false })
     }
   }
   assignBranding()
-  if (!found.some((screen) => screen.route === designSystemRoute)) found.push({ route: designSystemRoute, branding: null })
+  if (!found.some((screen) => screen.route === designSystemRoute)) found.push({ route: designSystemRoute, branding: null, signedIn: false })
   const slugs = new Set<string>()
   return found.map((screen) => {
     const base = routeSlug(screen.route)
@@ -73,6 +87,15 @@ export function parseDesignScreens(markdown: string): QaScreen[] {
     slugs.add(slug)
     return { ...screen, slug }
   })
+}
+
+// The `Login: /login` line of docs/design.md: the page the screenshot fills with the demo account.
+export function parseLoginRoute(markdown: string): string | null {
+  for (const line of markdown.split("\n")) {
+    const match = loginLinePattern.exec(line)
+    if (match) return match[1].length > 1 ? match[1].replace(/\/+$/, "") : match[1]
+  }
+  return null
 }
 
 export function routeSlug(route: string): string {

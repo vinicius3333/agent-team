@@ -104,14 +104,28 @@ node src/cli.ts doctor ~/projects                         # watch every project 
 | --- | --- | --- |
 | spec | PM | `docs/spec.md` |
 | architecture | Architect | `docs/architecture.md`, `docs/adr/*`, `contracts/openapi.yaml` |
-| branding | Illustrator | `design/branding/01-logo.png`, desktop screens `02-<screen>.png` and later, `design/branding/README.md` |
-| design | Designer | `design/tokens.css`, `design/logo.svg`, `design/logo-mark.svg`, `docs/design-system.md`, `docs/design.md` |
+| branding | Illustrator, then Design reviewer | `design/branding/01-logo.png`, desktop screens `02-<screen>.png` and later, mobile screens `02-<screen>.mobile.png`, `design/branding/README.md` |
+| design | Designer, then Design reviewer | step 1: `design/tokens.css`, `design/logo.svg`, `design/logo-mark.svg`, `docs/design-system.md`; the orchestrator renders `design/favicon/`; step 2: `docs/design.md` |
 | plan | Planner | `tasks.json` |
-| build | Worker, then Reviewer | code and tests, one commit per task |
+| build | Worker, then Reviewer; Design reviewer for UI tasks | code and tests, one or more atomic commits per task |
 | qa | QA | `.agent-team/qa/round-<n>/`: test output, screenshots, `report.json`, verdict; fix tasks `Q<round><n>` in `tasks.json` |
 | deploy | none | live preview URL |
 
-`branding.count` (default 4, 2 to 6) sets the number of branding images, logo included. Set `branding.enabled: false` to skip the phase. Older `pipeline.yaml` files with a `mockups:` key, and `mockups` in `autonomy.gates`, still work.
+`branding.count` (default 4, 2 to 6) sets the number of branding images, logo included. `branding.mobile` (default `true`) adds a phone version of every desktop screen. Set `branding.enabled: false` to skip the phase. Older `pipeline.yaml` files with a `mockups:` key, and `mockups` in `autonomy.gates`, still work.
+
+### Design review and commits
+
+- **Design reviewer** (`design-reviewer` role, default `claude opus`, read-only) approves the branding and design output. On a rejection the phase agent fixes its files in place and the reviewer checks again, once. A second rejection fails the attempt.
+- **Favicon.** After design step 1, the orchestrator renders `design/logo-mark.svg` in the Playwright container into `favicon.ico` (16, 32, 48), `favicon.svg`, `apple-touch-icon.png`, `icon-192.png`, `icon-512.png`, a maskable icon, and `site.webmanifest`. The mark must use literal colors and a square `viewBox`. The render needs Docker; without it the phase pauses.
+- **Commits.** Branding and design land as one commit per step: logo, desktop screens, mobile screens; tokens, logo, favicon, design system, screens. A worker may end its message with a `{"commits":[{"message","files"}]}` block to split a task into atomic commits. An invalid plan falls back to one commit.
+- **UI tasks.** The smoke check loads each route on desktop and on a phone (iPhone 13 viewport). A page that scrolls sideways or has tap targets under 24px fails the attempt. After the code review passes, the design reviewer compares the screenshots with `docs/design.md` and the branding.
+
+### Landing page and demo login
+
+- **Landing page.** For web targets, `US-01` is a public landing page at `/`. The illustrator draws it as `02-landing.png`, the designer specifies it, and the planner adds a task for it.
+- **Demo account.** The orchestrator creates one demo account per project (`demo@example.com` and a random password) and keeps it in `state.db`, never in git. Every run of the app gets it as `DEMO_EMAIL` and `DEMO_PASSWORD`: in smoke checks, in QA, and in deploy. The app seeds that user at startup.
+- **Signed-in screens.** Screens with `Access: signed in` in `docs/design.md` are captured after the browser logs in at the `Login: /path` page. If the login fails, the check fails.
+- **Access.** The dashboard's live deployment card shows the email and password, with copy buttons.
 
 Role prompts live in `prompts/`. Edit them to tune behavior.
 
@@ -130,10 +144,10 @@ qa:
 Each round:
 
 1. **Tests.** Runs the `install` and `test` commands from `## Commands` in `docs/architecture.md` on a fresh worktree of `main`, in the same sandbox as workers.
-2. **Screenshots.** Starts `main` the way deploy does, in container `agent-team-qa-<project>` with no tunnel. A Playwright container (`agent-team-qa-shot-<project>`, built from `mcr.microsoft.com/playwright`) loads every `Route:` line in `docs/design.md` plus `/design-system` at 1440x900, full page, and records the HTTP status and console errors. The browser joins only a per-project internal network, so it reaches the app and not the internet. Both containers and the network are removed after the round. Skipped for `api` targets.
+2. **Screenshots.** Starts `main` the way deploy does, in container `agent-team-qa-<project>` with no tunnel. A Playwright container (`agent-team-qa-shot-<project>`, built from `mcr.microsoft.com/playwright`) loads every `Route:` line in `docs/design.md` plus `/design-system` at 1440x900 and on a phone, full page, and records the HTTP status and console errors. The browser joins only a per-project internal network, so it reaches the app and not the internet. Both containers and the network are removed after the round. Skipped for `api` targets.
 3. **Review.** The `qa` role (default `claude opus`, read-only) compares the screenshots with the branding images and `docs/design-system.md`, and answers `pass` or `fail` with findings and fix tasks.
 
-On pass, deploy runs. On fail, the fix tasks are added to `tasks.json`, built by the worker and reviewer, and QA runs again. After `maxRounds` failed rounds, the run stops with the last fix tasks queued; "Resume run" builds them and starts a new round. A failed test run, an app that does not start, or a route that does not load always fails the round.
+On pass, deploy runs. On fail, the fix tasks are added to `tasks.json`, built by the worker and reviewer, and QA runs again. After `maxRounds` failed rounds, the run stops with the last fix tasks queued; "Resume run" builds them and starts a new round. A failed test run, an app that does not start, a route that does not load, or a mobile page that scrolls sideways or has tap targets under 24px always fails the round.
 
 The dashboard's QA tab shows each round: verdict, findings, test output, and every screenshot next to its branding image.
 

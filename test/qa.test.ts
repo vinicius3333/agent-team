@@ -8,7 +8,7 @@ import { after, test } from "node:test"
 import { loadConfig } from "../src/config.ts"
 import { qaHardFailures } from "../src/pipeline.ts"
 import { createProject } from "../src/project.ts"
-import { parseArchitectureCommands, parseDesignScreens, parseQaVerdict, runQaLoop, validateFixTasks, type QaLoopSteps, type QaRoundResult } from "../src/qa.ts"
+import { parseArchitectureCommands, parseDesignScreens, parseLoginRoute, parseQaVerdict, runQaLoop, validateFixTasks, type QaLoopSteps, type QaRoundResult } from "../src/qa.ts"
 import { openStore } from "../src/store.ts"
 import type { Task } from "../src/tasks.ts"
 import { startUi } from "../src/ui/server.ts"
@@ -30,6 +30,7 @@ test("parseDesignScreens reads Route lines leniently and adds /design-system", (
     "- Route: `/`",
     "- Branding: design/branding/02-home.png",
     "### Settings",
+    "- Access: signed in",
     "**Route:** /settings/",
     "### Tasks",
     "- **Routes**: `/tasks`, `/tasks/:id`, /tasks/[id]",
@@ -41,13 +42,13 @@ test("parseDesignScreens reads Route lines leniently and adds /design-system", (
     "Route: /settings",
   ].join("\n")
   assert.deepEqual(parseDesignScreens(markdown), [
-    { route: "/", slug: "root", branding: "02-home.png" },
-    { route: "/settings", slug: "settings", branding: null },
-    { route: "/tasks", slug: "tasks", branding: "03-tasks.png" },
-    { route: "/profile", slug: "profile", branding: null },
-    { route: "/design-system", slug: "design-system", branding: null },
+    { route: "/", slug: "root", branding: "02-home.png", signedIn: false },
+    { route: "/settings", slug: "settings", branding: null, signedIn: true },
+    { route: "/tasks", slug: "tasks", branding: "03-tasks.png", signedIn: false },
+    { route: "/profile", slug: "profile", branding: null, signedIn: false },
+    { route: "/design-system", slug: "design-system", branding: null, signedIn: false },
   ])
-  assert.deepEqual(parseDesignScreens(""), [{ route: "/design-system", slug: "design-system", branding: null }])
+  assert.deepEqual(parseDesignScreens(""), [{ route: "/design-system", slug: "design-system", branding: null, signedIn: false }])
   assert.deepEqual(
     parseDesignScreens("Route: /a-b\nRoute: /a/b\nRoute: /design-system").map((screen) => screen.slug),
     ["a-b", "a-b-2", "design-system"],
@@ -231,4 +232,10 @@ test("QA endpoints list rounds and serve only files inside the project", async (
   assert.equal((await fetch(`${base}/1/other.json`)).status, 400)
   assert.equal((await fetch(`${base}/1/..%2F..%2Fstate.db`)).status, 400)
   assert.equal((await fetch(`${base}/x/root.png`)).status, 400)
+})
+
+test("parseLoginRoute reads the Login line of docs/design.md", () => {
+  assert.equal(parseLoginRoute("## Navigation\n- **Login:** `/login/`\n"), "/login")
+  assert.equal(parseLoginRoute("Login route: /auth/sign-in"), "/auth/sign-in")
+  assert.equal(parseLoginRoute("Log in with the button"), null)
 })

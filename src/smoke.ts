@@ -1,14 +1,16 @@
 import { execFileSync } from "node:child_process"
-import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs"
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { projectSlug, removeContainers, removeNetwork } from "./deploy.ts"
-import { routeSlug } from "./qa.ts"
-import { captureApp, type ScreenshotContainers, type VisualReport } from "./screenshots.ts"
+import type { DemoAccess } from "./access.ts"
+import { parseDesignScreens, parseLoginRoute, routeSlug, type QaScreen } from "./qa.ts"
+import { captureApp, loginFailures, mobileFailures, type ScreenshotContainers, type VisualReport } from "./screenshots.ts"
 import type { Task } from "./tasks.ts"
 
-export type SmokeResult = { kind: "passed"; routes: number } | { kind: "failed"; reason: string } | { kind: "skipped"; reason: string }
+// outDir holds the screenshots and report.json of a passed check, for the visual review.
+export type SmokeResult = { kind: "passed"; routes: number; outDir?: string } | { kind: "failed"; reason: string } | { kind: "skipped"; reason: string }
 
-export type SmokeCheck = (input: { projectDir: string; worktree: string; task: Task; attempt: number; signal: AbortSignal }) => Promise<SmokeResult>
+export type SmokeCheck = (input: { projectDir: string; worktree: string; task: Task; attempt: number; signal: AbortSignal; access?: DemoAccess }) => Promise<SmokeResult>
 
 const appAlias = "app"
 const maxConsoleErrors = 5
@@ -19,9 +21,14 @@ export function smokeContainerNames(projectDir: string): ScreenshotContainers {
   return { app: `agent-team_smoke_${slug}_app`, shot: `agent-team_smoke_${slug}_shot`, network: `agent-team_smoke_${slug}_net` }
 }
 
-export function smokeScreens(task: Task): { route: string; slug: string }[] {
+// designScreens marks which routes need the demo account; a route docs/design.md does not list loads logged out.
+export function smokeScreens(task: Task, designScreens: QaScreen[] = []): { route: string; slug: string; signedIn: boolean }[] {
   const routes = task.routes?.length ? [...new Set(task.routes)] : ["/"]
-  return routes.map((route, index) => ({ route, slug: `${String(index + 1).padStart(2, "0")}-${routeSlug(route)}` }))
+  return routes.map((route, index) => ({
+    route,
+    slug: `${String(index + 1).padStart(2, "0")}-${routeSlug(route)}`,
+    signedIn: designScreens.some((screen) => screen.route === route && screen.signedIn),
+  }))
 }
 
 export function smokeFailures(report: VisualReport): string[] {
@@ -35,7 +42,7 @@ export function smokeFailures(report: VisualReport): string[] {
       failures.push([`${route.route} logged console errors:`, ...shown, ...more].join("\n"))
     }
   }
-  return failures
+  return [...failures, ...loginFailures(report), ...mobileFailures(report)]
 }
 
 // Copies the worktree's tracked and new files (not ignored ones such as node_modules), so installing and building
@@ -51,9 +58,9 @@ function snapshotWorktree(worktree: string, target: string): void {
   }
 }
 
-// Starts the task's worktree as deploy would and loads the task's routes in a browser. No vision review.
+// Starts the task's worktree as deploy would and loads the task's routes in a browser, on desktop and mobile.
 // Output goes to .agent-team/smoke/<task>-<attempt>/.
-export const runUiSmoke: SmokeCheck = async ({ projectDir, worktree, task, attempt, signal }) => {
+export const runUiSmoke: SmokeCheck = async ({ projectDir, worktree, task, attempt, signal, access }) => {
   if (!existsSync(join(worktree, "deploy.json"))) return { kind: "skipped", reason: "the worktree has no deploy.json" }
   const names = smokeContainerNames(projectDir)
   const appDir = join(projectDir, ".agent-team", "smoke", "app")
@@ -64,11 +71,15 @@ export const runUiSmoke: SmokeCheck = async ({ projectDir, worktree, task, attem
   removeNetwork(names.network)
   try {
     snapshotWorktree(worktree, appDir)
-    const report = await captureApp({ dir: appDir, outDir, screens: smokeScreens(task), signal, names, label: "agent-team-smoke=1", alias: appAlias })
+    const designPath = join(worktree, "docs/design.md")
+    const design = existsSync(designPath) ? readFileSync(designPath, "utf8") : ""
+    const login = access ? { route: parseLoginRoute(design), access } : undefined
+    const screens = smokeScreens(task, parseDesignScreens(design))
+    const report = await captureApp({ dir: appDir, outDir, screens, signal, names, label: "agent-team-smoke=1", alias: appAlias, login })
     if (report.startError) return { kind: "skipped", reason: `the app did not start: ${report.startError}` }
     const failures = smokeFailures(report)
     if (failures.length) return { kind: "failed", reason: failures.join("\n") }
-    return { kind: "passed", routes: report.routes.length }
+    return { kind: "passed", routes: report.routes.length, outDir }
   } finally {
     removeContainers(names.app, names.shot)
     removeNetwork(names.network)

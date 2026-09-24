@@ -34,6 +34,7 @@ Write exactly one file: `docs/spec.md`. Use these headings, in this order, spell
   ```
 
   Every story needs at least 2 acceptance criteria. Each criterion must be something a test can check: an input, an action, and an expected result. Avoid words like "fast", "easy", or "nice" unless you give a number.
+  When the target includes web, `US-01` is always the landing page: a public page at `/` that explains the product to a new visitor (what it does, for whom, the main benefits) and leads to sign up or log in. If the product has accounts, include a story for logging in.
 - **Out of scope**: list what v1 will not do. Be explicit, so no one builds it by accident.
 - **Open questions**: list anything the brief leaves unclear. For each question, state the default you chose so work can continue.
 

@@ -48,6 +48,10 @@ Each task has these fields:
 9. `verify` must not need network access, secrets, or a running server started by hand.
 9a. `verify` must also type-check or build the code the task touches, not only run its tests. Tests alone let build errors through: a project once passed every task and still failed to build for production. Use the project's type-check or build script, for example `npm run typecheck && npm test -- tests/auth`. Every task that changes the build setup or the server entry point runs the full production build (the `install` command in `deploy.json`).
 10. If `docs/design-system.md` exists, add a task that builds a `/design-system` route in the app. It renders every token and every component in the guide, with their variants and states.
-11. If `design/logo.svg` exists, add a task that copies the logo into the app and installs `design/logo.svg` in the header and `design/logo-mark.svg` as the favicon. `design/**` is read-only for workers: list those files in `readPaths`.
+11. If `design/logo.svg` exists, add a task that copies the logo into the app and installs `design/logo.svg` in the header. `design/**` is read-only for workers: list those files in `readPaths`.
+12. If `design/favicon/` exists, the same task copies every file in it to the app's public folder, served from the site root, and adds these tags to the HTML head: `<link rel="icon" href="/favicon.ico" sizes="48x48">`, `<link rel="icon" href="/favicon.svg" type="image/svg+xml">`, `<link rel="apple-touch-icon" href="/apple-touch-icon.png">`, and `<link rel="manifest" href="/site.webmanifest">`.
+13. Mark every task that changes UI code with `"ui": true` and list its `routes`. The orchestrator checks those routes on desktop and on a phone, and fails the task if the page scrolls sideways or has tap targets under 24px.
+14. For a web target, add a task for the landing page at `/`, from its screen in `docs/design.md`, with `"ui": true` and `"routes": ["/"]`.
+15. If the app has accounts, the task that builds auth also seeds the demo user from `DEMO_EMAIL` and `DEMO_PASSWORD` at startup (see `## Auth` in `docs/architecture.md`), with a test that the seed runs once and skips when the variables are missing.
 
 Output valid JSON only. Do not create any other file.

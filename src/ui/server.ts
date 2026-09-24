@@ -7,6 +7,7 @@ import { promisify } from "node:util"
 import { fileURLToPath } from "node:url"
 import { parse as parseYaml } from "yaml"
 import { defaultRoles as laterRoleDefaults, defaultRunBudgetUsd, loadConfig, normalizePhaseName, planningPhases, runnerNames, type PlanningPhase } from "../config.ts"
+import { demoAccessMetaKey, readDemoAccess } from "../access.ts"
 import { pendingFeedback } from "../feedback.ts"
 import { approvePhase, changeRoleModels, createProject, parseRoleModels, listProjects, ProjectError, raiseRunBudget, requestChanges, retryTask, runAlive, runLogPath, startRun as spawnRun, withProjectStore, type ProjectChoices } from "../project.ts"
 import { listIncidents, openIncident, readIncident } from "../incidents.ts"
@@ -457,6 +458,7 @@ async function detail(runsDir: string, name: string) {
     worktrees: worktrees.split("\n").filter(Boolean),
     containers,
     deploy,
+    access: readDemoAccess(meta[demoAccessMetaKey]),
     qa: { round: meta["qa.round"] ? Number(meta["qa.round"]) : null },
     feedback: pendingFeedback(projectDir),
     budget: { runUsd: config?.budget.runUsd ?? defaultRunBudgetUsd, spentUsd: spend.usd, spentTokens: spend.tokens, unreportedCalls: spend.unreportedCalls },

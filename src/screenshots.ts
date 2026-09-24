@@ -5,12 +5,30 @@ import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 import { commandFailure, detectDeployPlan, ensureNetwork, projectSlug, removeContainers, removeNetwork, snapshotMain, startAppContainer, waitForApp } from "./deploy.ts"
+import { demoAccessEnv, type DemoAccess } from "./access.ts"
 import type { QaScreen } from "./qa.ts"
 
 const execFileAsync = promisify(execFile)
 const qaContext = fileURLToPath(new URL("../docker/qa/", import.meta.url))
 const screenshotScript = join(qaContext, "screenshot.mjs")
 const screenshotTimeoutMs = 10 * 60_000
+
+export interface LayoutReport {
+  // Pixels the page scrolls sideways; any amount breaks a phone layout.
+  horizontalOverflow: number
+  overflowing: string[]
+  // Under 24px (WCAG 2.2 AA): a defect. Tight: 24px or more but under the design system's 44px.
+  smallTargets: string[]
+  tightTargets: string[]
+}
+
+export interface MobileCapture {
+  file: string | null
+  status: number | null
+  consoleErrors: string[]
+  error: string | null
+  layout: LayoutReport | null
+}
 
 export interface RouteReport {
   route: string
@@ -20,11 +38,18 @@ export interface RouteReport {
   consoleErrors: string[]
   error: string | null
   branding: string | null
+  mobileBranding: string | null
+  signedIn?: boolean
+  // Missing in reports written before mobile capture existed.
+  mobile?: MobileCapture
 }
 
 export interface VisualReport {
   baseUrl: string | null
   viewport: { width: number; height: number }
+  mobileViewport?: { width: number; height: number }
+  // Set when a signed-in route needed the demo account; ok false means those screenshots show the logged-out page.
+  login?: { route: string; ok: boolean; error: string | null } | null
   // Set when the app never answered, so there are no screenshots.
   startError: string | null
   routes: RouteReport[]
@@ -35,7 +60,7 @@ export function qaContainerNames(projectDir: string) {
   return { app: `agent-team-qa-${slug}`, shot: `agent-team-qa-shot-${slug}`, network: `agent-team-qa-net-${slug}` }
 }
 
-async function ensureScreenshotImage(): Promise<string> {
+export async function ensureScreenshotImage(): Promise<string> {
   const dockerfile = readFileSync(join(qaContext, "Dockerfile"))
   const tag = `agent-team-qa-shot:${createHash("sha256").update(dockerfile).digest("hex").slice(0, 12)}`
   try {
@@ -51,6 +76,12 @@ function writeReport(outDir: string, report: VisualReport): VisualReport {
   return report
 }
 
+export interface LoginOptions {
+  // The app's login page, from the `Login:` line of docs/design.md. Without it, signed-in routes load logged out.
+  route: string | null
+  access: DemoAccess
+}
+
 export interface ScreenshotContainers {
   app: string
   shot: string
@@ -58,7 +89,7 @@ export interface ScreenshotContainers {
 }
 
 // Starts main the way deploy does, but without a tunnel, and screenshots every screen with Playwright.
-export async function captureScreenshots(options: { projectDir: string; outDir: string; screens: QaScreen[]; signal: AbortSignal }): Promise<VisualReport> {
+export async function captureScreenshots(options: { projectDir: string; outDir: string; screens: QaScreen[]; signal: AbortSignal; login?: LoginOptions }): Promise<VisualReport> {
   const names = qaContainerNames(options.projectDir)
   removeContainers(names.app, names.shot)
   try {
@@ -77,8 +108,9 @@ export async function captureScreenshots(options: { projectDir: string; outDir: 
 export async function captureApp(options: {
   dir: string
   outDir: string
-  screens: { route: string; slug: string; branding?: string | null }[]
+  screens: { route: string; slug: string; branding?: string | null; mobileBranding?: string | null; signedIn?: boolean }[]
   signal: AbortSignal
+  login?: LoginOptions
   names: ScreenshotContainers
   label: string
   alias?: string
@@ -91,7 +123,7 @@ export async function captureApp(options: {
   try {
     ensureNetwork()
     ensureNetwork(names.network, { internal: true })
-    startAppContainer({ name: names.app, dir, plan, label: options.label, restart: false })
+    startAppContainer({ name: names.app, dir, plan, label: options.label, restart: false, env: demoAccessEnv(options.login?.access ?? null) })
     await execFileAsync("docker", ["network", "connect", ...(options.alias ? ["--alias", options.alias] : []), names.network, names.app])
     await waitForApp(names.app, plan.port)
   } catch (error) {
@@ -112,7 +144,8 @@ export async function captureApp(options: {
       "--user", "1000:1000",
       "-e", "HOME=/tmp",
       "-e", `BASE_URL=${baseUrl}`,
-      "-e", `ROUTES=${JSON.stringify(screens.map(({ route, slug }) => ({ route, slug })))}`,
+      "-e", `ROUTES=${JSON.stringify(screens.map(({ route, slug, signedIn }) => ({ route, slug, signedIn: Boolean(signedIn) })))}`,
+      ...(options.login?.route ? ["-e", `LOGIN=${JSON.stringify({ route: options.login.route, ...options.login.access })}`] : []),
       "-v", `${screenshotScript}:/opt/qa/screenshot.mjs:ro`,
       "-v", `${outDir}:/out`,
       image, "node", "/opt/qa/screenshot.mjs",
@@ -122,7 +155,42 @@ export async function captureApp(options: {
   const reportPath = join(outDir, "report.json")
   if (!existsSync(reportPath)) throw new Error("the screenshot container wrote no report.json")
   const raw = JSON.parse(readFileSync(reportPath, "utf8"))
-  const brandingByRoute = new Map(screens.map((screen) => [screen.route, screen.branding ?? null]))
-  const routes: RouteReport[] = (raw.routes ?? []).map((entry: RouteReport) => ({ ...entry, branding: brandingByRoute.get(entry.route) ?? null }))
-  return writeReport(outDir, { ...empty, baseUrl, viewport: raw.viewport ?? empty.viewport, routes })
+  const screensByRoute = new Map(screens.map((screen) => [screen.route, screen]))
+  const routes: RouteReport[] = (raw.routes ?? []).map((entry: RouteReport) => ({
+    ...entry,
+    branding: screensByRoute.get(entry.route)?.branding ?? null,
+    mobileBranding: screensByRoute.get(entry.route)?.mobileBranding ?? null,
+  }))
+  return writeReport(outDir, { ...empty, baseUrl, viewport: raw.viewport ?? empty.viewport, mobileViewport: raw.mobileViewport, login: raw.login ?? null, routes })
+}
+
+// Mobile defects that fail a check on their own, with no agent judgement: sideways scroll and tap targets under 24px.
+export function mobileFailures(report: VisualReport): string[] {
+  const failures: string[] = []
+  const width = report.mobileViewport?.width ?? "phone"
+  for (const route of report.routes) {
+    const mobile = route.mobile
+    if (!mobile) continue
+    if (mobile.error) {
+      failures.push(`${route.route} did not load on mobile: ${mobile.error}`)
+      continue
+    }
+    const layout = mobile.layout
+    if (!layout) continue
+    if (layout.horizontalOverflow > 0) {
+      const culprits = layout.overflowing.length ? `: ${layout.overflowing.join("; ")}` : ""
+      failures.push(`${route.route} scrolls sideways by ${layout.horizontalOverflow}px at ${width}px wide${culprits}`)
+    }
+    if (layout.smallTargets.length) failures.push(`${route.route} has tap targets under 24px on mobile: ${layout.smallTargets.join("; ")}`)
+  }
+  return failures
+}
+
+// Signed-in screens are worthless when the demo account cannot log in, so that fails a check on its own.
+export function loginFailures(report: VisualReport): string[] {
+  const signedIn = report.routes.filter((route) => route.signedIn).map((route) => route.route)
+  if (!signedIn.length) return []
+  if (!report.login) return [`${signedIn.join(", ")} need a signed-in user, but docs/design.md has no \`Login: /path\` line`]
+  if (!report.login.ok) return [`the demo account (DEMO_EMAIL, DEMO_PASSWORD) could not log in at ${report.login.route}: ${report.login.error}`]
+  return []
 }

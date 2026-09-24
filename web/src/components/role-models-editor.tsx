@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input"
 
 export type RoleModels = Record<string, RoleCandidate>
 
-export const editableRoles = ["pm", "architect", "illustrator", "designer", "planner", "worker", "reviewer", "qa", "lead"] as const
+export const editableRoles = ["pm", "architect", "illustrator", "designer", "planner", "worker", "reviewer", "design-reviewer", "qa", "lead"] as const
 
 const roleLabels: Record<string, string> = {
   pm: "PM",
@@ -15,6 +15,7 @@ const roleLabels: Record<string, string> = {
   planner: "Planner",
   worker: "Workers",
   reviewer: "Reviewer",
+  "design-reviewer": "Design reviewer",
   qa: "QA",
   lead: "Project lead",
 }

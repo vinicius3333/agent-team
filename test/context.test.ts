@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import { once } from "node:events"
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import type { AddressInfo } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -11,10 +11,11 @@ import { loadConfig, planningPhases } from "../src/config.ts"
 import { commitAll } from "../src/git.ts"
 import { createGitHub } from "../src/github.ts"
 import type { AgentJob, Harness, HarnessOutcome } from "../src/harness/harness.ts"
-import { codeMap, fillPrompt, keyFailureLines, reviewPrompt, runPipeline, workerPrompt, type RunStop } from "../src/pipeline.ts"
+import { codeMap, fillPrompt, keyFailureLines, reviewPrompt, runPipeline, workerPrompt, type PipelineContext, type RunStop } from "../src/pipeline.ts"
 import { createProject } from "../src/project.ts"
 import { qaContainerNames } from "../src/screenshots.ts"
 import { diffFileHashes, flaggedFiles, reviewerMetrics } from "../src/reviews.ts"
+import { faviconFiles } from "../src/favicon.ts"
 import { smokeContainerNames, smokeFailures, smokeScreens, type SmokeCheck } from "../src/smoke.ts"
 import { openStore, type Store } from "../src/store.ts"
 import { validateTasks, type Task } from "../src/tasks.ts"
@@ -68,8 +69,8 @@ function setupProject(name: string, tasks: Task[], files: Record<string, string>
   mkdirSync(join(projectDir, ".agent-team"), { recursive: true })
   const store = openStore(join(projectDir, ".agent-team", "state.db"))
   for (const phase of planningPhases) store.setPhase(phase, "approved")
-  const run = (harness: Harness, smokeCheck?: SmokeCheck) =>
-    runPipeline({ projectDir, config, store, harness, github: createGitHub({ projectDir, config, store }), signal: new AbortController().signal, smokeCheck })
+  const run = (harness: Harness, smokeCheck?: SmokeCheck, renderFavicons?: PipelineContext["renderFavicons"]) =>
+    runPipeline({ projectDir, config, store, harness, github: createGitHub({ projectDir, config, store }), signal: new AbortController().signal, smokeCheck, renderFavicons })
   return { projectDir, config, store, run }
 }
 
@@ -322,4 +323,177 @@ test("the run budget stops the run for approval, and the dashboard raises it", a
   assert.match(yaml, /runUsd: 45/)
   assert.match(yaml, /# web \| api \| web\+api/, "comments survive")
   assert.equal(loadConfig(join(projectDir, "pipeline.yaml")).budget.runUsd, 45)
+})
+
+function gitLog(projectDir: string): string[] {
+  return execFileSync("git", ["log", "--format=%s", "main"], { cwd: projectDir, encoding: "utf8" }).trim().split("\n")
+}
+
+test("a worker's commit plan lands as atomic commits, with the progress entry in the last one", async () => {
+  const { projectDir, run } = setupProject("commits", [task("T001")])
+  const { harness } = stubHarness({
+    worker: [
+      (_job, workdir) => {
+        writeFile(workdir, "src/t001/store.ts")
+        writeFile(workdir, "src/t001/store.test.ts")
+        writeFile(workdir, "src/t001/view.ts")
+        writeFile(workdir, "src/t001/extra.ts")
+        const plan = { commits: [{ message: "feat(t001): add the store", files: ["src/t001/store.ts", "src/t001/store.test.ts"] }, { message: "feat(t001): add the view", files: ["src/t001/view.ts"] }] }
+        return `Built it.\n\n\`\`\`json\n${JSON.stringify(plan)}\n\`\`\``
+      },
+    ],
+    reviewer: [pass],
+  })
+  assert.equal(await run(harness), "completed")
+  const [last, second, first] = gitLog(projectDir)
+  assert.deepEqual([first, second, last], ["feat(t001): add the store", "feat(t001): add the view", "feat(T001): task T001"])
+  const lastFiles = execFileSync("git", ["show", "--name-only", "--format=", "main"], { cwd: projectDir, encoding: "utf8" }).trim().split("\n").sort()
+  assert.deepEqual(lastFiles, ["docs/progress.md", "src/t001/extra.ts"])
+})
+
+test("a bad commit plan falls back to one commit", async () => {
+  const { projectDir, run } = setupProject("bad-commits", [task("T001")])
+  const { harness } = stubHarness({
+    worker: [
+      (_job, workdir) => {
+        writeFile(workdir, "src/t001/a.ts")
+        return '```json\n{"commits":[{"message":"added stuff","files":["src/t001/a.ts"]}]}\n```'
+      },
+    ],
+    reviewer: [pass],
+  })
+  assert.equal(await run(harness), "completed")
+  assert.equal(gitLog(projectDir)[0], "feat(T001): task T001")
+  assert.ok(readEvents(projectDir, "task").some((message) => /commit plan ignored/.test(message)))
+})
+
+test("UI tasks get a design review of the smoke screenshots, and a rejection fails the attempt", async () => {
+  const { projectDir, run } = setupProject("ui-review", [task("T001", { ui: true, routes: ["/items"] })], { "docs/design.md": "## Items\nRoute: /items\nBranding: 02-items.png\n" })
+  const smoke: SmokeCheck = async ({ attempt }) => {
+    const outDir = join(projectDir, ".agent-team", "smoke", `T001-${attempt}`)
+    mkdirSync(outDir, { recursive: true })
+    const report = {
+      baseUrl: "http://app:3000",
+      viewport: { width: 1440, height: 900 },
+      mobileViewport: { width: 390, height: 664 },
+      startError: null,
+      routes: [{ route: "/items", slug: "01-items", file: "01-items.png", status: 200, consoleErrors: [], error: null, branding: null, mobileBranding: null, mobile: { file: "01-items.mobile.png", status: 200, consoleErrors: [], error: null, layout: { horizontalOverflow: 0, overflowing: [], smallTargets: [], tightTargets: ['button "Add" is 80x32'] } } }],
+    }
+    writeFileSync(join(outDir, "report.json"), JSON.stringify(report))
+    writeFileSync(join(outDir, "01-items.png"), "")
+    return { kind: "passed", routes: 1, outDir }
+  }
+  const seen: boolean[] = []
+  const { harness, jobs } = stubHarness({
+    worker: [
+      (_job, workdir) => {
+        writeFile(workdir, "src/t001/items.tsx")
+        return "done"
+      },
+    ],
+    reviewer: [pass],
+    "design-reviewer": [
+      (_job, workdir) => {
+        seen.push(existsSync(join(workdir, ".agent-team/ui-review/T001-1/01-items.png")))
+        return '```json\n{"verdict":"fail","reasons":["Add button is 32px tall"],"fixes":["Make the Add button 44px tall in src/t001/items.tsx"]}\n```'
+      },
+      pass,
+    ],
+  })
+  assert.equal(await run(harness, smoke), "completed")
+  assert.deepEqual(seen, [true], "the screenshots are copied into the worktree for the reviewer")
+  const reviews = jobs.filter((job) => job.role === "design-reviewer")
+  assert.equal(reviews.length, 2)
+  assert.match(reviews[0].systemPrompt, /desktop and on a phone/)
+  assert.match(reviews[0].taskPrompt, /mobile \.agent-team\/ui-review\/T001-1\/01-items\.mobile\.png; branding design\/branding\/02-items\.png/)
+  assert.match(reviews[0].taskPrompt, /Tap targets under 44px on mobile: button "Add" is 80x32/)
+  const workers = jobs.filter((job) => job.role === "worker")
+  assert.match(workers[1].taskPrompt, /the design reviewer rejected the screens[\s\S]*44px tall/)
+  assert.doesNotMatch(execFileSync("git", ["ls-tree", "-r", "--name-only", "main"], { cwd: projectDir, encoding: "utf8" }), /ui-review/)
+})
+
+test("the design phase runs in two steps, renders the favicon, fixes a rejection, and lands one commit per group", async () => {
+  const { projectDir, store, run } = setupProject("design-phase", [task("T001")])
+  store.setPhase("design", "pending")
+  store.setPhase("plan", "pending")
+  const svg = (fill: string) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" fill="${fill}"/></svg>\n`
+  const headings = ["## Principles", "## Color", "## Typography", "## Spacing and radius", "## Components", "## Icons", "## Logo"].join("\n\n")
+  const renders: string[] = []
+  const renderFavicons: PipelineContext["renderFavicons"] = async ({ dir }) => {
+    renders.push(readFileSync(join(dir, "design/logo-mark.svg"), "utf8"))
+    for (const file of faviconFiles) writeFile(dir, `design/favicon/${file}`, "icon")
+  }
+  const { harness, jobs } = stubHarness({
+    designer: [
+      (_job, workdir) => {
+        writeFile(workdir, "design/tokens.css", ":root { --primary: #0f766e; }\n")
+        writeFile(workdir, "design/logo.svg", svg("currentColor"))
+        writeFile(workdir, "design/logo-mark.svg", svg("#0f766e"))
+        writeFile(workdir, "docs/design-system.md", `# Design system\n\n${headings}\n`)
+        return "system done"
+      },
+      (_job, workdir) => {
+        writeFile(workdir, "docs/design.md", "## Screens\n\n### Items\nRoute: /items\n")
+        return "screens done"
+      },
+      (_job, workdir) => {
+        writeFile(workdir, "design/logo-mark.svg", svg("#115e59"))
+        return "fixed"
+      },
+    ],
+    "design-reviewer": ['```json\n{"verdict":"fail","reasons":["mark too light"],"fixes":["Darken design/logo-mark.svg"]}\n```', pass],
+    planner: [
+      (_job, workdir) => {
+        writeFile(workdir, "tasks.json", JSON.stringify([task("T001")]))
+        return "planned"
+      },
+    ],
+    worker: [
+      (_job, workdir) => {
+        writeFile(workdir, "src/t001/a.ts")
+        return "done"
+      },
+    ],
+    reviewer: [pass],
+  })
+  assert.equal(await run(harness, undefined, renderFavicons), "completed")
+  const designers = jobs.filter((job) => job.role === "designer")
+  assert.match(designers[0].taskPrompt, /Step 1 of 2/)
+  assert.match(designers[1].taskPrompt, /Step 2 of 2/)
+  assert.match(designers[2].taskPrompt, /design reviewer rejected your output[\s\S]*- Darken design\/logo-mark\.svg/)
+  assert.equal(renders.length, 2, "rendered after step 1 and again after the fix")
+  assert.match(renders[1], /#115e59/)
+  const reviewers = jobs.filter((job) => job.role === "design-reviewer")
+  assert.match(reviewers[0].taskPrompt, /Review the design phase output/)
+  assert.match(reviewers[0].taskPrompt, /favicon/)
+  const log = gitLog(projectDir)
+  const designCommits = log.slice(log.indexOf("docs(design): add the screen designs"), log.indexOf("design(tokens): add the theme tokens") + 1).reverse()
+  assert.deepEqual(designCommits, [
+    "design(tokens): add the theme tokens",
+    "design(logo): add the logo and the mark",
+    "design(favicon): add the favicon set",
+    "docs(design): add the design system",
+    "docs(design): add the screen designs",
+  ])
+  assert.match(showMain(projectDir, "design/logo-mark.svg"), /#115e59/)
+})
+
+test("a logo mark that uses theme variables is rejected before the favicon render", async () => {
+  const { store, run } = setupProject("design-mark", [task("T001")])
+  store.setPhase("design", "pending")
+  let rendered = false
+  const { harness, jobs } = stubHarness({
+    designer: [
+      (_job, workdir) => {
+        writeFile(workdir, "design/tokens.css", ":root { --primary: #0f766e; }\n")
+        writeFile(workdir, "design/logo.svg", '<svg viewBox="0 0 32 32"></svg>\n')
+        writeFile(workdir, "design/logo-mark.svg", '<svg viewBox="0 0 32 32"><rect fill="var(--primary)"/></svg>\n')
+        writeFile(workdir, "docs/design-system.md", ["## Principles", "## Color", "## Typography", "## Spacing and radius", "## Components", "## Icons", "## Logo"].join("\n"))
+        return "done"
+      },
+    ],
+  })
+  assert.equal(await run(harness, undefined, async () => void (rendered = true)), "failed")
+  assert.equal(rendered, false)
+  assert.match(jobs.filter((job) => job.role === "designer")[1].taskPrompt, /must use literal colors/)
 })

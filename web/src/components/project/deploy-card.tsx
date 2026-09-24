@@ -33,6 +33,16 @@ export function DeployCard() {
         ) : (
           <p className="text-sm text-muted-foreground">No public URL yet.</p>
         )}
+        {detail.access && (
+          <dl className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1 text-sm">
+            <dt className="text-muted-foreground">Email</dt>
+            <dd className="truncate font-mono">{detail.access.email}</dd>
+            <CopyButton value={detail.access.email} label="Copy demo email" />
+            <dt className="text-muted-foreground">Password</dt>
+            <dd className="truncate font-mono">{detail.access.password}</dd>
+            <CopyButton value={detail.access.password} label="Copy demo password" />
+          </dl>
+        )}
         <div className="flex flex-wrap gap-2">
           {deploy.url && (
             <Button asChild size="sm">

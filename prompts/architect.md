@@ -37,6 +37,8 @@ Write these files:
 - Prefer boring, well-documented tools with a large community. Avoid new or niche libraries.
 - When the target includes web, use React with Tailwind CSS v4, shadcn/ui components, and Lucide icons, unless a stack hint says otherwise. The designer and workers depend on this.
 - The app must work well on mobile browsers (360px wide and up) when the target includes web.
+- The landing page at `/` is public and server-rendered or static, so it loads fast and needs no login.
+- If the app has accounts, it seeds a demo user at startup from the `DEMO_EMAIL` and `DEMO_PASSWORD` environment variables: create it when both are set and no user has that email, and never log the password. The orchestrator sets them in every run of the app (smoke checks, QA, deploy) and shows them to the human, so they can log in to the live app. Describe this in `docs/architecture.md` under `## Auth`.
 - Every endpoint must trace to a user story. Name the story (`US-03`) in the endpoint description.
 - The test command must run offline, without network access, and exit non-zero on failure. Pick a test runner that works out of the box with the stack.
 - Keep the directory layout modular: one folder per feature where possible. This lets workers change files in parallel without conflicts.

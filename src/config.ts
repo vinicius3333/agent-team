@@ -11,7 +11,7 @@ export function normalizePhaseName(name: string): string {
   return legacyPhaseNames[name] ?? name
 }
 
-export const roles = ["pm", "architect", "illustrator", "designer", "planner", "worker", "reviewer", "qa", "doctor", "lead"] as const
+export const roles = ["pm", "architect", "illustrator", "designer", "planner", "worker", "reviewer", "qa", "doctor", "lead", "design-reviewer"] as const
 export type Role = (typeof roles)[number]
 
 export const runnerNames = ["claude", "codex"] as const
@@ -44,7 +44,8 @@ export interface PublishConfig {
 export interface PipelineConfig {
   target: "web" | "api" | "web+api"
   autonomy: { gates: PlanningPhase[] }
-  branding: { enabled: boolean; count: number }
+  // mobile: the illustrator also draws a phone version of every desktop screen.
+  branding: { enabled: boolean; count: number; mobile: boolean }
   publish: PublishConfig
   deploy: { enabled: boolean }
   qa: { enabled: boolean; maxRounds: number }
@@ -108,8 +109,8 @@ function normalizeGates(rawGates: unknown): PlanningPhase[] {
   return [...new Set(rawGates.map((gate) => normalizePhaseName(String(gate))))] as PlanningPhase[]
 }
 
-function normalizeBranding(raw: { enabled?: boolean; count?: number } | undefined): PipelineConfig["branding"] {
-  return { enabled: raw?.enabled ?? true, count: raw?.count ?? 4 }
+function normalizeBranding(raw: { enabled?: boolean; count?: number; mobile?: boolean } | undefined): PipelineConfig["branding"] {
+  return { enabled: raw?.enabled ?? true, count: raw?.count ?? 4, mobile: raw?.mobile ?? true }
 }
 
 // Roles added after a project was created get a default, so older pipeline.yaml files keep working.
@@ -118,6 +119,7 @@ export const defaultRoles: Partial<Record<Role, Candidate>> = {
   qa: { runner: "claude", model: "opus" },
   doctor: { runner: "claude", model: "opus" },
   lead: { runner: "claude", model: "opus" },
+  "design-reviewer": { runner: "claude", model: "opus" },
 }
 
 function normalizeRoles(rawRoles: Record<string, any> | undefined): Record<Role, RoleConfig> {

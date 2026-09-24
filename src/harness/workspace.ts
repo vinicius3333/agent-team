@@ -38,9 +38,20 @@ export function removeWorkspace(repoDir: string, workspace: Workspace): void {
   } catch {}
 }
 
-// Commits the attempt and rebases it on main, so it can be merged fast-forward (locally or through a pull request).
-export function commitAndRebase(workspace: Workspace, message: string): void {
+export interface CommitGroup {
+  message: string
+  files: string[]
+}
+
+// Commits the attempt as one commit per group, then the files no group claimed under `message`,
+// and rebases it on main, so it can be merged fast-forward (locally or through a pull request).
+export function commitAndRebase(workspace: Workspace, message: string, groups: CommitGroup[] = []): void {
   git(workspace.path, ["add", "-A"])
+  for (const group of groups) {
+    if (!group.files.length) continue
+    const staged = git(workspace.path, ["diff", "--cached", "--name-only", "--", ...group.files]).trim()
+    if (staged) git(workspace.path, ["commit", "-q", "-m", group.message, "--", ...group.files])
+  }
   const hasChanges = git(workspace.path, ["diff", "--cached", "--name-only"]).trim().length > 0
   if (hasChanges) git(workspace.path, ["commit", "-q", "-m", message])
   try {

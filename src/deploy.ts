@@ -4,6 +4,7 @@ import { Resolver } from "node:dns/promises"
 import { request } from "node:https"
 import { setTimeout as sleep } from "node:timers/promises"
 import { basename, join } from "node:path"
+import { demoAccessEnv, ensureDemoAccess } from "./access.ts"
 import type { Store } from "./store.ts"
 
 // Runs the finished app from main in a container and exposes it through a Cloudflare quick tunnel,
@@ -129,7 +130,7 @@ async function waitForTunnelUrl(projectDir: string): Promise<string> {
   throw new Error("tunnel did not report a URL")
 }
 
-export function startAppContainer(options: { name: string; dir: string; plan: DeployPlan; label: string; restart: boolean }): void {
+export function startAppContainer(options: { name: string; dir: string; plan: DeployPlan; label: string; restart: boolean; env?: Record<string, string> }): void {
   const { name, dir, plan } = options
   const command = [plan.install, plan.start].filter(Boolean).join(" && ")
   run("docker", [
@@ -142,6 +143,7 @@ export function startAppContainer(options: { name: string; dir: string; plan: De
     "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
     "--user", "1000:1000",
     "-e", "HOME=/tmp", "-e", `PORT=${plan.port}`, "-e", "HOST=0.0.0.0", "-e", "NODE_ENV=production",
+    ...Object.entries(options.env ?? {}).flatMap(([key, value]) => ["-e", `${key}=${value}`]),
     "-v", `${dir}:/app`, "-w", "/app",
     appImage, "sh", "-c", command,
   ])
@@ -199,7 +201,7 @@ export async function deployProject(projectDir: string, store: Store): Promise<D
     store.log("deploy", `starting app: ${plan.install ? `${plan.install} && ` : ""}${plan.start} (port ${plan.port})`)
     ensureNetwork()
     removeContainers(app, tunnel)
-    startAppContainer({ name: app, dir, plan, label: "agent-team-app=1", restart: true })
+    startAppContainer({ name: app, dir, plan, label: "agent-team-app=1", restart: true, env: demoAccessEnv(ensureDemoAccess(store)) })
     await waitForApp(app, plan.port)
     stage = "tunnel"
     run("docker", [
