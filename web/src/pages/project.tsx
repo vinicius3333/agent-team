@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react"
-import { Link, useParams, useSearchParams } from "react-router"
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router"
 import { ExternalLink, Loader2, Play, Radio } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@/api/client"
@@ -7,9 +7,16 @@ import { useAsync, useProjectStream } from "@/api/hooks"
 import { EmptyState } from "@/components/empty-state"
 import { BuildFailedIllustration } from "@/components/illustrations/build-failed"
 import { OfficeTab } from "@/components/office/office-tab"
+import { OperateAnalytics } from "@/components/operate/analytics"
+import { OperateChanges } from "@/components/operate/changes"
+import { OperateCompetitors } from "@/components/operate/competitors"
+import { OperateHealth } from "@/components/operate/health"
+import { OperateNextSteps } from "@/components/operate/next-steps"
+import { OperateOverview } from "@/components/operate/overview"
 import { PageHeader } from "@/components/page-header"
 import { AttemptsTab } from "@/components/project/attempts-tab"
-import { ChangeHistoryCard, ChangeMergeCard, ChangeRequestCard } from "@/components/project/changes-card"
+import { BudgetCard } from "@/components/project/budget-card"
+import { ChangeMergeCard, ChangeRequestCard } from "@/components/project/changes-card"
 import { ConfigTab } from "@/components/project/config-tab"
 import { panelKinds, ProjectViewContext, type Panel, type ProjectView, type TranscriptRequest } from "@/components/project/context"
 import { DeployCard } from "@/components/project/deploy-card"
@@ -27,30 +34,16 @@ import { QaSection } from "@/components/project/qa-section"
 import { StatCards } from "@/components/project/stat-cards"
 import { StopBanner } from "@/components/project/stop-banner"
 import { PipelineStepper } from "@/components/project/stepper"
-import { RunnerHealthCard, runnerCooldown } from "@/components/project/system-tab"
-import { SystemTab } from "@/components/project/system-tab"
+import { runnerCooldown, SystemTab } from "@/components/project/system-tab"
 import { RetryButton, TasksCard } from "@/components/project/tasks-card"
 import { TranscriptSheet } from "@/components/project/transcript-sheet"
 import { StatusBadge } from "@/components/status-badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { currentPhase, findView, isPhase, legacyTabs, phaseLabels, projectPath, type ProjectPhase } from "@/lib/navigation"
 import { awaitingPhase, projectStatus, projectStatusLabels, stepLabels, taskCounts } from "@/lib/pipeline"
 import type { PipelineStep, ProjectDetail } from "@/api/types"
-
-const tabs = [
-  { id: "overview", label: "Overview" },
-  { id: "lead", label: "Lead" },
-  { id: "office", label: "Office" },
-  { id: "docs", label: "Docs" },
-  { id: "branding", label: "Branding" },
-  { id: "marketing", label: "Marketing" },
-  { id: "qa", label: "QA" },
-  { id: "attempts", label: "Agent calls" },
-  { id: "system", label: "System" },
-  { id: "config", label: "Config" },
-] as const
 
 function ResumeButton({ name }: { name: string }) {
   const [busy, setBusy] = useState(false)
@@ -119,15 +112,82 @@ function ProblemBanner({ detail }: { detail: ProjectDetail }) {
   )
 }
 
-function ProjectBody({ name, detail, stream }: { name: string; detail: ProjectDetail; stream: ReturnType<typeof useProjectStream>["state"] }) {
+function ProjectViewContent({ phase, view, detail, stream, document, selectDocument }: { phase: ProjectPhase; view: string; detail: ProjectDetail; stream: ReturnType<typeof useProjectStream>["state"]; document: string; selectDocument: (path: string) => void }) {
+  const key = `${phase}/${view}`
+  switch (key) {
+    case "build/overview":
+      return (
+        <>
+          <PipelineStepper />
+          <ChangeRequestCard />
+          <LiveAgentsCard />
+          <StatCards />
+          <EventsCard stream={stream} />
+        </>
+      )
+    case "build/lead":
+      return <LeadTab />
+    case "build/office":
+      return <OfficeTab />
+    case "build/docs":
+      return <DocsTab path={document} onSelect={selectDocument} />
+    case "build/branding":
+      return (
+        <Card className="p-4">
+          <ProjectBranding version={detail.phases.find((entry) => entry.name === "branding")?.updatedAt ?? ""} />
+        </Card>
+      )
+    case "build/tasks":
+      return <TasksCard />
+    case "build/qa":
+      return (
+        <Card className="p-4">
+          <QaSection />
+        </Card>
+      )
+    case "launch/overview":
+      return (
+        <div className="grid gap-4 md:grid-cols-2">
+          <DeployCard />
+          <GithubCard />
+        </div>
+      )
+    case "launch/marketing":
+      return <MarketingPieces version={detail.phases.find((entry) => entry.name === "marketing")?.updatedAt ?? ""} />
+    case "operate/overview":
+      return <OperateOverview />
+    case "operate/health":
+      return <OperateHealth />
+    case "operate/analytics":
+      return <OperateAnalytics />
+    case "operate/competitors":
+      return <OperateCompetitors />
+    case "operate/next-steps":
+      return <OperateNextSteps />
+    case "operate/changes":
+      return <OperateChanges />
+    case "system/calls":
+      return <AttemptsTab />
+    case "system/runtime":
+      return <SystemTab />
+    case "system/budget":
+      return <BudgetCard />
+    case "system/config":
+      return <ConfigTab />
+    default:
+      return null
+  }
+}
+
+function ProjectBody({ name, phase, view, detail, stream }: { name: string; phase: ProjectPhase; view: string; detail: ProjectDetail; stream: ReturnType<typeof useProjectStream>["state"] }) {
   const [searchParams, setSearchParams] = useSearchParams()
+  const navigate = useNavigate()
   const [transcript, setTranscript] = useState<TranscriptRequest | null>(null)
 
   const panel = useMemo<Panel | null>(() => {
     const kind = panelKinds.find((key) => searchParams.has(key))
     return kind ? { kind, id: searchParams.get(kind) ?? "" } : null
   }, [searchParams])
-  const tab = searchParams.get("tab") ?? "overview"
   const document = searchParams.get("doc") ?? "input.md"
 
   const update = useCallback(
@@ -143,7 +203,7 @@ function ProjectBody({ name, detail, stream }: { name: string; detail: ProjectDe
     [setSearchParams],
   )
 
-  const view = useMemo<ProjectView>(
+  const context = useMemo<ProjectView>(
     () => ({
       name,
       detail,
@@ -154,19 +214,13 @@ function ProjectBody({ name, detail, stream }: { name: string; detail: ProjectDe
         }),
       closePanel: () => update((params) => panelKinds.forEach((key) => params.delete(key))),
       openTranscript: setTranscript,
-      showDocument: (path) =>
-        update((params) => {
-          panelKinds.forEach((key) => params.delete(key))
-          params.set("tab", "docs")
-          params.set("doc", path)
-        }),
-      showTab: (next) =>
-        update((params) => {
-          panelKinds.forEach((key) => params.delete(key))
-          params.set("tab", next)
-        }),
+      showDocument: (path) => navigate(`${projectPath(name, "build", "docs")}?${new URLSearchParams({ doc: path })}`),
+      showTab: (tab) => {
+        const [targetPhase, targetView] = legacyTabs[tab] ?? ["build", "overview"]
+        navigate(projectPath(name, targetPhase, targetView))
+      },
     }),
-    [name, detail, update],
+    [name, detail, update, navigate],
   )
 
   const status = projectStatus(detail)
@@ -174,11 +228,16 @@ function ProjectBody({ name, detail, stream }: { name: string; detail: ProjectDe
   const completed = status === "done"
   const humanNeeded = detail.tasks.some((entry) => entry.status === "blocked" && entry.needsHuman)
   const badgeStatus = status === "done" ? "done" : status === "idle" ? "stopped" : status
+  const viewLabel = findView(phase, view)?.label ?? view
 
   return (
-    <ProjectViewContext.Provider value={view}>
+    <ProjectViewContext.Provider value={context}>
       <PageHeader
-        breadcrumbs={[{ label: "Projects", to: "/" }, { label: name }]}
+        breadcrumbs={[
+          { label: name, to: projectPath(name) },
+          { label: phaseLabels[phase], to: projectPath(name, phase) },
+          { label: viewLabel },
+        ]}
         title={name}
         badge={
           <>
@@ -191,10 +250,12 @@ function ProjectBody({ name, detail, stream }: { name: string; detail: ProjectDe
           </>
         }
         description={
-          <span className="flex flex-col gap-1">
-            <Brief name={name} />
-            {detail.current && <span className="text-sm">Now working on {detail.current}</span>}
-          </span>
+          phase === "build" && view === "overview" ? (
+            <span className="flex flex-col gap-1">
+              <Brief name={name} />
+              {detail.current && <span className="text-sm">Now working on {detail.current}</span>}
+            </span>
+          ) : undefined
         }
         actions={
           <>
@@ -210,70 +271,13 @@ function ProjectBody({ name, detail, stream }: { name: string; detail: ProjectDe
           </>
         }
       />
-      <div className="flex flex-col gap-4">
-        <PipelineStepper />
+      <div className="flex min-w-0 flex-col gap-4">
         {gate && <GatePanel phase={gate} />}
         <ChangeMergeCard />
         <IncidentBanner />
         {!gate && !humanNeeded && <StopBanner />}
         <ProblemBanner detail={detail} />
-        <StatCards />
-        <Tabs value={tab} onValueChange={(next) => update((params) => params.set("tab", next))}>
-          <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
-            <TabsList>
-              {tabs.map((entry) => (
-                <TabsTrigger key={entry.id} value={entry.id}>
-                  {entry.label}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </div>
-          <TabsContent value="overview" className="mt-2 flex flex-col gap-4">
-            <ChangeRequestCard />
-            <ChangeHistoryCard />
-            <LiveAgentsCard />
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-              <TasksCard />
-              <EventsCard stream={stream} />
-            </div>
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              <DeployCard />
-              <GithubCard />
-              <RunnerHealthCard />
-            </div>
-          </TabsContent>
-          <TabsContent value="lead" className="mt-2">
-            <LeadTab />
-          </TabsContent>
-          <TabsContent value="office" className="mt-2">
-            <OfficeTab />
-          </TabsContent>
-          <TabsContent value="docs" className="mt-2">
-            <DocsTab path={document} onSelect={(path) => update((params) => params.set("doc", path))} />
-          </TabsContent>
-          <TabsContent value="branding" className="mt-2">
-            <Card className="p-4">
-              <ProjectBranding version={detail.phases.find((phase) => phase.name === "branding")?.updatedAt ?? ""} />
-            </Card>
-          </TabsContent>
-          <TabsContent value="marketing" className="mt-2">
-            <MarketingPieces version={detail.phases.find((phase) => phase.name === "marketing")?.updatedAt ?? ""} />
-          </TabsContent>
-          <TabsContent value="qa" className="mt-2">
-            <Card className="p-4">
-              <QaSection />
-            </Card>
-          </TabsContent>
-          <TabsContent value="attempts" className="mt-2">
-            <AttemptsTab />
-          </TabsContent>
-          <TabsContent value="system" className="mt-2">
-            <SystemTab />
-          </TabsContent>
-          <TabsContent value="config" className="mt-2">
-            <ConfigTab />
-          </TabsContent>
-        </Tabs>
+        <ProjectViewContent phase={phase} view={view} detail={detail} stream={stream} document={document} selectDocument={(path) => update((params) => params.set("doc", path))} />
       </div>
       <DetailsSheet panel={panel} />
       <TranscriptSheet project={name} request={transcript} onClose={() => setTranscript(null)} />
@@ -282,8 +286,20 @@ function ProjectBody({ name, detail, stream }: { name: string; detail: ProjectDe
 }
 
 export function ProjectPage() {
-  const { name = "" } = useParams()
+  const { name = "", phase, view } = useParams()
+  const [searchParams] = useSearchParams()
   const { detail, state, missing } = useProjectStream(name)
+
+  const legacyTab = searchParams.get("tab")
+  if (legacyTab !== null) {
+    const [targetPhase, targetView] = legacyTabs[legacyTab] ?? ["build", "overview"]
+    const params = new URLSearchParams(searchParams)
+    params.delete("tab")
+    const query = params.toString()
+    return <Navigate replace to={`${projectPath(name, targetPhase, targetView)}${query ? `?${query}` : ""}`} />
+  }
+  if (phase !== undefined && !isPhase(phase)) return <Navigate replace to={projectPath(name)} />
+  if (isPhase(phase) && !findView(phase, view)) return <Navigate replace to={`${projectPath(name, phase)}${searchParams.size ? `?${searchParams}` : ""}`} />
 
   if (missing) {
     return (
@@ -310,5 +326,9 @@ export function ProjectPage() {
       </div>
     )
   }
-  return <ProjectBody name={name} detail={detail} stream={state} />
+  if (!isPhase(phase) || !view) {
+    const target = currentPhase({ ...detail, deployed: detail.deploy?.status === "live" })
+    return <Navigate replace to={`${projectPath(name, target)}${searchParams.size ? `?${searchParams}` : ""}`} />
+  }
+  return <ProjectBody name={name} phase={phase} view={view} detail={detail} stream={state} />
 }

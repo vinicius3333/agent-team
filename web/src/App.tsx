@@ -41,7 +41,7 @@ function Dashboard() {
           <Route element={<Layout />}>
             <Route index element={<ProjectsPage />} />
             <Route path="new" element={<NewProjectPage />} />
-            <Route path="projects/:name" element={
+            <Route path="projects/:name/:phase?/:view?" element={
                 <Suspense fallback={null}>
                   <ProjectPage />
                 </Suspense>

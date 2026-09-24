@@ -55,6 +55,8 @@ export interface ProjectSummary {
   stop?: RunStop | null
   // An incident the doctor is working on, shown as a banner.
   incident?: IncidentBanner | null
+  // Absent on servers from before the Operate phase.
+  openFindings?: number
 }
 
 export interface Task {
