@@ -1,0 +1,25 @@
+{
+  "name": "agent-team",
+  "version": "0.1.0",
+  "description": "Self-hosted orchestrator that turns a text brief into a working app using a team of scoped AI agents",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "agent-team": "src/cli.ts"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.ts"
+  },
+  "dependencies": {
+    "yaml": "^2.8.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  }
+}

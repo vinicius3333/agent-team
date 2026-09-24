@@ -1,0 +1,36 @@
+target: web            # web | api | web+api
+
+autonomy:
+  gates: [spec, architecture]   # any of: spec, architecture, design, plan. [] = fully autonomous
+
+budget:
+  perTaskUsd: 2
+
+roles:
+  pm:        { runner: claude, model: opus }
+  architect: { runner: claude, model: opus }
+  designer:  { runner: claude, model: sonnet }
+  planner:   { runner: claude, model: opus }
+  worker:
+    runner: codex
+    model: gpt-5.5
+    maxRetries: 3
+    fallbacks:           # tried in order when the primary hits a limit, auth error, or timeout
+      - { runner: claude, model: sonnet }
+  reviewer:
+    runner: claude
+    model: sonnet
+    fallbacks:
+      - { runner: codex, model: gpt-5.5 }
+
+stackHints:            # optional; empty = architect chooses
+  prefer: []
+  avoid: []
+
+harness:
+  isolation: docker    # docker | none. none runs agents directly on the host
+  docker: { cpus: 2, memory: 4g, pidsLimit: 512 }
+  transientRetries: 2  # retries on the same runner for network or overload errors
+  backoffMs: 15000     # doubles on each retry
+  cooldownMs: 900000   # runner rest after a rate limit (x4 after an auth error)
+  agentTimeoutMs: 1800000
