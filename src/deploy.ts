@@ -111,16 +111,22 @@ async function waitForTunnelUrl(projectDir: string): Promise<string> {
   throw new Error("tunnel did not report a URL")
 }
 
-export function startAppContainer(options: { name: string; dir: string; plan: DeployPlan; label: string; restart: boolean; env?: Record<string, string> }): void {
+type AppContainerOptions = { name: string; dir: string; plan: DeployPlan; label: string; restart: boolean; env?: Record<string, string> }
+
+// The container runs the app's install step too, which often includes a production build
+// (next build, vite build). Give it the same room as the agent container where that build passed.
+export const appContainerLimits = { memory: "4g", cpus: "2", pidsLimit: "512" }
+
+export function appContainerArgs(options: AppContainerOptions): string[] {
   const { name, dir, plan } = options
   const command = [plan.install, plan.start].filter(Boolean).join(" && ")
-  run("docker", [
+  return [
     "run", "-d",
     "--name", name,
     "--label", options.label,
     "--network", appNetwork,
     ...(options.restart ? ["--restart", "unless-stopped"] : []),
-    "--memory", "512m", "--cpus", "1", "--pids-limit", "256",
+    "--memory", appContainerLimits.memory, "--cpus", appContainerLimits.cpus, "--pids-limit", appContainerLimits.pidsLimit,
     "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
     "--user", "1000:1000",
     // NODE_ENV=production makes npm skip devDependencies, but the install step usually builds with them (tsc, vite).
@@ -128,7 +134,11 @@ export function startAppContainer(options: { name: string; dir: string; plan: De
     ...Object.entries(options.env ?? {}).flatMap(([key, value]) => ["-e", `${key}=${value}`]),
     "-v", `${dir}:/app`, "-w", "/app",
     appImage, "sh", "-c", command,
-  ])
+  ]
+}
+
+export function startAppContainer(options: AppContainerOptions): void {
+  run("docker", appContainerArgs(options))
 }
 
 export function commandFailure(error: unknown): string {
