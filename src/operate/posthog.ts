@@ -98,6 +98,7 @@ export function posthogMetrics(data: PosthogData, now = new Date()): Metric[] {
     { at: today, key: "wau", value: data.wau.thisWeek },
     { at: today, key: "signups", value: signups },
     ...data.funnel.map((step) => ({ at: today, key: `funnel.${step.step}`, value: step.count })),
+    ...data.topEvents.map((entry) => ({ at: today, key: `event.${entry.event}`, value: entry.count })),
     ...data.pageviews.map((entry) => ({ at: `${entry.day}T00:00:00.000Z`, key: "pageviews", value: entry.count })),
   ]
   if (first?.count) metrics.push({ at: today, key: "signup_conversion", value: Math.round((signups / first.count) * 1000) / 10 })

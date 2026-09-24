@@ -86,6 +86,7 @@ export interface Metric {
   value: number
 }
 
+const snapshotMetricPrefixes = ["funnel.", "event."]
 const healthRetentionMs = 14 * 24 * 60 * 60_000
 
 export function findingFingerprint(source: string, title: string): string {
@@ -542,12 +543,14 @@ export function openStore(path: string) {
     lastInsightRuns(): InsightRun[] {
       return db.prepare(`SELECT ${insightRunColumnsSql} FROM insight_runs WHERE id IN (SELECT MAX(id) FROM insight_runs GROUP BY agent) ORDER BY agent`).all() as unknown as InsightRun[]
     },
-    // Funnel rows describe only the latest run, so a new funnel replaces the old one.
+    // Funnel and top-event rows describe only the latest run, so new ones replace the old ones.
     // Rows with the same key and time replace each other, so a daily series can be written again.
     recordMetrics(metrics: Metric[]) {
       db.exec("BEGIN")
       try {
-        if (metrics.some((metric) => metric.key.startsWith("funnel."))) db.exec("DELETE FROM metrics WHERE key LIKE 'funnel.%'")
+        for (const prefix of snapshotMetricPrefixes) {
+          if (metrics.some((metric) => metric.key.startsWith(prefix))) db.prepare("DELETE FROM metrics WHERE substr(key, 1, ?) = ?").run(prefix.length, prefix)
+        }
         const remove = db.prepare("DELETE FROM metrics WHERE key = ? AND at = ?")
         const insert = db.prepare("INSERT INTO metrics (at, key, value) VALUES (?, ?, ?)")
         for (const metric of metrics) {
@@ -563,6 +566,11 @@ export function openStore(path: string) {
     // Oldest first.
     metricSeries(key: string, since = ""): Metric[] {
       return db.prepare("SELECT at, key, value FROM metrics WHERE key = ? AND at >= ? ORDER BY at").all(key, since) as unknown as Metric[]
+    },
+    // Rows under a prefix in the order they were written, prefix removed; for the funnel steps and top events.
+    metricsWithPrefix(prefix: string): { name: string; value: number }[] {
+      const rows = db.prepare("SELECT key, value FROM metrics WHERE substr(key, 1, ?) = ? ORDER BY rowid").all(prefix.length, prefix) as { key: string; value: number }[]
+      return rows.map((row) => ({ name: row.key.slice(prefix.length), value: row.value }))
     },
     // The newest value per key and the one before it.
     latestMetrics(): Record<string, { value: number; previous: number | null; at: string }> {

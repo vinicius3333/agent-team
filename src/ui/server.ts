@@ -15,6 +15,11 @@ import { fileAtRef } from "../git.ts"
 import { changeIdPattern } from "../tasks.ts"
 import { listIncidents, openIncident, readIncident } from "../incidents.ts"
 import { askLead, chatMessageMaxLength } from "../lead.ts"
+import { insightAgents, type InsightAgent } from "../config.ts"
+import { insightRunActive, runInsightAgent } from "../operate/agents.ts"
+import { approveFinding, dismissFinding } from "../operate/findings.ts"
+import { operateSnapshot } from "../operate/snapshot.ts"
+import { findingStatuses, type FindingStatus } from "../store.ts"
 import { summarizeActivity } from "../activity.ts"
 import { liveAgentPrefix, type LiveAgent } from "../harness/harness.ts"
 import { reviewerMetrics, type ReviewRow } from "../reviews.ts"
@@ -225,9 +230,11 @@ function summary(runsDir: string, name: string) {
       const active = pidRow ? processAlive(Number(pidRow.value)) : Boolean(lastEvent && Date.now() - Date.parse(lastEvent.at) < activeWindowMs && !/^finished/.test(lastEvent.message))
       const cost = all(db, "SELECT COALESCE(SUM(cost_usd), 0) AS total, SUM(cost_usd IS NULL) AS unreported, COALESCE(SUM(tokens), 0) AS tokens FROM attempts")[0]
       const stop = parseStop(all(db, "SELECT value FROM meta WHERE key = 'run.stop'")[0]?.value)
-      return { name, phases, counts, lastEvent, current: running ?? activePhase, active, costUsd: cost?.total ?? 0, costUnreported: (cost?.unreported ?? 0) > 0, tokens: cost?.tokens ?? 0, stop, incident: incidentBanner(projectDir) }
+      // all() returns no rows when an older state file has no findings table.
+      const openFindings = Number(all(db, "SELECT COUNT(*) AS count FROM findings WHERE status = 'open'")[0]?.count ?? 0)
+      return { name, phases, counts, lastEvent, current: running ?? activePhase, active, costUsd: cost?.total ?? 0, costUnreported: (cost?.unreported ?? 0) > 0, tokens: cost?.tokens ?? 0, stop, incident: incidentBanner(projectDir), openFindings }
     },
-    { name, phases: [], counts: {}, lastEvent: null, current: null, active: false, costUsd: 0, costUnreported: false, tokens: 0, stop: null, incident: incidentBanner(projectDir) },
+    { name, phases: [], counts: {}, lastEvent: null, current: null, active: false, costUsd: 0, costUnreported: false, tokens: 0, stop: null, incident: incidentBanner(projectDir), openFindings: 0 },
   )
 }
 
@@ -441,6 +448,9 @@ function metaValue(projectDir: string, key: string): string | null {
 
 // In memory on purpose: a lead call that dies with the server must not leave the chat locked.
 const leadBusy = new Set<string>()
+// "<project>:<agent>" for Operate agents started from the dashboard; the store's run row covers agents the doctor started.
+const insightBusy = new Set<string>()
+const findingIdPattern = /^\d{1,9}$/
 
 function chatMessages(projectDir: string) {
   return withDatabase(
@@ -714,6 +724,7 @@ export interface UiOptions {
   startRun?: (projectDir: string, logPath: string) => void
   webDir?: string
   askLead?: (projectDir: string, message: string) => Promise<void>
+  runInsight?: (projectDir: string, agent: InsightAgent) => Promise<unknown>
   auth?: AuthConfig
   allowInsecureBind?: boolean
   now?: () => number
@@ -739,6 +750,7 @@ export function startUi(options: UiOptions) {
   const knownProject = (name: string) => projectNamePattern.test(name) && existsSync(join(runsDir, name, "pipeline.yaml"))
   const launchRun = options.startRun ?? spawnRun
   const askLeadFor = options.askLead ?? ((projectDir: string, message: string) => askLead({ projectDir, message }))
+  const runInsightFor = options.runInsight ?? ((projectDir: string, agent: InsightAgent) => runInsightAgent({ projectDir, agent }))
   const extraHosts = (process.env.AGENT_TEAM_UI_HOSTS ?? "").split(",").map((host) => host.trim().toLowerCase()).filter(Boolean)
   const auth = options.auth ?? loadAuthConfig(process.env)
   const now = options.now ?? Date.now
@@ -830,6 +842,32 @@ export function startUi(options: UiOptions) {
         return send(response, 200, { started: startRunIfIdle(name) })
       }
       return send(response, 404, { error: "not found" })
+    }
+    if (parts[3] === "findings" && parts.length === 6) {
+      if (!findingIdPattern.test(parts[4])) return send(response, 404, { error: "unknown finding" })
+      const id = Number(parts[4])
+      if (parts[5] === "approve") {
+        if (runAlive(projectDir)) return send(response, 409, { error: "A run is already in progress." })
+        const change = withProjectStore(projectDir, (store) => approveFinding(projectDir, store, id))
+        return send(response, 201, { changeId: change.id, branch: change.branch, started: startRunIfIdle(name) })
+      }
+      if (parts[5] === "dismiss") {
+        withProjectStore(projectDir, (store) => dismissFinding(store, id))
+        return send(response, 200, { dismissed: true })
+      }
+      return send(response, 404, { error: "not found" })
+    }
+    if (parts[3] === "operate" && parts[4] === "run" && parts.length === 5) {
+      const agent = body.agent
+      if (typeof agent !== "string" || !(insightAgents as readonly string[]).includes(agent)) return send(response, 400, { error: `The agent field must be one of ${insightAgents.join(", ")}.` })
+      const key = `${name}:${agent}`
+      const active = withProjectStore(projectDir, (store) => insightRunActive(store.lastInsightRun(agent as InsightAgent)))
+      if (insightBusy.has(key) || active) return send(response, 409, { error: `The ${agent} agent is already running.` })
+      insightBusy.add(key)
+      runInsightFor(projectDir, agent as InsightAgent)
+        .catch((error) => console.error(`[operate] ${name} ${agent}: ${(error as Error).message}`))
+        .finally(() => insightBusy.delete(key))
+      return send(response, 202, { accepted: true })
     }
     if (parts.length !== 4) return send(response, 404, { error: "unknown project" })
     switch (parts[3]) {
@@ -926,6 +964,15 @@ export function startUi(options: UiOptions) {
           const path = join(projectDir, ".agent-team", "transcripts", parts[4])
           if (!existsSync(path)) return send(response, 404, { error: "not found" })
           return send(response, 200, readTail(path, transcriptMaxBytes), "text/plain")
+        }
+        if (parts[3] === "operate" && parts.length === 4) {
+          const config = loadConfig(join(projectDir, "pipeline.yaml"))
+          return send(response, 200, withProjectStore(projectDir, (store) => operateSnapshot(store, config)))
+        }
+        if (parts[3] === "findings" && parts.length === 4) {
+          const status = url.searchParams.get("status") ?? "open"
+          if (status !== "all" && !(findingStatuses as readonly string[]).includes(status)) return send(response, 400, { error: "status must be open, approved, dismissed, or all" })
+          return send(response, 200, withProjectStore(projectDir, (store) => store.listFindings(status === "all" ? {} : { status: status as FindingStatus })))
         }
         if (parts[3] === "markdown" && parts.length === 4) return send(response, 200, listMarkdown(projectDir))
         if (parts[3] === "raw" && parts.length === 4) {

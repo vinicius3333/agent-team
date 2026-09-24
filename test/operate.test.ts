@@ -1,4 +1,6 @@
 import assert from "node:assert/strict"
+import { once } from "node:events"
+import type { AddressInfo } from "node:net"
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -12,7 +14,9 @@ import { operateTick } from "../src/operate/tick.ts"
 import { approveFinding, dismissFinding } from "../src/operate/findings.ts"
 import { createProject, ProjectError, withProjectStore } from "../src/project.ts"
 import { toClaudeTools } from "../src/runners/claude.ts"
+import { downsampleChecks } from "../src/operate/snapshot.ts"
 import { openStore } from "../src/store.ts"
+import { startUi } from "../src/ui/server.ts"
 
 const scratch = mkdtempSync(join(tmpdir(), "agent-team-operate-"))
 after(() => rmSync(scratch, { recursive: true, force: true }))
@@ -382,4 +386,70 @@ test("posthogEnv passes the public key and host only when a key is set", () => {
   const config = loadConfig(writePipeline("posthog-env", "operate:\n  posthog: { host: https://eu.posthog.com/, projectId: 1, publicKey: phc_x }\n"))
   assert.deepEqual(posthogEnv(config), { POSTHOG_KEY: "phc_x", VITE_POSTHOG_KEY: "phc_x", POSTHOG_HOST: "https://eu.posthog.com" })
   assert.deepEqual(posthogEnv(loadConfig(writePipeline("posthog-none", ""))), {})
+})
+
+test("downsampleChecks keeps at most the limit and marks a group down when any check failed", () => {
+  const checks = Array.from({ length: 10 }, (_, index) => ({ at: `2026-09-24T00:0${index}:00Z`, ok: index !== 3, statusCode: index === 3 ? 502 : 200, latencyMs: 100 + index, error: null }))
+  const points = downsampleChecks(checks, 4)
+  assert.equal(points.length, 4)
+  assert.deepEqual(points[1], { at: "2026-09-24T00:03:00Z", ok: false, statusCode: 502, latencyMs: 104 })
+  assert.equal(downsampleChecks(checks).length, 10)
+})
+
+test("server serves operate data and findings, and runs agents in the background", async (t) => {
+  const runsDir = join(scratch, "server-runs")
+  const projectDir = join(runsDir, "dad-jokes")
+  createProject(projectDir, "Dad jokes")
+  let findingId = 0
+  withProjectStore(projectDir, (store) => {
+    store.setMeta("deploy.url", "https://app.example")
+    store.setPhase("deploy", "approved")
+    store.addHealthCheck({ ok: true, statusCode: 200, latencyMs: 182, error: null })
+    store.recordMetrics([{ at: "2026-09-24T00:00:00.000Z", key: "wau", value: 1284 }, { at: "2026-09-24T00:00:00.000Z", key: "funnel.$pageview", value: 100 }, { at: "2026-09-24T00:00:00.000Z", key: "event.joke_voted", value: 30 }])
+    findingId = store.addFinding(finding).id
+    store.addFinding({ ...finding, title: "Dismiss me" })
+  })
+  const agentRuns: string[] = []
+  let finishRun = () => {}
+  const server = startUi({ runsDir, port: 0, auth: { mode: "none" }, notifications: false, startRun: () => {}, runInsight: (_dir, agent) => {
+    agentRuns.push(agent)
+    return new Promise<void>((resolve) => (finishRun = resolve))
+  } })
+  await once(server, "listening")
+  t.after(() => server.close())
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/projects`
+  const post = (path: string, body: unknown = {}) => fetch(`${base}${path}`, { method: "POST", headers: { "content-type": "application/json", "x-agent-team": "1" }, body: JSON.stringify(body) })
+
+  const operate = await (await fetch(`${base}/dad-jokes/operate`)).json()
+  assert.equal(operate.enabled, true)
+  assert.equal(operate.live, true)
+  assert.equal(operate.health.state, "up")
+  assert.equal(operate.checks.length, 1)
+  assert.deepEqual(operate.metrics, { wau: { value: 1284, previous: null, at: "2026-09-24T00:00:00.000Z" } })
+  assert.deepEqual(operate.funnel, [{ step: "$pageview", count: 100 }])
+  assert.deepEqual(operate.topEvents, [{ event: "joke_voted", count: 30 }])
+  assert.deepEqual(operate.runs, { monitoring: null, analytics: null, research: null })
+  assert.deepEqual(operate.config, { posthog: false, competitors: [], schedule: { monitoring: 24, analytics: 24, research: 168 } })
+
+  const list = await (await fetch(`${base}`)).json()
+  assert.equal(list[0].openFindings, 2)
+  assert.equal((await fetch(`${base}/dad-jokes/findings?status=nope`)).status, 400)
+  assert.equal((await (await fetch(`${base}/dad-jokes/findings`)).json()).length, 2)
+
+  const refused = await post(`/dad-jokes/findings/${findingId}/approve`)
+  assert.equal(refused.status, 409)
+  assert.match((await refused.json()).error, /Finish or fix the current run/)
+  assert.equal((await post("/dad-jokes/findings/999/approve")).status, 404)
+  assert.equal((await post(`/dad-jokes/findings/${findingId + 1}/dismiss`)).status, 200)
+  assert.equal((await post(`/dad-jokes/findings/${findingId + 1}/dismiss`)).status, 409)
+  assert.equal((await (await fetch(`${base}/dad-jokes/findings?status=all`)).json()).length, 2)
+
+  assert.equal((await post("/dad-jokes/operate/run", { agent: "nope" })).status, 400)
+  assert.equal((await post("/dad-jokes/operate/run", { agent: "research" })).status, 202)
+  assert.equal((await post("/dad-jokes/operate/run", { agent: "research" })).status, 409)
+  finishRun()
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal((await post("/dad-jokes/operate/run", { agent: "research" })).status, 202)
+  finishRun()
+  assert.deepEqual(agentRuns, ["research", "research"])
 })
