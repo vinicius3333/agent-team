@@ -66,6 +66,23 @@ Role prompts live in `prompts/`. Edit them to tune behavior.
 
 State lives in `<projectDir>/.agent-team/`: `state.db` (SQLite) and agent transcripts.
 
+## GitHub
+
+Set `publish.github.enabled: true` to run the whole process in the open on GitHub:
+
+| Step | What happens |
+| --- | --- |
+| First merge | Creates the repository (private by default) and the labels. |
+| Plan written | Opens an epic issue with the brief, one issue per task (acceptance criteria, scope, verify command, dependencies), and a GitHub Projects board with every issue. |
+| Each phase and task | Lands through a pull request (`Closes #N`, reviewer verdict, attempt count), merged on GitHub. Local `main` follows. |
+| Failed attempt | Posts the failure reason as a comment on the task issue. |
+| Blocked task | Adds the `blocked` label and a comment. |
+| Board | Todo, In Progress, and Done follow each task. The epic closes when the build completes. |
+
+It all runs on the host, so GitHub credentials never enter a container. If a GitHub step fails, the orchestrator logs it and merges locally.
+
+One-time host setup: `gh auth login`, `gh auth refresh -h github.com -s project`, and `gh auth setup-git`.
+
 ## Harness
 
 The harness runs every agent call. It isolates each attempt, retries infrastructure failures, and falls back to other models.

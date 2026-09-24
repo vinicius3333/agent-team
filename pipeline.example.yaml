@@ -12,7 +12,8 @@ mockups:
 
 publish:
   github:
-    enabled: false     # create a GitHub repo for the project and push after every merge (needs `gh auth login` on the host)
+    enabled: false     # repo, issues per task, a pull request per phase and task, and a Projects board
+                       # host setup: gh auth login; gh auth refresh -s project; gh auth setup-git
     owner: null        # user or org; null = the logged-in gh account
     visibility: private
     name: null         # null = project folder name

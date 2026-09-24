@@ -38,8 +38,8 @@ export function removeWorkspace(repoDir: string, workspace: Workspace): void {
   } catch {}
 }
 
-// Commits the attempt and brings it into main. Rebases first when main moved since the worktree was created.
-export function mergeWorkspace(repoDir: string, workspace: Workspace, message: string): void {
+// Commits the attempt and rebases it on main, so it can be merged fast-forward (locally or through a pull request).
+export function commitAndRebase(workspace: Workspace, message: string): void {
   git(workspace.path, ["add", "-A"])
   const hasChanges = git(workspace.path, ["diff", "--cached", "--name-only"]).trim().length > 0
   if (hasChanges) git(workspace.path, ["commit", "-q", "-m", message])
@@ -49,7 +49,10 @@ export function mergeWorkspace(repoDir: string, workspace: Workspace, message: s
     git(workspace.path, ["rebase", "--abort"])
     throw new Error(`rebase onto main failed: ${(error as Error).message}`)
   }
-  git(repoDir, ["merge", "-q", "--ff-only", workspace.branch])
+}
+
+export function fastForwardMain(repoDir: string, ref: string): void {
+  git(repoDir, ["merge", "-q", "--ff-only", ref])
 }
 
 export function removeAllWorkspaces(repoDir: string): void {

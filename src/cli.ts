@@ -5,6 +5,7 @@ import { parseArgs } from "node:util"
 import { loadConfig, planningPhases, type PlanningPhase } from "./config.ts"
 import { commitAll, initRepository } from "./git.ts"
 import { cleanupOrphans } from "./harness/docker.ts"
+import { createGitHub } from "./github.ts"
 import { createHarness } from "./harness/harness.ts"
 import { removeAllWorkspaces } from "./harness/workspace.ts"
 import { runPipeline } from "./pipeline.ts"
@@ -58,7 +59,8 @@ async function run(projectDir: string): Promise<void> {
   removeAllWorkspaces(projectDir)
   if (config.harness.isolation === "docker") await cleanupOrphans()
   const harness = createHarness({ config: config.harness, store, signal: controller.signal })
-  const outcome = await runPipeline({ projectDir, config, store, harness, signal: controller.signal })
+  const github = createGitHub({ projectDir, config, store })
+  const outcome = await runPipeline({ projectDir, config, store, harness, github, signal: controller.signal })
   store.log("run", `finished: ${outcome}`)
   process.exitCode = outcome === "failed" ? 1 : outcome === "paused" ? 75 : 0
 }

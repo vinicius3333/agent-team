@@ -39,6 +39,10 @@ export function openStore(path: string) {
       transcript_path TEXT NOT NULL,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS runner_health (
       runner TEXT PRIMARY KEY,
       cooldown_until INTEGER NOT NULL,
@@ -54,6 +58,8 @@ export function openStore(path: string) {
 
   const attemptColumns = db.prepare("PRAGMA table_info(attempts)").all() as { name: string }[]
   if (!attemptColumns.some((column) => column.name === "failure_class")) db.exec("ALTER TABLE attempts ADD COLUMN failure_class TEXT")
+  const taskColumns = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[]
+  if (!taskColumns.some((column) => column.name === "issue_number")) db.exec("ALTER TABLE tasks ADD COLUMN issue_number INTEGER")
 
   const now = () => new Date().toISOString()
 
@@ -127,6 +133,20 @@ export function openStore(path: string) {
       return db
         .prepare("SELECT role, COUNT(*) AS runs, ROUND(SUM(COALESCE(cost_usd, 0)), 4) AS costUsd FROM attempts GROUP BY role")
         .all() as { role: string; runs: number; costUsd: number }[]
+    },
+    meta(key: string): string | null {
+      const row = db.prepare("SELECT value FROM meta WHERE key = ?").get(key) as { value: string } | undefined
+      return row?.value ?? null
+    },
+    setMeta(key: string, value: string) {
+      db.prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(key, value)
+    },
+    taskIssue(id: string): number | null {
+      const row = db.prepare("SELECT issue_number AS issue FROM tasks WHERE id = ?").get(id) as { issue: number | null } | undefined
+      return row?.issue ?? null
+    },
+    setTaskIssue(id: string, issue: number) {
+      db.prepare("UPDATE tasks SET issue_number = ? WHERE id = ?").run(issue, id)
     },
     runnerCooldownUntil(runner: string): number {
       const row = db.prepare("SELECT cooldown_until AS until FROM runner_health WHERE runner = ?").get(runner) as { until: number } | undefined

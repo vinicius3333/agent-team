@@ -6,8 +6,8 @@ import { createDockerExecutor, ensureImage } from "./harness/docker.ts"
 import { hostExecutor, type Executor } from "./harness/executor.ts"
 import { defaultAllowlist, ensureEgressProxy } from "./harness/network.ts"
 import type { Harness, HarnessOutcome } from "./harness/harness.ts"
-import { createWorkspace, detectSetupCommand, mergeWorkspace, removeWorkspace } from "./harness/workspace.ts"
-import { publishProject } from "./publish.ts"
+import { commitAndRebase, createWorkspace, detectSetupCommand, fastForwardMain, removeWorkspace } from "./harness/workspace.ts"
+import type { GitHub } from "./github.ts"
 import type { Store } from "./store.ts"
 import { filesOutsideScope, loadTasks, type Task } from "./tasks.ts"
 
@@ -74,6 +74,7 @@ export interface PipelineContext {
   config: PipelineConfig
   store: Store
   harness: Harness
+  github: GitHub
   signal: AbortSignal
 }
 
@@ -149,8 +150,14 @@ async function attemptPhase(context: PipelineContext, phase: PlanningPhase, defi
     } catch (error) {
       return { kind: "failed", reason: (error as Error).message }
     }
-    mergeWorkspace(projectDir, workspace, `docs(${phase}): add ${phase} artifacts`)
-    publishProject(context)
+    const title = `docs(${phase}): add ${phase} artifacts`
+    commitAndRebase(workspace, title)
+    context.github.land({
+      branch: workspace.branch,
+      title,
+      body: `Planning phase **${phase}**, written by the ${definition.role} agent (attempt ${attempt}).\n\nOutputs: ${definition.outputs.join(", ")}.`,
+      localMerge: () => fastForwardMain(projectDir, workspace.branch),
+    })
     return { kind: "passed" }
   } catch (error) {
     return { kind: "infrastructure", reason: (error as Error).message }
@@ -178,6 +185,7 @@ async function runTasks(context: PipelineContext): Promise<RunOutcome> {
   const { projectDir, store } = context
   const tasks = loadTasks(join(projectDir, "tasks.json"))
   store.syncTasks(tasks.map((task) => task.id))
+  context.github.syncTaskIssues(tasks)
   for (const task of tasks) {
     const row = store.task(task.id)
     if (row.status === "merged") continue
@@ -189,6 +197,7 @@ async function runTasks(context: PipelineContext): Promise<RunOutcome> {
     if (outcome !== "completed") return outcome
   }
   store.log("run", "all tasks merged")
+  context.github.runCompleted()
   return "completed"
 }
 
@@ -200,6 +209,7 @@ async function runTask(context: PipelineContext, task: Task): Promise<RunOutcome
     const attempt = attempts + 1
     store.updateTask(task.id, "running", lastFailure)
     store.log("task", `${task.id} "${task.title}": attempt ${attempt}/${maxRetries}`)
+    context.github.taskStarted(task, attempt)
 
     const result = await attemptTask(context, task, attempt, lastFailure)
     switch (result.kind) {
@@ -207,6 +217,7 @@ async function runTask(context: PipelineContext, task: Task): Promise<RunOutcome
         store.countAttempt(task.id)
         store.updateTask(task.id, "merged")
         store.log("task", `${task.id} merged`)
+        context.github.taskMerged(task)
         return "completed"
       case "infrastructure":
         store.updateTask(task.id, "pending", lastFailure)
@@ -216,15 +227,18 @@ async function runTask(context: PipelineContext, task: Task): Promise<RunOutcome
         store.countAttempt(task.id)
         store.updateTask(task.id, "blocked", result.reason)
         store.log("task", `${task.id} blocked by worker: ${result.reason.slice(0, 300)}`)
+        context.github.taskBlocked(task, result.reason)
         return "failed"
       case "failed":
         store.countAttempt(task.id)
         store.updateTask(task.id, "pending", result.reason)
         store.log("task", `${task.id} failed: ${result.reason.slice(0, 500)}`)
+        context.github.attemptFailed(task, attempt, result.reason)
     }
   }
   store.updateTask(task.id, "blocked", store.task(task.id).lastFailure)
   store.log("task", `${task.id} blocked after ${maxRetries} attempts`)
+  context.github.taskBlocked(task, store.task(task.id).lastFailure ?? "max attempts reached")
   return "failed"
 }
 
@@ -260,12 +274,18 @@ async function attemptTask(context: PipelineContext, task: Task, attempt: number
       return { kind: "failed", reason: `reviewer rejected the change.\nReasons: ${verdict.reasons.join("; ")}\nFixes: ${verdict.fixes.join("; ")}` }
     }
 
+    const title = `feat(${task.id}): ${task.title}`
     try {
-      mergeWorkspace(projectDir, workspace, `feat(${task.id}): ${task.title}`)
+      commitAndRebase(workspace, title)
+      context.github.land({
+        branch: workspace.branch,
+        title,
+        body: pullRequestBody(context, task, attempt, verdict),
+        localMerge: () => fastForwardMain(projectDir, workspace.branch),
+      })
     } catch (error) {
       return { kind: "failed", reason: `merge failed: ${(error as Error).message}` }
     }
-    publishProject(context)
     return { kind: "passed" }
   } catch (error) {
     store.log("harness", `${task.id} attempt ${attempt} crashed: ${(error as Error).message}`)
@@ -274,6 +294,25 @@ async function attemptTask(context: PipelineContext, task: Task, attempt: number
     await executor.dispose()
     removeWorkspace(projectDir, workspace)
   }
+}
+
+function pullRequestBody(context: PipelineContext, task: Task, attempt: number, verdict: { reasons: string[] }): string {
+  const issue = context.github.taskIssue(task)
+  const worker = context.config.roles.worker
+  return [
+    issue ? `Closes #${issue}.` : "",
+    "",
+    `Built by the worker agent (${worker.runner} ${worker.model}) on attempt ${attempt}. \`${task.verify}\` passed.`,
+    "",
+    "## Review",
+    "",
+    "Verdict: **pass**",
+    ...verdict.reasons.map((reason) => `- ${reason}`),
+    "",
+    "## Acceptance criteria",
+    "",
+    ...task.acceptance.map((criterion) => `- [x] ${criterion}`),
+  ].join("\n")
 }
 
 function isInfrastructureFailure(outcome: HarnessOutcome): boolean {
