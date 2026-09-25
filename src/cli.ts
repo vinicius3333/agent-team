@@ -14,7 +14,8 @@ import { sendTest } from "./notify/index.ts"
 import { compareResults, defaultEvalsDir, evalTiers, formatComparison, hasRegressions, listBriefs, readBaseYaml, runEval, type EvalResult, type EvalTier } from "./evals.ts"
 import { approvePhase, createProject, openChange, openProjectStore, retryTask, withProjectStore } from "./project.ts"
 import { importProject } from "./import.ts"
-import { runProject } from "./run.ts"
+import { runProject, runSprint } from "./run.ts"
+import { addBacklogItem } from "./sprint.ts"
 import { generateSessionSecret, hashPassword, passwordMinLength } from "./ui/auth.ts"
 import { listTemplates, templateTargets, type TemplateTarget } from "./templates.ts"
 import { startUi } from "./ui/server.ts"
@@ -32,6 +33,9 @@ const usage = `Usage:
   agent-team deploy <projectDir>
   agent-team operate <projectDir> [--agent monitoring|analytics|research]
   agent-team findings <projectDir>
+  agent-team backlog <projectDir> [--add <title> [--detail <text>] [--severity high|medium|low]]
+  agent-team sprint <projectDir> [--now]   (--now skips the wait for the next due time)
+  agent-team sprints <projectDir>
   agent-team undeploy <projectDir>
   agent-team ui <runsDir> [--port 4400] [--host 127.0.0.1] [--insecure-no-auth]
   agent-team doctor <runsDir> [--once]
@@ -79,7 +83,7 @@ function templates(): void {
   console.log(`${"custom".padEnd(14)}${"-".padEnd(9)}${"any".padEnd(10)}The architect chooses the stack (default)`)
 }
 
-async function run(projectDir: string): Promise<void> {
+async function run(projectDir: string, sprint?: { early: boolean }): Promise<void> {
   const store = openProjectStore(projectDir)
   const controller = new AbortController()
   const onInterrupt = () => {
@@ -90,7 +94,7 @@ async function run(projectDir: string): Promise<void> {
   process.on("SIGINT", onInterrupt)
   process.on("SIGTERM", onInterrupt)
 
-  const outcome = await runProject(projectDir, store, controller.signal)
+  const outcome = sprint ? await runSprint(projectDir, store, controller.signal, sprint) : await runProject(projectDir, store, controller.signal)
   process.exitCode = outcome === "failed" ? 1 : outcome === "paused" ? 75 : 0
 }
 
@@ -291,14 +295,30 @@ async function operate(projectDir: string, agent: string | undefined): Promise<v
 
 function findings(projectDir: string): void {
   const open = withProjectStore(projectDir, (store) => store.listFindings({ status: "open" }))
-  if (!open.length) return console.log("No open findings.")
-  console.log(`${open.length} open finding${open.length === 1 ? "" : "s"}. Approve one as a change in the dashboard (Operate > Next steps).`)
+  if (!open.length) return console.log("The backlog is empty.")
+  console.log(`${open.length} open backlog item${open.length === 1 ? "" : "s"}. The next sprint picks from them, or approve one as a change in the dashboard.`)
   open.forEach(printFinding)
+}
+
+function backlog(projectDir: string, flags: { add?: string; detail?: string; severity?: string }): void {
+  if (flags.add === undefined) return findings(projectDir)
+  const item = withProjectStore(projectDir, (store) => addBacklogItem(store, { title: flags.add, detail: flags.detail, severity: flags.severity }, "the command line"))
+  console.log(`Added backlog item #${item.id}. The next sprint weighs it with the rest.`)
+}
+
+function sprints(projectDir: string): void {
+  const rows = withProjectStore(projectDir, (store) => store.sprints(20))
+  if (!rows.length) return console.log("No sprints yet.")
+  for (const sprint of rows) {
+    const cost = sprint.costUsd === null ? "" : ` $${sprint.costUsd.toFixed(2)}`
+    const score = sprint.score === null ? "" : ` score ${sprint.score}`
+    console.log(`  ${String(sprint.number).padStart(3)} ${sprint.status.padEnd(9)} ${sprint.startedAt.slice(0, 10)}${score}${cost}${sprint.changeId ? ` ${sprint.changeId}` : ""}  ${sprint.goal || sprint.note}`)
+  }
 }
 
 async function main(): Promise<void> {
   if (process.argv[2] === "eval") return evalCommand()
-  const { positionals, values } = parseArgs({ allowPositionals: true, options: { brief: { type: "string" }, request: { type: "string" }, template: { type: "string" }, target: { type: "string" }, port: { type: "string" }, host: { type: "string" }, once: { type: "boolean" }, "insecure-no-auth": { type: "boolean" }, channel: { type: "string" }, agent: { type: "string" }, from: { type: "string" }, url: { type: "string", multiple: true }, github: { type: "string" }, gate: { type: "string", multiple: true }, choice: { type: "string" } } })
+  const { positionals, values } = parseArgs({ allowPositionals: true, options: { brief: { type: "string" }, request: { type: "string" }, template: { type: "string" }, target: { type: "string" }, port: { type: "string" }, host: { type: "string" }, once: { type: "boolean" }, "insecure-no-auth": { type: "boolean" }, channel: { type: "string" }, agent: { type: "string" }, from: { type: "string" }, url: { type: "string", multiple: true }, github: { type: "string" }, gate: { type: "string", multiple: true }, choice: { type: "string" }, add: { type: "string" }, detail: { type: "string" }, severity: { type: "string" }, now: { type: "boolean" } } })
   const [command, target, extra] = positionals
   if (command === "hash-password") return printPasswordHash()
   if (command === "session-secret") return console.log(generateSessionSecret())
@@ -316,6 +336,12 @@ async function main(): Promise<void> {
       return importCommand(projectDir, values)
     case "run":
       return run(projectDir)
+    case "sprint":
+      return run(projectDir, { early: values.now ?? false })
+    case "sprints":
+      return sprints(projectDir)
+    case "backlog":
+      return backlog(projectDir, values)
     case "change":
       return change(projectDir, values.request)
     case "status":

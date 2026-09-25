@@ -74,7 +74,11 @@ export interface Change {
 
 export const currentChangeKey = "change.current"
 
-export const findingSources = ["monitoring", "analytics", "research"] as const
+export const insightAgents = ["monitoring", "analytics", "research"] as const
+export type InsightAgent = (typeof insightAgents)[number]
+// The backlog that sprints draw from: the Operate agents' findings, the evaluator's gaps, the product
+// manager's feature proposals, and items a person added by hand.
+export const findingSources = [...insightAgents, "evaluator", "product", "manual"] as const
 export type FindingSource = (typeof findingSources)[number]
 export const findingSeverities = ["high", "medium", "low"] as const
 export type FindingSeverity = (typeof findingSeverities)[number]
@@ -96,6 +100,23 @@ export interface Finding {
 
 export type NewFinding = Pick<Finding, "source" | "severity" | "title" | "evidence" | "proposal">
 
+export const sprintStatuses = ["planning", "building", "done", "skipped", "failed", "abandoned"] as const
+export type SprintStatus = (typeof sprintStatuses)[number]
+
+export interface Sprint {
+  number: number
+  status: SprintStatus
+  goal: string
+  score: number | null
+  changeId: string | null
+  // Project cost when the sprint started; the sprint's cost is the growth from here.
+  costAtStart: number
+  costUsd: number | null
+  note: string
+  startedAt: string
+  finishedAt: string | null
+}
+
 export interface HealthCheck {
   at: string
   ok: boolean
@@ -108,7 +129,7 @@ export type InsightRunStatus = "running" | "done" | "failed"
 
 export interface InsightRun {
   id: number
-  agent: FindingSource
+  agent: InsightAgent
   startedAt: string
   finishedAt: string | null
   status: InsightRunStatus
@@ -257,6 +278,18 @@ export function openStore(path: string) {
       value REAL NOT NULL
     );
     CREATE INDEX IF NOT EXISTS metrics_key_at ON metrics (key, at);
+    CREATE TABLE IF NOT EXISTS sprints (
+      number INTEGER PRIMARY KEY,
+      status TEXT NOT NULL,
+      goal TEXT NOT NULL DEFAULT '',
+      score INTEGER,
+      change_id TEXT,
+      cost_at_start REAL NOT NULL,
+      cost_usd REAL,
+      note TEXT NOT NULL DEFAULT '',
+      started_at TEXT NOT NULL,
+      finished_at TEXT
+    );
   `)
 
   const attemptColumns = db.prepare("PRAGMA table_info(attempts)").all() as { name: string }[]
@@ -281,6 +314,7 @@ export function openStore(path: string) {
   const lastMergedChangeId = () => (db.prepare("SELECT id FROM changes WHERE status = 'merged' ORDER BY id DESC LIMIT 1").get() as { id: string } | undefined)?.id ?? ""
   const findingColumnsSql = "id, source, severity, title, evidence, proposal, status, change_id AS changeId, created_at AS createdAt, updated_at AS updatedAt"
   const insightRunColumnsSql = "id, agent, started_at AS startedAt, finished_at AS finishedAt, status, summary, findings"
+  const sprintColumnsSql = "number, status, goal, score, change_id AS changeId, cost_at_start AS costAtStart, cost_usd AS costUsd, note, started_at AS startedAt, finished_at AS finishedAt"
   const metaValue = (key: string) => (db.prepare("SELECT value FROM meta WHERE key = ?").get(key) as { value: string } | undefined)?.value ?? null
 
   return {
@@ -604,6 +638,30 @@ export function openStore(path: string) {
     openFindingCount(): number {
       return (db.prepare("SELECT COUNT(*) AS count FROM findings WHERE status = 'open'").get() as { count: number }).count
     },
+    startSprint(costAtStart: number): Sprint {
+      const number = ((db.prepare("SELECT MAX(number) AS last FROM sprints").get() as { last: number | null }).last ?? 0) + 1
+      db.prepare("INSERT INTO sprints (number, status, cost_at_start, started_at) VALUES (?, 'planning', ?, ?)").run(number, costAtStart, now())
+      return this.sprint(number)!
+    },
+    updateSprint(number: number, fields: Partial<Pick<Sprint, "status" | "goal" | "score" | "changeId" | "note">>) {
+      const columns: Record<string, string> = { status: "status", goal: "goal", score: "score", changeId: "change_id", note: "note" }
+      const entries = Object.entries(fields).filter(([, value]) => value !== undefined)
+      if (!entries.length) return
+      db.prepare(`UPDATE sprints SET ${entries.map(([field]) => `${columns[field]} = ?`).join(", ")} WHERE number = ?`).run(...entries.map(([, value]) => value as string | number | null), number)
+    },
+    finishSprint(number: number, status: Exclude<SprintStatus, "planning" | "building">, note?: string) {
+      const sprint = this.sprint(number)
+      if (!sprint) return
+      const costUsd = Math.max(0, this.projectCost().usd - sprint.costAtStart)
+      db.prepare("UPDATE sprints SET status = ?, cost_usd = ?, note = COALESCE(?, note), finished_at = ? WHERE number = ?").run(status, costUsd, note ?? null, now(), number)
+    },
+    sprint(number: number): Sprint | null {
+      return (db.prepare(`SELECT ${sprintColumnsSql} FROM sprints WHERE number = ?`).get(number) as unknown as Sprint | undefined) ?? null
+    },
+    // Newest first.
+    sprints(limit = 50): Sprint[] {
+      return db.prepare(`SELECT ${sprintColumnsSql} FROM sprints ORDER BY number DESC LIMIT ?`).all(limit) as unknown as Sprint[]
+    },
     addHealthCheck(check: Omit<HealthCheck, "at">, at = new Date()) {
       db.prepare("INSERT INTO health_checks (at, ok, status_code, latency_ms, error) VALUES (?, ?, ?, ?, ?)").run(at.toISOString(), check.ok ? 1 : 0, check.statusCode, check.latencyMs, check.error)
       db.prepare("DELETE FROM health_checks WHERE at < ?").run(new Date(at.getTime() - healthRetentionMs).toISOString())
@@ -618,14 +676,14 @@ export function openStore(path: string) {
       const rows = db.prepare(`SELECT at, ok, status_code AS statusCode, latency_ms AS latencyMs, error FROM health_checks ${onlyFailed ? "WHERE ok = 0" : ""} ORDER BY at DESC LIMIT ?`).all(limit) as unknown as (Omit<HealthCheck, "ok"> & { ok: number })[]
       return rows.map((row) => ({ ...row, ok: row.ok === 1 }))
     },
-    startInsightRun(agent: FindingSource): number {
+    startInsightRun(agent: InsightAgent): number {
       const result = db.prepare("INSERT INTO insight_runs (agent, started_at, status) VALUES (?, ?, 'running')").run(agent, now())
       return Number(result.lastInsertRowid)
     },
     finishInsightRun(id: number, status: Exclude<InsightRunStatus, "running">, summary: string, findings: number) {
       db.prepare("UPDATE insight_runs SET status = ?, summary = ?, findings = ?, finished_at = ? WHERE id = ?").run(status, summary, findings, now(), id)
     },
-    lastInsightRun(agent: FindingSource): InsightRun | null {
+    lastInsightRun(agent: InsightAgent): InsightRun | null {
       return (db.prepare(`SELECT ${insightRunColumnsSql} FROM insight_runs WHERE agent = ? ORDER BY id DESC LIMIT 1`).get(agent) as unknown as InsightRun | undefined) ?? null
     },
     lastInsightRuns(): InsightRun[] {

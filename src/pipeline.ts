@@ -19,7 +19,7 @@ import { changePath, importCleanupKey, importDoneKey } from "./project.ts"
 import { designSystemRoute, parseDesignScreens, parseLoginRoute, parseQaVerdict, runQaLoop, type QaRoundResult, type QaScreen } from "./qa.ts"
 import { extractJsonObject } from "./json.ts"
 import { conceptChoiceKey, conceptIds, conceptsDir } from "./concepts.ts"
-import { learnLessons, runEvolution } from "./improve.ts"
+import { learnLessons } from "./improve.ts"
 import { formatLessons, lessonsFor, lessonsPath, loadLessons, projectStacks } from "./lessons.ts"
 import { formatSolutions, memoryPath, recordSolution, searchSolutions, type Solution } from "./memory.ts"
 import { changeTaskConflict, decideReplan, formatBlock, normalizeFailure, parseBlock, parseReplanAction, suggestedPaths, type Block, type ReplanDecision } from "./replan.ts"
@@ -617,12 +617,6 @@ function noteStop(context: PipelineContext, reason: string): void {
   if (!state.budgetExceeded) state.stopReason = reason
 }
 
-function markBudgetStop(context: PipelineContext, reason: string): void {
-  const state = runState(context)
-  state.budgetExceeded = true
-  state.stopReason = reason
-}
-
 // Keeps the lines that explain a command failure (npm error lines and the like), else the last lines.
 export function keyFailureLines(output: string, maxLines = 15): string {
   const lines = output.split("\n").map((line) => line.trimEnd()).filter((line) => line.trim())
@@ -1214,18 +1208,6 @@ async function runTasks(context: PipelineContext): Promise<RunOutcome> {
   }
   const outcome = await runQaPhase(context, deploy)
   if (outcome !== "completed") return outcome
-  // The evaluator judges the live app, so evolving needs deploy.
-  if (!change && context.config.evolve.enabled && context.config.deploy.enabled) {
-    const ship = async (): Promise<RunOutcome> => {
-      const rebuilt = await buildTasks(context)
-      return rebuilt === "completed" ? runQaPhase(context, deploy) : rebuilt
-    }
-    const evolved = await runEvolution(context, ship, (reason, kind) => {
-      if (kind === "budget") markBudgetStop(context, reason)
-      else noteStop(context, reason)
-    })
-    if (evolved !== "completed") return evolved
-  }
   const access = ensureDemoAccess(store)
   if (deployUrl) store.log("deploy", `live at ${deployUrl}; log in as ${access.email} (the password is on the dashboard)`)
   if (change) context.github.changeFinished(change, deployUrl ? `The change is merged and live at ${deployUrl}.` : "The change is merged into main.")

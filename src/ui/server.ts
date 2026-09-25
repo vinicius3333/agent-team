@@ -12,7 +12,8 @@ import { demoAccessMetaKey, readDemoAccess } from "../access.ts"
 import { pendingFeedback } from "../feedback.ts"
 import { customTemplate, findTemplate, listTemplates, readStack } from "../templates.ts"
 import { conceptChoiceKey, conceptIds, conceptsDir } from "../concepts.ts"
-import { abandonChange, approveChangeMerge, approvePhase, approveTaskBudget, changePath, changeRoleModels, chooseTemplate, createProject, openChange, parseRoleModels, listProjects, ProjectError, raiseRunBudget, requestChanges, retryTask, runAlive, runLogPath, startRun as spawnRun, withProjectStore, type ProjectChoices } from "../project.ts"
+import { abandonChange, approveChangeMerge, approvePhase, approveTaskBudget, changePath, changeRoleModels, chooseTemplate, createProject, openChange, parseRoleModels, listProjects, ProjectError, raiseRunBudget, requestChanges, retryTask, runAlive, runLogPath, startRun as spawnRun, withProjectStore, type ProjectChoices, type RunCommand } from "../project.ts"
+import { addBacklogItem, sprintBlocker, sprintSpend, syncSprint } from "../sprint.ts"
 import { fileAtRef } from "../git.ts"
 import { readBaseline } from "../baseline.ts"
 import { dismissCleanupChange, importProject, startCleanupChange, type ImportOptions } from "../import.ts"
@@ -24,11 +25,11 @@ import { applyGitIdentity, parseGitIdentity, readGitIdentity, saveGitIdentity } 
 import { applyLeadAction, approveTaskSuggestion, dropTask, parseLeadSettings, saveAutoApproveScope, saveLeadSettings } from "../lead-actions.ts"
 import { suggestedPaths } from "../replan.ts"
 import { trackedFiles } from "../git.ts"
-import { insightAgents, type InsightAgent } from "../config.ts"
+import { insightAgents, type InsightAgent, type PipelineConfig } from "../config.ts"
 import { insightRunActive, runInsightAgent } from "../operate/agents.ts"
 import { approveFinding, dismissFinding } from "../operate/findings.ts"
 import { operateSnapshot } from "../operate/snapshot.ts"
-import { findingStatuses, type FindingStatus } from "../store.ts"
+import { findingStatuses, type FindingStatus, type Store } from "../store.ts"
 import { summarizeActivity } from "../activity.ts"
 import { liveAgentPrefix, type LiveAgent } from "../harness/harness.ts"
 import { reviewerMetrics, type ReviewRow } from "../reviews.ts"
@@ -784,7 +785,7 @@ function parseChoices(body: Record<string, unknown>): { name: string; brief: str
   for (const [field, value] of Object.entries({ github, deploy, branding })) {
     if (typeof value !== "boolean") throw new ProjectError(400, `The ${field} field must be true or false.`)
   }
-  for (const field of ["resolveAllQa", "evolve", "autoApproveScope"]) {
+  for (const field of ["resolveAllQa", "sprints", "evolve", "autoApproveScope"]) {
     if (body[field] !== undefined && typeof body[field] !== "boolean") throw new ProjectError(400, `The ${field} field must be true or false.`)
   }
   if (template !== undefined && typeof template !== "string") throw new ProjectError(400, "The template field must be a template name.")
@@ -801,7 +802,8 @@ function parseChoices(body: Record<string, unknown>): { name: string; brief: str
       deploy: deploy as boolean,
       branding: branding as boolean,
       resolveAllQa: body.resolveAllQa as boolean | undefined,
-      evolve: body.evolve as boolean | undefined,
+      // evolve is the name older clients send.
+      sprints: (body.sprints ?? body.evolve) as boolean | undefined,
       autoApproveScope: body.autoApproveScope as boolean | undefined,
       template: template as string | undefined,
     },
@@ -839,11 +841,31 @@ function requireString(body: Record<string, unknown>, field: string): string {
   return value
 }
 
+const dayMs = 24 * 60 * 60_000
+
+function sprintSnapshot(store: Store, config: PipelineConfig) {
+  syncSprint(store)
+  const sprints = store.sprints(30)
+  const last = sprints[0]
+  const nextDueAt = !config.sprints.enabled ? null : last?.finishedAt ? new Date(Date.parse(last.finishedAt) + config.sprints.everyDays * dayMs).toISOString() : null
+  return {
+    settings: config.sprints,
+    deployEnabled: config.deploy.enabled,
+    sprints,
+    nextDueAt,
+    blocker: sprintBlocker(store, config),
+    startBlocker: sprintBlocker(store, config, { early: true }),
+    spentUsd30d: Math.round(sprintSpend(store) * 100) / 100,
+    projectCostUsd: store.projectCost().usd,
+    backlogSize: store.openFindingCount(),
+  }
+}
+
 export interface UiOptions {
   runsDir: string
   port: number
   host?: string
-  startRun?: (projectDir: string, logPath: string) => void
+  startRun?: (projectDir: string, logPath: string, command?: RunCommand) => void
   webDir?: string
   askLead?: (projectDir: string, message: string, options: { attachments: string[]; transcriptPath: string; signal: AbortSignal }) => Promise<number>
   runInsight?: (projectDir: string, agent: InsightAgent) => Promise<unknown>
@@ -1061,6 +1083,17 @@ export function startUi(options: UiOptions) {
       }
       return send(response, 404, { error: "not found" })
     }
+    if (parts[3] === "sprints" && parts[4] === "start" && parts.length === 5) {
+      const config = loadConfig(join(projectDir, "pipeline.yaml"))
+      const blocker = withProjectStore(projectDir, (store) => sprintBlocker(store, config, { early: true }))
+      if (blocker) return send(response, 409, { error: `No sprint can start: ${blocker}.` })
+      launchRun(projectDir, runLogPath(runsDir, name), ["sprint", "--now"])
+      return send(response, 202, { started: true })
+    }
+    if (parts[3] === "findings" && parts.length === 4) {
+      const author = auth.mode === "none" ? "you" : (authenticate(request, auth, now())?.user ?? "you")
+      return send(response, 201, withProjectStore(projectDir, (store) => addBacklogItem(store, { title: body.title, detail: body.detail, severity: body.severity }, author)))
+    }
     if (parts[3] === "operate" && parts[4] === "run" && parts.length === 5) {
       const agent = body.agent
       if (typeof agent !== "string" || !(insightAgents as readonly string[]).includes(agent)) return send(response, 400, { error: `The agent field must be one of ${insightAgents.join(", ")}.` })
@@ -1213,6 +1246,10 @@ export function startUi(options: UiOptions) {
         if (parts[3] === "operate" && parts.length === 4) {
           const config = loadConfig(join(projectDir, "pipeline.yaml"))
           return send(response, 200, withProjectStore(projectDir, (store) => operateSnapshot(store, config)))
+        }
+        if (parts[3] === "sprints" && parts.length === 4) {
+          const config = loadConfig(join(projectDir, "pipeline.yaml"))
+          return send(response, 200, withProjectStore(projectDir, (store) => sprintSnapshot(store, config)))
         }
         if (parts[3] === "findings" && parts.length === 4) {
           const status = url.searchParams.get("status") ?? "open"

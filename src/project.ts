@@ -82,7 +82,7 @@ export interface ProjectChoices {
   branding: boolean
   // Optional so older clients keep working; undefined keeps the value in pipeline.example.yaml.
   resolveAllQa?: boolean
-  evolve?: boolean
+  sprints?: boolean
   autoApproveScope?: boolean
   // A stack template name; undefined or "custom" lets the architect choose the stack.
   template?: string
@@ -148,7 +148,7 @@ export function applyChoices(pipelineYaml: string, choices: Partial<ProjectChoic
   if (choices.deploy !== undefined) document.setIn(["deploy", "enabled"], choices.deploy)
   if (choices.branding !== undefined) document.setIn(["branding", "enabled"], choices.branding)
   if (choices.resolveAllQa !== undefined) document.setIn(["qa", "resolveAll"], choices.resolveAllQa)
-  if (choices.evolve !== undefined) document.setIn(["evolve", "enabled"], choices.evolve)
+  if (choices.sprints !== undefined) document.setIn(["sprints", "enabled"], choices.sprints)
   if (choices.autoApproveScope !== undefined) document.setIn(["autonomy", "autoApproveScope"], choices.autoApproveScope)
   const workerModels: RoleModels = choices.workerRunner === "codex" ? { worker: { runner: "codex", model: "gpt-5.5" } } : {}
   applyRoleModels(document, { ...workerModels, ...choices.roles })
@@ -289,11 +289,12 @@ function changeSlug(request: string): string {
 }
 
 // Records the request on a new change/<id>-<slug> branch from main and resets the phases a change reruns.
-export function openChange(projectDir: string, store: Store, rawRequest: unknown): Change {
+// insideRun: the caller is the run itself (a sprint opens its own change), so its run.pid does not block.
+export function openChange(projectDir: string, store: Store, rawRequest: unknown, options: { insideRun?: boolean } = {}): Change {
   const request = typeof rawRequest === "string" ? rawRequest.trim() : ""
   if (!request) throw new ProjectError(400, "Describe the change first.")
   if (request.length > changeRequestMaxLength) throw new ProjectError(400, `Keep the change request under ${changeRequestMaxLength} characters.`)
-  if (processAlive(Number(store.meta("run.pid")))) throw new ProjectError(409, "A run is in progress. Wait for it to stop.")
+  if (!options.insideRun && processAlive(Number(store.meta("run.pid")))) throw new ProjectError(409, "A run is in progress. Wait for it to stop.")
   const open = store.currentChange()
   if (open) throw new ProjectError(409, `Change ${open.id} is still open. Finish or abandon it first.`)
   if (!buildComplete(store)) throw new ProjectError(409, "Finish or fix the current run first.")
@@ -364,13 +365,17 @@ export function runAlive(projectDir: string): boolean {
   return withProjectStore(projectDir, (store) => processAlive(Number(store.meta("run.pid"))))
 }
 
-export function startRun(projectDir: string, logPath: string): number {
+// "sprint" plans a sprint first (see runSprint); "sprint --now" skips the wait for its due time.
+export type RunCommand = ["run"] | ["sprint"] | ["sprint", "--now"]
+
+export function startRun(projectDir: string, logPath: string, command: RunCommand = ["run"]): number {
   const image = process.env.AGENT_TEAM_RUN_IMAGE
-  return image ? startRunContainer(projectDir, logPath, image) : startRunProcess(projectDir, logPath)
+  return image ? startRunContainer(projectDir, logPath, image, command) : startRunProcess(projectDir, logPath, command)
 }
 
 export interface RunContainerOptions {
   image: string
+  command?: RunCommand
   projectDir: string
   logPath: string
   home: string
@@ -387,6 +392,7 @@ export function runContainerName(projectDir: string): string {
 // so the run sees the same paths and its pid means the same thing to the dashboard and the doctor.
 export function runContainerArgs(options: RunContainerOptions): string[] {
   const { image, projectDir, logPath, home, uid, gid } = options
+  const [verb, ...flags] = options.command ?? ["run"]
   const extraGroups = [...new Set(options.groups)].filter((group) => group !== gid)
   return [
     "run", "-d", "--rm",
@@ -400,30 +406,30 @@ export function runContainerArgs(options: RunContainerOptions): string[] {
     "--volume", "/tmp:/tmp",
     "--volume", `${home}:${home}`,
     image,
-    "sh", "-c", 'exec node --disable-warning=ExperimentalWarning "$0" run "$1" >> "$2" 2>&1', cliPath, projectDir, logPath,
+    "sh", "-c", `exec node --disable-warning=ExperimentalWarning "$0" ${verb} "$1" ${flags.join(" ")} >> "$2" 2>&1`, cliPath, projectDir, logPath,
   ]
 }
 
 // Each run gets its own container, so a redeploy of the dashboard and the doctor does not kill it.
 // The run keeps the image it started with until it finishes.
-function startRunContainer(projectDir: string, logPath: string, image: string): number {
+function startRunContainer(projectDir: string, logPath: string, image: string, command: RunCommand): number {
   const docker = (args: string[]) => execFileSync("docker", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim()
   const name = runContainerName(projectDir)
   try {
     // Only a stopped container goes; without --force, docker refuses to remove a running one.
     docker(["rm", name])
   } catch {}
-  docker(runContainerArgs({ image, projectDir, logPath, home: process.env.HOME ?? "/home/opc", uid: process.getuid!(), gid: process.getgid!(), groups: process.getgroups!() }))
+  docker(runContainerArgs({ image, command, projectDir, logPath, home: process.env.HOME ?? "/home/opc", uid: process.getuid!(), gid: process.getgid!(), groups: process.getgroups!() }))
   const pid = Number(docker(["inspect", "--format", "{{.State.Pid}}", name]))
   // Recorded now so a second request sees the run before it writes its own pid.
   if (pid) withProjectStore(projectDir, (store) => store.setMeta("run.pid", String(pid)))
   return pid
 }
 
-function startRunProcess(projectDir: string, logPath: string): number {
+function startRunProcess(projectDir: string, logPath: string, command: RunCommand): number {
   const log = openSync(logPath, "a")
   try {
-    const child = spawn(process.execPath, ["--disable-warning=ExperimentalWarning", cliPath, "run", projectDir], {
+    const child = spawn(process.execPath, ["--disable-warning=ExperimentalWarning", cliPath, command[0], projectDir, ...command.slice(1)], {
       detached: true,
       stdio: ["ignore", log, log],
     })

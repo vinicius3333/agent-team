@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs"
 import { dirname } from "node:path"
 import { parse } from "yaml"
-import { findingSources, type FindingSource } from "./store.ts"
+import { insightAgents, type InsightAgent } from "./store.ts"
 import { customTemplate, findTemplate, readStack, type StackManifest } from "./templates.ts"
 
 export const planningPhases = ["spec", "architecture", "concepts", "branding", "design", "marketing", "plan"] as const
@@ -55,8 +55,7 @@ export interface ImportConfig {
   github: ImportGitHubMode
 }
 
-export type InsightAgent = FindingSource
-export const insightAgents = findingSources
+export { insightAgents, type InsightAgent }
 export const insightAgentRoles: Record<InsightAgent, Role> = { monitoring: "monitor", analytics: "analyst", research: "researcher" }
 
 export interface PosthogConfig {
@@ -91,7 +90,7 @@ export interface PipelineConfig {
   deploy: { enabled: boolean }
   // resolveAll: a QA pass with open findings counts as a fail, so every finding, minor ones included, gets a fix task.
   qa: { enabled: boolean; maxRounds: number; resolveAll: boolean }
-  evolve: EvolveConfig
+  sprints: SprintConfig
   learning: LearningConfig
   // runUsd caps the reported agent cost of the whole project; the run stops for a human when it is reached.
   budget: { perTaskUsd: number; runUsd: number }
@@ -108,15 +107,20 @@ export interface PipelineConfig {
   import: ImportConfig | null
 }
 
-// After deploy, the evaluator scores the live app against the brief. Below targetScore, its gap tasks are built,
-// QA runs, the app redeploys, and the evaluator scores again. maxCycles 0 means no cycle limit: the loop then ends
-// only at targetScore, when a cycle finds nothing to build, or at budget.runUsd.
-export interface EvolveConfig {
+// Once the app is live, the doctor starts a sprint every everyDays: the evaluator scores the app, the PM picks
+// backlog items (and may propose new features), and they ship as one change request with QA and a redeploy.
+export interface SprintConfig {
   enabled: boolean
-  targetScore: number
-  maxCycles: number
-  // Caps the reported agent cost of one cycle, so one runaway cycle cannot spend the whole run budget.
-  cycleBudgetUsd: number
+  // Days from the end of one sprint to the start of the next.
+  everyDays: number
+  // The most one sprint may spend; budget.runUsd is raised to the project cost plus this when a sprint starts.
+  budgetUsd: number
+  // The most all sprints that started in the last 30 days may spend together.
+  monthlyUsd: number
+  // Backlog items per sprint.
+  maxItems: number
+  // The PM may propose features the brief does not ask for.
+  newFeatures: boolean
 }
 
 // Lessons learned from reviews, QA, evaluations, and incidents, shared by every project in the runs folder.
@@ -130,8 +134,27 @@ export interface LearningConfig {
   maxSimilarTasks: number
 }
 
-export const defaultEvolveConfig: EvolveConfig = { enabled: false, targetScore: 90, maxCycles: 0, cycleBudgetUsd: 25 }
+export const defaultSprintConfig: SprintConfig = { enabled: false, everyDays: 7, budgetUsd: 25, monthlyUsd: 100, maxItems: 5, newFeatures: true }
 export const defaultLearningConfig: LearningConfig = { enabled: true, maxLessonsPerRole: 20, memory: true, maxSimilarTasks: 2 }
+
+// Projects from before sprints have an evolve block; its switch and cycle budget carry over.
+function normalizeSprints(raw: any, legacyEvolve: any): SprintConfig {
+  if (raw === undefined && legacyEvolve !== undefined) {
+    return { ...defaultSprintConfig, enabled: legacyEvolve.enabled ?? false, budgetUsd: legacyEvolve.cycleBudgetUsd ?? defaultSprintConfig.budgetUsd }
+  }
+  return { ...defaultSprintConfig, ...raw }
+}
+
+function sprintProblems(sprints: SprintConfig): string[] {
+  const problems: string[] = []
+  if (typeof sprints.enabled !== "boolean") problems.push("sprints.enabled must be true or false")
+  if (!(sprints.everyDays > 0)) problems.push("sprints.everyDays must be a number above 0")
+  if (!(sprints.budgetUsd > 0)) problems.push("sprints.budgetUsd must be a number above 0")
+  if (!(sprints.monthlyUsd >= sprints.budgetUsd)) problems.push("sprints.monthlyUsd must be at least sprints.budgetUsd")
+  if (!Number.isInteger(sprints.maxItems) || sprints.maxItems < 1 || sprints.maxItems > 10) problems.push("sprints.maxItems must be a whole number from 1 to 10")
+  if (typeof sprints.newFeatures !== "boolean") problems.push("sprints.newFeatures must be true or false")
+  return problems
+}
 
 export interface TemplatePin {
   name: string
@@ -174,7 +197,7 @@ export function loadConfig(path: string): PipelineConfig {
     },
     deploy: { enabled: raw.deploy?.enabled ?? false },
     qa: { enabled: raw.qa?.enabled ?? true, maxRounds: raw.qa?.maxRounds ?? 3, resolveAll: raw.qa?.resolveAll ?? false },
-    evolve: { ...defaultEvolveConfig, ...raw.evolve },
+    sprints: normalizeSprints(raw.sprints, raw.evolve),
     learning: { ...defaultLearningConfig, ...raw.learning },
     publish: {
       github: {
@@ -346,10 +369,7 @@ function validateConfig(config: PipelineConfig, projectDir: string): void {
   }
   if (!Number.isInteger(config.qa.maxRounds) || config.qa.maxRounds < 1) errors.push("qa.maxRounds must be a whole number of 1 or more")
   if (typeof config.qa.resolveAll !== "boolean") errors.push("qa.resolveAll must be true or false")
-  if (typeof config.evolve.enabled !== "boolean") errors.push("evolve.enabled must be true or false")
-  if (!(config.evolve.targetScore > 0 && config.evolve.targetScore <= 100)) errors.push("evolve.targetScore must be above 0 and at most 100")
-  if (!Number.isInteger(config.evolve.maxCycles) || config.evolve.maxCycles < 0) errors.push("evolve.maxCycles must be a whole number of 0 or more (0 = no limit)")
-  if (!(config.evolve.cycleBudgetUsd > 0)) errors.push("evolve.cycleBudgetUsd must be a number above 0")
+  errors.push(...sprintProblems(config.sprints))
   if (typeof config.learning.enabled !== "boolean") errors.push("learning.enabled must be true or false")
   if (typeof config.learning.memory !== "boolean") errors.push("learning.memory must be true or false")
   if (!Number.isInteger(config.learning.maxSimilarTasks) || config.learning.maxSimilarTasks < 0) errors.push("learning.maxSimilarTasks must be a whole number of 0 or more")

@@ -4,11 +4,16 @@ import { cleanupOrphans } from "./harness/docker.ts"
 import { createGitHub } from "./github.ts"
 import { createHarness, liveAgentPrefix } from "./harness/harness.ts"
 import { removeAllWorkspaces } from "./harness/workspace.ts"
-import { runPipeline, type RunOutcome } from "./pipeline.ts"
+import { startSprint } from "./improve.ts"
+import { runPipeline, type PipelineContext, type RunOutcome } from "./pipeline.ts"
+import { syncSprint } from "./sprint.ts"
 import type { Store } from "./store.ts"
 
+type Prepare = (context: PipelineContext) => Promise<RunOutcome | null>
+
 // One pipeline run of a project, shared by `agent-team run` and the eval suite. The caller owns the store and the signal.
-export async function runProject(projectDir: string, store: Store, signal: AbortSignal): Promise<RunOutcome> {
+// prepare runs first, with the run recorded; an outcome from it ends the run without the pipeline.
+export async function runProject(projectDir: string, store: Store, signal: AbortSignal, prepare?: Prepare): Promise<RunOutcome> {
   const config = loadConfig(join(projectDir, "pipeline.yaml"))
   removeAllWorkspaces(projectDir)
   if (config.harness.isolation === "docker") await cleanupOrphans()
@@ -16,7 +21,15 @@ export async function runProject(projectDir: string, store: Store, signal: Abort
   const github = createGitHub({ projectDir, config, store })
   for (const { key } of store.metaWithPrefix(liveAgentPrefix)) store.deleteMeta(key)
   store.setMeta("run.pid", String(process.pid))
-  const outcome = await runPipeline({ projectDir, config, store, harness, github, signal }).finally(() => store.setMeta("run.pid", ""))
+  const context: PipelineContext = { projectDir, config, store, harness, github, signal }
+  const outcome = await (async () => (await prepare?.(context)) ?? runPipeline(context))().finally(() => store.setMeta("run.pid", ""))
   store.log("run", `finished: ${outcome}`)
+  return outcome
+}
+
+// Plans a sprint and opens its change, then runs the pipeline that builds it. early skips the wait for the due time.
+export async function runSprint(projectDir: string, store: Store, signal: AbortSignal, options: { early: boolean }): Promise<RunOutcome> {
+  const outcome = await runProject(projectDir, store, signal, (context) => startSprint(context, options))
+  syncSprint(store)
   return outcome
 }

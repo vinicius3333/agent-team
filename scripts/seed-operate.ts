@@ -3,7 +3,7 @@
 import { join, resolve } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { openProjectStore } from "../src/project.ts"
-import type { FindingSource, Metric, NewFinding } from "../src/store.ts"
+import type { InsightAgent, Metric, NewFinding } from "../src/store.ts"
 
 const minute = 60_000
 const day = 24 * 60 * minute
@@ -77,12 +77,12 @@ const findings: NewFinding[] = [
 ]
 for (const finding of findings) store.addFinding(finding)
 
-const summaries: Record<FindingSource, string> = {
+const summaries: Record<InsightAgent, string> = {
   monitoring: "The app was up 99.94% of the last 7 days, with two short 502 outages during redeploys. p95 latency is 182 ms. The vote endpoint fails on 2.3% of requests since deploy #14: the log shows SQLITE_BUSY during vote bursts.",
   analytics: "Weekly active users grew 12% to 1,284. Signup conversion fell from 3.9% to 3.1%: most people leave at email confirmation. Voting is the core action, but downvotes and vote changes send no events.",
   research: "Three competitors checked. Two send a daily joke digest by email and one has a public API. None lets people submit jokes, which Dad Jokes already does, so submission is a clear edge.",
 }
-const counts: Record<FindingSource, number> = { monitoring: 1, analytics: 3, research: 1 }
+const counts: Record<InsightAgent, number> = { monitoring: 1, analytics: 3, research: 1 }
 for (const agent of ["monitoring", "analytics", "research"] as const) store.finishInsightRun(store.startInsightRun(agent), "done", summaries[agent], counts[agent])
 
 store.log("operate", "seeded Operate demo data")

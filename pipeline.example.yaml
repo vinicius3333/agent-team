@@ -29,11 +29,13 @@ qa:
   maxRounds: 3         # fix rounds before the run stops for a human
   resolveAll: false    # true: a pass may not list findings, so every finding, minor ones included, gets a fix task
 
-evolve:                # after deploy, the evaluator scores the app against the brief and builds what is missing, again and again
-  enabled: true
-  targetScore: 90      # 0 to 100; the loop ends when the score reaches it
-  maxCycles: 0         # 0 = no limit: the loop also ends when a cycle finds nothing to build, or at budget.runUsd
-  cycleBudgetUsd: 25   # a cycle starts only when this much of budget.runUsd is left
+sprints:               # once the app is live, the doctor runs a sprint on a schedule: evaluate, pick backlog items, ship them as a change
+  enabled: true        # needs deploy.enabled and a running doctor (agent-team doctor)
+  everyDays: 7         # days from the end of one sprint to the start of the next
+  budgetUsd: 25        # the most one sprint may spend; budget.runUsd is raised to make room when a sprint starts
+  monthlyUsd: 100      # the most all sprints of the last 30 days may spend together; no sprint starts past it
+  maxItems: 5          # backlog items per sprint
+  newFeatures: true    # the PM may propose features the brief does not ask for
 
 learning:              # lessons from reviews, QA, evaluations, and incidents, shared by every project in the runs folder
   enabled: true        # the curator updates <runs folder>/.agent-team-lessons/lessons.json; set AGENT_TEAM_LESSONS to move it
@@ -88,7 +90,7 @@ roles:
   monitor:   { runner: claude, model: claude-opus-5-5 } # Operate: reads health checks, logs, and incidents; writes findings
   analyst:   { runner: claude, model: claude-opus-5-5 } # Operate: reads PostHog numbers; writes findings
   researcher: { runner: claude, model: claude-opus-5-5 } # Operate: searches the web for competitors; writes findings
-  evaluator: { runner: claude, model: claude-opus-5-5 } # evolve: scores the live app against the brief; writes gap tasks; read-only
+  evaluator: { runner: claude, model: claude-opus-5-5 } # sprints: scores the live app against the brief; its gaps join the backlog; read-only
   curator:   { runner: claude, model: claude-opus-5-5 } # learning: turns failures into lessons for later tasks and projects; read-only
 
 allowSameVendorReview: true   # worker and reviewer both run on claude

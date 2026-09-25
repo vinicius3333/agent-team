@@ -1,14 +1,14 @@
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs"
 import { basename, join } from "node:path"
-import { loadConfig } from "./config.ts"
-import { parseEvaluation, runEvolveLoop, type EvaluateResult, type Evaluation, type EvolveOutcome } from "./evolve.ts"
+import { openChange, raiseRunBudget } from "./project.ts"
+import { evaluationDimensions, gapFinding, parseEvaluation, parseSprintPlan, sprintBlocker, sprintRequest, syncSprint, type Evaluation, type EvaluationGap, type SprintPlan } from "./sprint.ts"
 import { applyCuratorResult, collectSignals, curatorPrompt, lessonsPath, loadLessons, parseCuratorResult, projectStacks, recordRetired, saveLessons } from "./lessons.ts"
-import { createExecutor, isInfrastructureFailure, landingBranch, landTasksFile, qaRoundPath, runAgent, type PipelineContext, type RunOutcome } from "./pipeline.ts"
+import { createExecutor, isInfrastructureFailure, landingBranch, qaRoundPath, runAgent, type PipelineContext, type RunOutcome } from "./pipeline.ts"
 import { createWorkspace, removeWorkspace } from "./harness/workspace.ts"
-import { loadTasks, type Task } from "./tasks.ts"
+import type { Finding } from "./store.ts"
 
 const readTools = ["read"]
-const evaluateAttempts = 2
+const agentAttempts = 2
 const curateAttempts = 2
 const learnedAtKey = "learning.curatedAt"
 // Fewer new signals than this after a stopped run are not worth a curator call; a finished run always curates.
@@ -16,41 +16,94 @@ const minSignals = 3
 const maxSignals = 40
 const maxChatMessages = 40
 
-export function evaluationPath(cycle: number): string {
-  return join(".agent-team", "evaluations", `cycle-${cycle}.json`)
+export function evaluationPath(sprint: number): string {
+  return join(".agent-team", "evaluations", `sprint-${sprint}.json`)
 }
 
-// Runs the evolve loop after the first deploy. ship() builds the evaluator's tasks, runs QA, and deploys again.
-export async function runEvolution(context: PipelineContext, ship: () => Promise<RunOutcome>, noteStop: (reason: string, kind?: "budget") => void): Promise<EvolveOutcome> {
-  const { config, store } = context
-  return runEvolveLoop(store, config.evolve, {
-    spentUsd: () => store.projectCost().usd,
-    runBudgetUsd: () => {
-      try {
-        return loadConfig(join(context.projectDir, "pipeline.yaml")).budget.runUsd
-      } catch {
-        return config.budget.runUsd
-      }
-    },
-    evaluate: (cycle) => evaluate(context, cycle),
-    learn: () => learnLessons(context, { force: true }),
-    addTasks: (cycle, tasks) => addEvolveTasks(context, cycle, tasks),
-    ship,
-    noteStop,
-  })
+// Plans the next sprint and opens its change, so the rest of the run builds, checks, merges, and deploys it.
+// Returns null to go on with the pipeline, or an outcome when there is nothing to build. A failed plan is recorded on
+// the sprint and ends the run as completed: the doctor tries again later, with no incident.
+export async function startSprint(context: PipelineContext, options: { early: boolean }): Promise<RunOutcome | null> {
+  const { projectDir, store, config } = context
+  syncSprint(store)
+  const blocker = sprintBlocker(store, config, { early: options.early, insideRun: true })
+  if (blocker) {
+    store.log("sprint", `no sprint started: ${blocker}`)
+    return null
+  }
+  const spent = store.projectCost().usd
+  const needed = Math.ceil((spent + config.sprints.budgetUsd) * 100) / 100
+  if (config.budget.runUsd < needed) {
+    config.budget.runUsd = raiseRunBudget(projectDir, store, needed)
+  }
+  const sprint = store.startSprint(spent)
+  store.log("sprint", `sprint ${sprint.number} started (at most $${config.sprints.budgetUsd.toFixed(2)})`)
+  try {
+    const result = await planSprint(context, sprint.number)
+    if (result.kind !== "planned") {
+      store.finishSprint(sprint.number, "failed", `${result.kind === "infrastructure" ? "runner problem" : "no usable plan"}: ${result.reason.slice(0, 500)}`)
+      store.log("sprint", `sprint ${sprint.number} failed: ${result.reason.slice(0, 300)}`)
+      return "completed"
+    }
+    const { plan, evaluation } = result
+    store.updateSprint(sprint.number, { goal: plan.goal, score: evaluation?.score ?? null })
+    for (const entry of plan.dismiss) {
+      store.setFindingStatus(entry.id, "dismissed")
+      store.log("sprint", `sprint ${sprint.number}: dismissed backlog item ${entry.id}: ${entry.reason.slice(0, 200)}`)
+    }
+    const proposed = plan.proposals.map((proposal) => store.addFinding({ source: "product", ...proposal }).id)
+    const picked = [...plan.items, ...proposed].map((id) => store.finding(id)!).filter(Boolean)
+    if (!picked.length) {
+      store.finishSprint(sprint.number, "skipped", "the backlog has nothing worth building")
+      store.log("sprint", `sprint ${sprint.number} skipped: nothing worth building`)
+      return "completed"
+    }
+    const change = openChange(projectDir, store, sprintRequest(sprint.number, plan, picked), { insideRun: true })
+    for (const item of picked) store.setFindingStatus(item.id, "approved", change.id)
+    store.updateSprint(sprint.number, { status: "building", changeId: change.id })
+    store.log("sprint", `sprint ${sprint.number}: building ${picked.length} items as change ${change.id}: ${plan.goal}`)
+    return null
+  } catch (error) {
+    store.finishSprint(sprint.number, "failed", (error as Error).message.slice(0, 500))
+    store.log("sprint", `sprint ${sprint.number} failed: ${(error as Error).message.slice(0, 300)}`)
+    return "completed"
+  }
 }
 
-async function evaluate(context: PipelineContext, cycle: number): Promise<EvaluateResult> {
+export type SprintPlanResult =
+  | { kind: "planned"; plan: SprintPlan; evaluation: Evaluation | null }
+  | { kind: "invalid"; reason: string }
+  | { kind: "infrastructure"; reason: string }
+
+// The evaluator scores the live app and its gaps join the backlog; then the PM picks what the sprint builds.
+// A failed evaluation does not stop the sprint: the PM plans from the backlog alone.
+export async function planSprint(context: PipelineContext, sprint: number): Promise<SprintPlanResult> {
+  const { store } = context
+  store.log("sprint", `sprint ${sprint}: evaluating the live app against the brief`)
+  const evaluated = await evaluate(context, sprint)
+  if (evaluated.kind === "infrastructure") return evaluated
+  const evaluation = evaluated.kind === "evaluated" ? evaluated.evaluation : null
+  if (evaluated.kind === "invalid") {
+    store.log("sprint", `sprint ${sprint}: no usable evaluation (${evaluated.reason.slice(0, 300)}); planning from the backlog alone`)
+  } else if (evaluation) {
+    const added = evaluation.gaps.map((gap) => store.addFinding(gapFinding(gap, evaluation))).filter((result) => result.created).length
+    store.log("sprint", `sprint ${sprint}: score ${evaluation.score}/100, ${evaluation.gaps.length} gaps (${added} new in the backlog). ${evaluation.summary.slice(0, 400)}`)
+  }
+  return pickSprintItems(context, sprint, evaluation)
+}
+
+type EvaluateResult = { kind: "evaluated"; evaluation: Evaluation } | { kind: "invalid"; reason: string } | { kind: "infrastructure"; reason: string }
+
+async function evaluate(context: PipelineContext, sprint: number): Promise<EvaluateResult> {
   const { projectDir, store } = context
-  const name = `evaluate-${cycle}`
+  const name = `evaluate-${sprint}`
   const workspace = createWorkspace(projectDir, name, landingBranch(context))
   const executor = await createExecutor(context, workspace.path, name)
   try {
     const screenshots = copyLatestQaRound(context, workspace.path)
-    const existing = loadTasks(join(workspace.path, "tasks.json"))
     let previousError: string | null = null
-    for (let attempt = 1; attempt <= evaluateAttempts; attempt++) {
-      const prompt = evaluatorPrompt({ context, cycle, existing, screenshots, previousError })
+    for (let attempt = 1; attempt <= agentAttempts; attempt++) {
+      const prompt = evaluatorPrompt({ context, sprint, screenshots, previousError })
       const outcome = await runAgent(context, executor, "evaluator", `${name}-${attempt}`, readTools, prompt)
       if (isInfrastructureFailure(outcome)) return { kind: "infrastructure", reason: `evaluator ${outcome.failureClass}: ${outcome.result.summary}` }
       if (outcome.result.status !== "done") {
@@ -58,12 +111,12 @@ async function evaluate(context: PipelineContext, cycle: number): Promise<Evalua
         continue
       }
       try {
-        const evaluation = parseEvaluation(outcome.result.summary, cycle, existing)
+        const evaluation = parseEvaluation(outcome.result.summary, sprint)
         writeEvaluation(projectDir, evaluation)
         return { kind: "evaluated", evaluation }
       } catch (error) {
         previousError = (error as Error).message
-        store.log("evolve", `cycle ${cycle}: evaluation rejected: ${previousError.slice(0, 300)}`)
+        store.log("sprint", `sprint ${sprint}: evaluation rejected: ${previousError.slice(0, 300)}`)
       }
     }
     return { kind: "invalid", reason: previousError ?? "no evaluation" }
@@ -76,7 +129,7 @@ async function evaluate(context: PipelineContext, cycle: number): Promise<Evalua
 }
 
 function writeEvaluation(projectDir: string, evaluation: Evaluation): void {
-  const path = join(projectDir, evaluationPath(evaluation.cycle))
+  const path = join(projectDir, evaluationPath(evaluation.sprint))
   mkdirSync(join(projectDir, ".agent-team", "evaluations"), { recursive: true })
   writeFileSync(path, `${JSON.stringify({ ...evaluation, at: new Date().toISOString() }, null, 2)}\n`)
 }
@@ -95,15 +148,19 @@ function copyLatestQaRound(context: PipelineContext, workspacePath: string): str
   return relative
 }
 
-function evaluatorPrompt(input: { context: PipelineContext; cycle: number; existing: Task[]; screenshots: string | null; previousError: string | null }): string {
-  const { context, cycle } = input
+function userRequests(context: PipelineContext): string[] {
+  const messages = context.store.chatMessages(maxChatMessages, "all").filter((message) => message.author === "human")
+  return messages.map((message) => `- ${message.at}: ${message.body.replace(/\s+/g, " ").slice(0, 400)}`)
+}
+
+function evaluatorPrompt(input: { context: PipelineContext; sprint: number; screenshots: string | null; previousError: string | null }): string {
+  const { context, sprint } = input
   const { store } = context
   const liveUrl = store.meta("deploy.url")
-  const previous = cycle > 1 ? readPreviousEvaluation(context.projectDir, cycle - 1) : null
-  const userMessages = store.chatMessages(maxChatMessages, "all").filter((message) => message.author === "human")
-  const findings = store.listFindings({ status: "open" })
+  const previous = readPreviousEvaluation(context.projectDir, sprint)
+  const requests = userRequests(context)
   const lines = [
-    `Evolve cycle ${cycle}. Target score: ${context.config.evolve.targetScore}/100. Project target: ${context.config.target}.`,
+    `Sprint ${sprint}. Project target: ${context.config.target}.`,
     "",
     "## Sources",
     "",
@@ -112,42 +169,93 @@ function evaluatorPrompt(input: { context: PipelineContext; cycle: number; exist
     input.screenshots ? `- Screenshots of every route from the last QA round: \`${input.screenshots}/\` (report.json lists them). Open them.` : "- No QA screenshots are available.",
   ]
   if (previous) {
-    lines.push("", `## Previous evaluation (cycle ${previous.cycle}, score ${previous.score})`, "", previous.summary, "", ...previous.gaps.map((gap) => `- [${gap.severity}] ${gap.title}`))
-    lines.push("", "Check whether each previous gap is closed. A gap that is still open after its task was built is a sign the task was too vague: write a sharper one.")
+    lines.push("", `## Previous evaluation (sprint ${previous.sprint}, score ${previous.score})`, "", previous.summary, "", ...previous.gaps.map((gap) => `- [${gap.severity}] ${gap.title}`))
+    lines.push("", "Check whether each previous gap is closed. Repeat a gap that is still open with the same title, and say in the detail what is still wrong.")
   }
-  if (userMessages.length) {
-    lines.push("", "## What the user asked for in the project chat", "", ...userMessages.map((message) => `- ${message.at}: ${message.body.replace(/\s+/g, " ").slice(0, 400)}`))
-  }
-  if (findings.length) {
-    lines.push("", "## Open findings from the live app (monitoring, analytics, research)", "", ...findings.map((finding) => `- [${finding.severity}] ${finding.title}: ${finding.proposal.slice(0, 300)}`))
-  }
-  lines.push("", "## Tasks", "", `Existing task ids (all merged): ${input.existing.map((task) => task.id).join(", ")}.`, `Name new tasks E${cycle}01, E${cycle}02, and so on.`)
+  if (requests.length) lines.push("", "## What the user asked for in the project chat", "", ...requests)
   if (input.previousError) lines.push("", `Your previous answer was rejected. Fix this: ${input.previousError}`)
   return lines.join("\n")
 }
 
-function readPreviousEvaluation(projectDir: string, cycle: number): Evaluation | null {
+// The newest evaluation before this sprint; evaluations from the evolve loop (cycle-<n>.json) count too.
+function readPreviousEvaluation(projectDir: string, sprint: number): { sprint: number; score: number; summary: string; gaps: EvaluationGap[] } | null {
+  const dir = join(projectDir, ".agent-team", "evaluations")
+  if (!existsSync(dir)) return null
+  const current = basename(evaluationPath(sprint))
+  const files = readdirSync(dir)
+    .filter((file) => file.endsWith(".json") && file !== current)
+    .map((file) => join(dir, file))
+    .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)
+  for (const file of files) {
+    try {
+      const parsed = JSON.parse(readFileSync(file, "utf8"))
+      return { sprint: parsed.sprint ?? parsed.cycle ?? 0, score: parsed.score, summary: String(parsed.summary ?? ""), gaps: Array.isArray(parsed.gaps) ? parsed.gaps : [] }
+    } catch {}
+  }
+  return null
+}
+
+async function pickSprintItems(context: PipelineContext, sprint: number, evaluation: Evaluation | null): Promise<SprintPlanResult> {
+  const { projectDir, store, config } = context
+  const name = `sprint-plan-${sprint}`
+  const workspace = createWorkspace(projectDir, name, landingBranch(context))
+  const executor = await createExecutor(context, workspace.path, name)
   try {
-    return JSON.parse(readFileSync(join(projectDir, evaluationPath(cycle)), "utf8"))
-  } catch {
-    return null
+    let previousError: string | null = null
+    for (let attempt = 1; attempt <= agentAttempts; attempt++) {
+      const backlog = store.listFindings({ status: "open" })
+      const prompt = sprintPlannerPrompt({ context, sprint, backlog, evaluation, previousError })
+      const outcome = await runAgent(context, executor, "pm", `${name}-${attempt}`, readTools, prompt, { promptName: "sprint-planner" })
+      if (isInfrastructureFailure(outcome)) return { kind: "infrastructure", reason: `pm ${outcome.failureClass}: ${outcome.result.summary}` }
+      if (outcome.result.status !== "done") {
+        previousError = `agent ${outcome.result.status}: ${outcome.result.summary}`
+        continue
+      }
+      try {
+        return { kind: "planned", plan: parseSprintPlan(outcome.result.summary, backlog, config.sprints), evaluation }
+      } catch (error) {
+        previousError = (error as Error).message
+        store.log("sprint", `sprint ${sprint}: plan rejected: ${previousError.slice(0, 300)}`)
+      }
+    }
+    return { kind: "invalid", reason: previousError ?? "no plan" }
+  } catch (error) {
+    return { kind: "infrastructure", reason: (error as Error).message }
+  } finally {
+    await executor.dispose()
+    removeWorkspace(projectDir, workspace)
   }
 }
 
-async function addEvolveTasks(context: PipelineContext, cycle: number, tasks: Task[]): Promise<void> {
-  const { projectDir, store } = context
-  const workspace = createWorkspace(projectDir, `evolve-tasks-${cycle}`, landingBranch(context))
-  try {
-    const current = JSON.parse(readFileSync(join(workspace.path, "tasks.json"), "utf8")) as Task[]
-    const added = tasks.filter((task) => !current.some((existing) => existing.id === task.id))
-    const body = [`Evolve cycle ${cycle}: the evaluator scored the app under the target and added these tasks:`, "", ...added.map((task) => `- ${task.id}: ${task.title}`)].join("\n")
-    landTasksFile(context, workspace, [...current, ...added], `chore(evolve): add cycle ${cycle} tasks`, body)
-  } finally {
-    removeWorkspace(projectDir, workspace)
+function sprintPlannerPrompt(input: { context: PipelineContext; sprint: number; backlog: Finding[]; evaluation: Evaluation | null; previousError: string | null }): string {
+  const { context, sprint, backlog, evaluation } = input
+  const { sprints } = context.config
+  const done = context.store.sprints(6).filter((entry) => entry.number !== sprint && entry.goal)
+  const requests = userRequests(context)
+  const lines = [
+    `Sprint ${sprint}. Pick at most ${sprints.maxItems} items and proposals together.`,
+    sprints.newFeatures ? "You may propose new features the brief does not ask for." : "Do not propose new features: `proposals` must be empty.",
+    "",
+    "## Sources",
+    "",
+    "- The brief: `input.md`. The spec: `docs/spec.md`. The finished changes: `docs/changes/*/request.md`.",
+    `- The live app: ${context.store.meta("deploy.url") ?? "not deployed"}.`,
+  ]
+  if (evaluation) {
+    lines.push("", `## This sprint's evaluation: ${evaluation.score}/100`, "", evaluation.summary, "", ...evaluationDimensions.map((dimension) => `- ${dimension}: ${evaluation.dimensions[dimension].score}. ${evaluation.dimensions[dimension].notes}`))
   }
-  // QA and deploy run again for the new tasks; a resumed run picks up from here.
-  store.setPhase("qa", "pending")
-  store.setPhase("deploy", "pending")
+  if (done.length) lines.push("", "## Earlier sprints (newest first)", "", ...done.map((entry) => `- Sprint ${entry.number} (${entry.status}${entry.score === null ? "" : `, score ${entry.score}`}): ${entry.goal}`))
+  if (requests.length) lines.push("", "## What the user asked for in the project chat", "", ...requests)
+  lines.push("", "## Open backlog", "")
+  if (backlog.length) {
+    for (const item of backlog) {
+      lines.push(`### #${item.id} [${item.source}, ${item.severity}] ${item.title}`, "", `Evidence: ${item.evidence.slice(0, 600)}`, "", `Proposal: ${item.proposal.slice(0, 600)}`, "")
+    }
+  } else {
+    lines.push("(empty)")
+  }
+  if (input.previousError) lines.push("", `Your previous answer was rejected. Fix this: ${input.previousError}`)
+  return lines.join("\n")
 }
 
 // Turns the run's new signals into lessons shared by every project in the runs folder. Never throws:
