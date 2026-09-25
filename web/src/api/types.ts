@@ -565,3 +565,8 @@ export interface ImportProjectRequest {
   deploy: boolean
   roles: Record<string, RoleCandidate>
 }
+
+export interface GitIdentity {
+  name: string
+  email: string
+}

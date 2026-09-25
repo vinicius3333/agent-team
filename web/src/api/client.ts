@@ -1,4 +1,4 @@
-import type { Defaults, Finding, FindingStatus, InsightAgent, OperateSnapshot, LeadActionState, LeadSettings, NotificationStatus, NotificationTestResult, RoleCandidate, Incident, IncidentDetail, ImportProjectRequest, ConceptsView, NewProjectRequest, ProjectDetail, ProjectSummary, QaRound, StackTemplate } from "@/api/types"
+import type { Defaults, GitIdentity, Finding, FindingStatus, InsightAgent, OperateSnapshot, LeadActionState, LeadSettings, NotificationStatus, NotificationTestResult, RoleCandidate, Incident, IncidentDetail, ImportProjectRequest, ConceptsView, NewProjectRequest, ProjectDetail, ProjectSummary, QaRound, StackTemplate } from "@/api/types"
 
 export class ApiError extends Error {
   status: number
@@ -64,6 +64,8 @@ export const api = {
   session: () => getJson<AuthSession>("/api/auth/session"),
   login: (password: string) => post<void>("/api/auth/login", { password }),
   logout: () => post<void>("/api/auth/logout", {}),
+  gitIdentity: () => getJson<GitIdentity | null>("/api/git-identity"),
+  saveGitIdentity: (identity: GitIdentity) => post<GitIdentity>("/api/git-identity", identity),
 
   defaults: () => getJson<Defaults>("/api/defaults"),
   templates: () => getJson<StackTemplate[]>("/api/templates"),

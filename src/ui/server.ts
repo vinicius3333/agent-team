@@ -20,6 +20,7 @@ import { importCleanupKey, importDoneKey } from "../project.ts"
 import { changeIdPattern } from "../tasks.ts"
 import { listIncidents, openIncident, readIncident } from "../incidents.ts"
 import { askLead, chatMessageMaxLength, chatUploadsDir } from "../lead.ts"
+import { applyGitIdentity, parseGitIdentity, readGitIdentity, saveGitIdentity } from "../git-identity.ts"
 import { applyLeadAction, parseLeadSettings, saveLeadSettings } from "../lead-actions.ts"
 import { trackedFiles } from "../git.ts"
 import { insightAgents, type InsightAgent } from "../config.ts"
@@ -852,6 +853,7 @@ function overHttps(request: IncomingMessage, auth: AuthConfig): boolean {
 
 export function startUi(options: UiOptions) {
   const runsDir = resolve(options.runsDir)
+  applyGitIdentity(readGitIdentity(runsDir))
   const webDist = options.webDir ? resolve(options.webDir) + sep : builtWebDir
   const knownProject = (name: string) => projectNamePattern.test(name) && existsSync(join(runsDir, name, "pipeline.yaml"))
   const launchRun = options.startRun ?? spawnRun
@@ -964,6 +966,16 @@ export function startUi(options: UiOptions) {
         return response.end()
       }
       return send(response, 404, { error: "not found" })
+    }
+    if (parts[0] === "api" && parts[1] === "git-identity" && parts.length === 2) {
+      let identity
+      try {
+        identity = parseGitIdentity(body)
+      } catch (error) {
+        return send(response, 400, { error: (error as Error).message })
+      }
+      saveGitIdentity(runsDir, identity)
+      return send(response, 200, identity)
     }
     if (parts[0] === "api" && parts[1] === "notifications" && parts[2] === "test" && parts.length === 3) {
       const { channel } = body
@@ -1140,6 +1152,7 @@ export function startUi(options: UiOptions) {
       if (parts[0] !== "api") return serveStatic(response, webDist, url.pathname)
 
       if (parts[0] === "api" && parts[1] === "defaults" && parts.length === 2) return send(response, 200, { roles: defaultRoles() })
+      if (parts[0] === "api" && parts[1] === "git-identity" && parts.length === 2) return send(response, 200, readGitIdentity(runsDir))
       if (parts[0] === "api" && parts[1] === "notifications" && parts.length === 2) return send(response, 200, notificationStatus(runsDir, options.notifyDeps?.env))
       if (parts[0] === "api" && parts[1] === "templates" && parts.length === 2) return send(response, 200, templateSummaries())
       if (parts[0] === "api" && parts[1] === "incidents" && parts.length === 2) return send(response, 200, allIncidents(runsDir))

@@ -4,6 +4,7 @@ import { createInterface } from "node:readline/promises"
 import { join, resolve } from "node:path"
 import { parseArgs } from "node:util"
 import { insightAgents, loadConfig, planningPhases, type InsightAgent } from "./config.ts"
+import { applyGitIdentity, readGitIdentity } from "./git-identity.ts"
 import { runInsightAgent } from "./operate/agents.ts"
 import type { Finding } from "./store.ts"
 import { runDoctor } from "./doctor.ts"
@@ -194,6 +195,7 @@ async function doctor(runsDir: string, once: boolean): Promise<void> {
   const stop = () => controller.abort()
   process.on("SIGINT", stop)
   process.on("SIGTERM", stop)
+  applyGitIdentity(readGitIdentity(runsDir))
   console.log(`[doctor] watching ${runsDir}${once ? " (one check)" : ""}`)
   await runDoctor({ runsDir, once, signal: controller.signal })
 }
