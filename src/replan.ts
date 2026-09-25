@@ -1,4 +1,4 @@
-import { matchesGlob } from "node:path"
+import { matchesPath } from "./glob.ts"
 import { extractJsonObject } from "./json.ts"
 import { orderTasks, validateTasks, type Task } from "./tasks.ts"
 
@@ -46,10 +46,13 @@ export const sharedFoundationPatterns = [
 const protectedPrefixes = ["docs/", "contracts/", "design/", "AGENTS.md", "CLAUDE.md"]
 
 // Accepts `BLOCKED: {"kind":...}` and the older free-text `BLOCKED: reason` (read as kind "spec").
+// The line may come after other text: workers often explain first, and a missed block wasted a doctor call.
 export function parseBlock(summary: string): Block | null {
-  const text = summary.trimStart()
-  if (!text.startsWith(blockedPrefix)) return null
-  const rest = text.slice(blockedPrefix.length).trim()
+  const start = summary.search(new RegExp(`^[ \\t>*_]*${blockedPrefix}`, "m"))
+  if (start === -1) return null
+  const text = summary.slice(start).replace(/^[ \t>*_]*/, "")
+  // Workers sometimes name the kind before the JSON ("BLOCKED: spec: {...}"); the JSON's own kind wins.
+  const rest = text.slice(blockedPrefix.length).replace(/^[*_]+/, "").trim().replace(/^(?:scope|dependency|spec)\s*:\s*(?=\{)/i, "")
   if (rest.startsWith("{") || rest.includes("```json")) {
     try {
       const parsed = extractJsonObject(rest) as any
@@ -63,6 +66,44 @@ export function parseBlock(summary: string): Block | null {
     } catch {}
   }
   return { kind: "spec", needPaths: [], reason: rest || "no reason given" }
+}
+
+// The files a human-decision reason asks for: the "(needs a, b)" that formatBlock writes, or the needPaths of a
+// BLOCKED line quoted in the reason. The dashboard offers them as a one-click scope change.
+// The strings of the first "needPaths": [...] array, read with a small scanner so "]" inside a quoted path
+// (src/app/[id]/route.ts) does not end the array.
+function quotedNeedPaths(text: string): string[] {
+  const start = /"needPaths"\s*:\s*\[/.exec(text)
+  if (!start) return []
+  const paths: string[] = []
+  let index = start.index + start[0].length
+  while (index < text.length) {
+    const character = text[index]
+    if (character === "]") break
+    if (character !== '"') {
+      index += 1
+      continue
+    }
+    let value = ""
+    index += 1
+    while (index < text.length && text[index] !== '"') {
+      if (text[index] === "\\" && index + 1 < text.length) index += 1
+      value += text[index]
+      index += 1
+    }
+    paths.push(value)
+    index += 1
+  }
+  return paths
+}
+
+export function suggestedPaths(reason: string): string[] {
+  const listed = /\(needs ([^)]+)\)/.exec(reason)?.[1]
+  // needPaths is read straight from the text: a worker summary can hold a ```json commit plan that a JSON
+  // extractor would pick instead of the BLOCKED object.
+  const quoted = quotedNeedPaths(reason)
+  const paths = listed ? listed.split(",").map((path) => path.trim()) : quoted.length ? quoted : (parseBlock(reason)?.needPaths ?? [])
+  return [...new Set(paths.map((path) => path.replace(/\\([[\]])/g, "$1")).filter(Boolean))]
 }
 
 export function formatBlock(block: Block): string {
@@ -163,7 +204,7 @@ export function scopeConflict(paths: string[], tasks: Task[], exceptIds: string[
 }
 
 function globsOverlap(first: string, second: string): boolean {
-  return first === second || matchesGlob(first, second) || matchesGlob(second, first)
+  return first === second || matchesPath(first, second) || matchesPath(second, first)
 }
 
 function isStringList(value: unknown): value is string[] {

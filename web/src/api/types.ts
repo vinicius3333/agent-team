@@ -1,7 +1,8 @@
-export const planningPhases = ["spec", "architecture", "branding", "design", "marketing", "plan"] as const
+export const planningPhases = ["spec", "architecture", "concepts", "branding", "design", "marketing", "plan"] as const
 export type PlanningPhase = (typeof planningPhases)[number]
 
-export const pipelineSteps = [...planningPhases, "build", "qa", "deploy"] as const
+// research and baseline run only while a project is imported.
+export const pipelineSteps = ["research", ...planningPhases, "baseline", "build", "qa", "deploy"] as const
 export type PipelineStep = (typeof pipelineSteps)[number]
 
 export type MarketingFormat = "og" | "square" | "story" | "x"
@@ -69,6 +70,8 @@ export interface Task {
   needsHuman: string | null
   // The budget in USD the worker ran out of; the task waits until a person approves more.
   budgetStopUsd: number | null
+  // Files the blocked task asked for; approving adds them to its scope and retries it.
+  suggestedPaths?: string[]
   issueNumber: number | null
   phase: string | null
   story: string | null
@@ -146,6 +149,8 @@ export interface RoleConfig extends RoleCandidate {
 export interface ProjectConfig {
   target: Target
   gates: PlanningPhase[]
+  // Absent on servers from before the switch.
+  autoApproveScope?: boolean
   roles: Record<string, RoleConfig>
   branding: { enabled?: boolean; count?: number } | null
   qa: { enabled: boolean; maxRounds: number }
@@ -226,6 +231,14 @@ export interface DeployInfo {
   tunnelContainer: string
   app: string
   tunnel: string
+}
+
+export interface ChatSession {
+  id: number
+  title: string
+  startedAt: string
+  updatedAt: string
+  messages: number
 }
 
 export type LeadActionState = "proposed" | "applied" | "dismissed"
@@ -314,11 +327,13 @@ export interface ProjectDetail extends Omit<ProjectSummary, "live" | "liveUrl"> 
   budget?: RunBudget
   reviewer?: ReviewerMetrics
   spend?: SpendBreakdown
-  chat?: { messages: ChatMessage[]; thinking: boolean; activity?: LiveActivity[] }
+  chat?: { messages: ChatMessage[]; thinking: boolean; activity?: LiveActivity[]; session?: number; sessions?: ChatSession[] }
   // Absent on servers from before change requests. Newest first.
   changes?: ChangeSummary[]
   change?: OpenChange | null
   canRequestChange?: boolean
+  // Set for a project imported from an existing repository.
+  import?: ImportInfo | null
 }
 
 export interface QaFinding {
@@ -341,8 +356,21 @@ export interface QaRound {
   round: number
   tests: { install: string | null; command: string | null; passed: boolean; output: string } | null
   report: { baseUrl: string | null; viewport: { width: number; height: number }; startError: string | null; routes: QaRouteReport[] } | null
-  verdict: { verdict: "pass" | "fail" | "invalid"; reason?: string | null; findings: QaFinding[]; tasks: { id: string; title: string }[] } | null
+  // preexisting: failures the import baseline already had, which did not fail the round.
+  verdict: { verdict: "pass" | "fail" | "invalid"; reason?: string | null; findings: QaFinding[]; tasks: { id: string; title: string }[]; preexisting?: string[] } | null
   images: string[]
+}
+
+export interface Concept {
+  id: string
+  style: string
+  images: string[]
+}
+
+export interface ConceptsView {
+  concepts: Concept[]
+  readme: string
+  choice: string | null
 }
 
 export interface NewProjectRequest {
@@ -354,6 +382,9 @@ export interface NewProjectRequest {
   github: boolean
   deploy: boolean
   branding: boolean
+  resolveAllQa?: boolean
+  evolve?: boolean
+  autoApproveScope?: boolean
   // Left out for the custom stack.
   template?: string
 }
@@ -512,4 +543,43 @@ export interface OperateSnapshot {
   topEvents: { event: string; count: number }[]
   runs: Record<InsightAgent, InsightRun | null>
   config: { posthog: boolean; competitors: string[]; schedule: Record<InsightAgent, number> }
+}
+
+export type ImportGitHubMode = "source" | "new" | "none"
+
+export interface ImportBaseline {
+  commit: string
+  createdAt: string
+  tests: { command: string | null; passed: boolean; failing: string[]; summary: string }
+  app: { started: boolean; error: string | null }
+  routes: { route: string; status: number | null; error: string | null }[]
+  failures: { key: string; message: string }[]
+}
+
+export interface ImportInfo {
+  source: string
+  urls: string[]
+  github: ImportGitHubMode
+  done: boolean
+  baseline: ImportBaseline | null
+  // The suggested cleanup change, until it is started or dismissed.
+  cleanup: string | null
+}
+
+export const importGates = ["spec", "architecture", "design"] as const satisfies readonly PlanningPhase[]
+
+export interface ImportProjectRequest {
+  name: string
+  source: string
+  urls: string[]
+  github: ImportGitHubMode
+  target: Target
+  gates: (typeof importGates)[number][]
+  deploy: boolean
+  roles: Record<string, RoleCandidate>
+}
+
+export interface GitIdentity {
+  name: string
+  email: string
 }

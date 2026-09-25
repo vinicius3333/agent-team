@@ -5,9 +5,10 @@ import { Input } from "@/components/ui/input"
 
 export type RoleModels = Record<string, RoleCandidate>
 
-export const editableRoles = ["pm", "architect", "illustrator", "designer", "planner", "worker", "reviewer", "design-reviewer", "qa", "lead"] as const
+export const editableRoles = ["importer", "pm", "architect", "illustrator", "designer", "planner", "worker", "reviewer", "design-reviewer", "qa", "evaluator", "curator", "lead"] as const
 
 const roleLabels: Record<string, string> = {
+  importer: "Importer",
   pm: "PM",
   architect: "Architect",
   illustrator: "Illustrator",
@@ -17,13 +18,15 @@ const roleLabels: Record<string, string> = {
   reviewer: "Reviewer",
   "design-reviewer": "Design reviewer",
   qa: "QA",
+  evaluator: "Evaluator",
+  curator: "Learning curator",
   lead: "Project lead",
 }
 
 const runners: RunnerName[] = ["claude", "codex"]
 
 export const modelOptions: Record<RunnerName, string[]> = {
-  claude: ["opus", "sonnet", "haiku"],
+  claude: ["claude-opus-5-5", "opus", "sonnet", "haiku"],
   codex: ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.5"],
 }
 

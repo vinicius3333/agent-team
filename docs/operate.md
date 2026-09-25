@@ -53,7 +53,7 @@ operate:
     - https://example.com
 ```
 
-Each agent has its own role in `roles` (`monitor`, `analyst`, `researcher`), with Claude Sonnet as the default. Add the roles to `roles` and `defaultRoles`.
+Each agent has its own role in `roles` (`monitor`, `analyst`, `researcher`), with Claude Opus 5.5 (`claude-opus-5-5`) as the default. Add the roles to `roles` and `defaultRoles`.
 
 ### A3. Health probe
 
@@ -189,4 +189,4 @@ Choices made where the spec is silent:
 - **`docs/operate/<agent>.md`** is written to the main checkout and not committed.
 - **Templates** are now v2. The client sends events to `VITE_POSTHOG_HOST` or `https://us.i.posthog.com` (the ingestion host). `POSTHOG_HOST` is the API host that the deploy passes to the app.
 - **Planner.** Rule 16 applies only when the task prompt says the template has a `track()` helper. The planner may write `docs/analytics.md` next to `tasks.json`.
-- **Roles** `monitor`, `analyst`, and `researcher` default to Claude Sonnet. Codex has no web search tools, so the researcher needs Claude.
+- **Roles** `monitor`, `analyst`, and `researcher` default to Claude Opus 5.5 (`claude-opus-5-5`). Codex has no web search tools, so the researcher needs Claude.

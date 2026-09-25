@@ -21,8 +21,10 @@ export function toClaudeTools(allowedTools: string[], writablePaths?: string[]):
 
 // `./` anchors the rule to the working directory; a leading `/` would mean the settings file's directory.
 // Rules are globs, so literal brackets such as Next.js `[groupId]` folders must be escaped or they match nothing.
+// Claude permission rules read [id] as a character class, so brackets are escaped. Agents sometimes escape them
+// already (\[id\]); those are unescaped first so they are not escaped twice.
 function relativeRule(path: string): string {
-  const escaped = path.replace(/[[\]]/g, "\\$&")
+  const escaped = path.replace(/\\([[\]])/g, "$1").replace(/[[\]]/g, "\\$&")
   return escaped.startsWith("./") || escaped.startsWith("/") ? escaped : `./${escaped}`
 }
 

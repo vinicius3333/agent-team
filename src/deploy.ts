@@ -15,7 +15,12 @@ export type { DeployPlan }
 // which gives a random https://<words>.trycloudflare.com URL with no account, domain, or open port.
 // Quick tunnels have no uptime guarantee and get a new URL when the tunnel container restarts.
 
-const appImage = "node:22-bookworm-slim"
+// The full image has python3, make, and g++, so npm ci can build native modules (better-sqlite3, sharp, bcrypt).
+const appImage = "node:24-bookworm"
+// Next.js and Vite production builds need more than 1 GB; 512 MB killed builds in QA and looked like an app bug.
+const appMemory = "2g"
+const appCpus = "2"
+export const appLimitsText = `${appMemory} memory, ${appCpus} CPUs, image ${appImage}`
 const tunnelImage = "cloudflare/cloudflared:latest"
 export const appNetwork = "agent-team-apps"
 const startTimeoutMs = 4 * 60_000
@@ -120,7 +125,7 @@ export function startAppContainer(options: { name: string; dir: string; plan: De
     "--label", options.label,
     "--network", appNetwork,
     ...(options.restart ? ["--restart", "unless-stopped"] : []),
-    "--memory", "512m", "--cpus", "1", "--pids-limit", "256",
+    "--memory", appMemory, "--cpus", appCpus, "--pids-limit", "256",
     "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
     "--user", "1000:1000",
     // NODE_ENV=production makes npm skip devDependencies, but the install step usually builds with them (tsc, vite).
@@ -176,6 +181,11 @@ export function posthogEnv(config: PipelineConfig): Record<string, string> {
   return { POSTHOG_KEY: posthog.publicKey, VITE_POSTHOG_KEY: posthog.publicKey, POSTHOG_HOST: posthog.host }
 }
 
+// Frameworks read different names for the public base URL; set the common ones.
+export function publicUrlEnv(url: string): Record<string, string> {
+  return { APP_URL: url, PUBLIC_URL: url, BASE_URL: url, NEXT_PUBLIC_APP_URL: url, NEXTAUTH_URL: url, ORIGIN: url }
+}
+
 export async function deployProject(projectDir: string, store: Store): Promise<DeployResult> {
   const { app, tunnel } = names(projectDir)
   let stage: "app" | "tunnel" = "app"
@@ -190,8 +200,7 @@ export async function deployProject(projectDir: string, store: Store): Promise<D
     store.log("deploy", `starting app: ${plan.install ? `${plan.install} && ` : ""}${plan.start} (port ${plan.port})`)
     ensureNetwork()
     removeContainers(app, tunnel)
-    startAppContainer({ name: app, dir, plan, label: "agent-team-app=1", restart: true, env: { ...demoAccessEnv(ensureDemoAccess(store)), ...posthogEnv(loadConfig(join(projectDir, "pipeline.yaml"))) } })
-    await waitForApp(app, plan.port)
+    // The tunnel starts first: its URL becomes APP_URL, so links the app builds (invites, payment returns) are public, not localhost.
     stage = "tunnel"
     run("docker", [
       "run", "-d",
@@ -203,6 +212,10 @@ export async function deployProject(projectDir: string, store: Store): Promise<D
       tunnelImage, "tunnel", "--no-autoupdate", "--url", `http://${app}:${plan.port}`,
     ])
     const url = await waitForTunnelUrl(projectDir)
+    stage = "app"
+    startAppContainer({ name: app, dir, plan, label: "agent-team-app=1", restart: true, env: { ...publicUrlEnv(url), ...demoAccessEnv(ensureDemoAccess(store)), ...posthogEnv(loadConfig(join(projectDir, "pipeline.yaml"))) } })
+    await waitForApp(app, plan.port)
+    stage = "tunnel"
     await waitForPublicUrl(url)
     store.setMeta("deploy.url", url)
     store.log("deploy", `live at ${url}`)

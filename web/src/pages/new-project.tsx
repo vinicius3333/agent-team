@@ -1,5 +1,5 @@
 import { useMemo, useState, type FormEvent } from "react"
-import { useNavigate } from "react-router"
+import { Link, useNavigate } from "react-router"
 import { Atom, Boxes, ChevronDown, Cloud, Code2, Globe, Image, Layers, ListTodo, Megaphone, Loader2, Package, Palette, Play, Server, ShieldCheck, User, Users, Zap } from "lucide-react"
 import { toast } from "sonner"
 import { ApiError, api } from "@/api/client"
@@ -55,6 +55,7 @@ const targets: {
 const gateHints: Record<PlanningPhase, string> = {
   spec: "Review the product spec before the architecture.",
   architecture: "Review the technical plan before design.",
+  concepts: "Choose one of 3 logo and style directions. The branding follows your pick.",
   branding: "Review the logo and screen images before design.",
   design: "Review the UI design before the build.",
   marketing: "Review the launch images and copy before the plan.",
@@ -221,10 +222,13 @@ export function NewProjectPage() {
   const [target, setTarget] = useState<Target>("web")
   const [roleEdits, setRoleEdits] = useState<RoleModels>({})
   const [customizing, setCustomizing] = useState(false)
-  const [gates, setGates] = useState<PlanningPhase[]>(["spec", "design"])
+  const [gates, setGates] = useState<PlanningPhase[]>(["spec", "concepts", "design"])
   const [github, setGithub] = useState(false)
   const [deploy, setDeploy] = useState(true)
   const [branding, setBranding] = useState(true)
+  const [resolveAllQa, setResolveAllQa] = useState(false)
+  const [evolve, setEvolve] = useState(true)
+  const [autoApproveScope, setAutoApproveScope] = useState(true)
   const [errors, setErrors] = useState<FormErrors>({})
   const [touched, setTouched] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -258,7 +262,7 @@ export function NewProjectPage() {
     }
     setSubmitting(true)
     try {
-      const orderedGates = planningPhases.filter((phase) => gates.includes(phase) && (branding || phase !== "branding"))
+      const orderedGates = planningPhases.filter((phase) => gates.includes(phase) && (branding || (phase !== "branding" && phase !== "concepts")))
       const created = await api.createProject({
         name,
         brief,
@@ -268,6 +272,9 @@ export function NewProjectPage() {
         github,
         deploy,
         branding,
+        resolveAllQa,
+        evolve,
+        autoApproveScope,
         ...(template === customStack ? {} : { template }),
       })
       toast.success(`Started ${created.name}`)
@@ -285,7 +292,15 @@ export function NewProjectPage() {
 
   return (
     <>
-      <PageHeader title="New project" description="Describe your idea. Your team will build it." />
+      <PageHeader
+        title="New project"
+        description="Describe your idea. Your team will build it."
+        actions={
+          <Button asChild variant="outline">
+            <Link to="/import">Import an existing app</Link>
+          </Button>
+        }
+      />
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <Card>
           <CardContent>
@@ -369,7 +384,7 @@ export function NewProjectPage() {
                 <p className="mb-3 text-xs text-muted-foreground">The build pauses after each checked step until you approve it.</p>
                 <div className="grid gap-3 sm:grid-cols-2">
                   {planningPhases.map((phase) => {
-                    const disabled = phase === "branding" && !branding
+                    const disabled = (phase === "branding" || phase === "concepts") && !branding
                     return (
                       <div key={phase} className={cn("flex items-start gap-3", disabled && "opacity-50")}>
                         <Checkbox
@@ -414,6 +429,27 @@ export function NewProjectPage() {
                     hint: "The illustrator draws a logo and desktop screens before the design step.",
                     checked: branding,
                     set: setBranding,
+                  },
+                  {
+                    id: "option-resolve-all",
+                    label: "Resolve every QA finding",
+                    hint: "QA passes only when it has no findings left. Minor ones get fix tasks too.",
+                    checked: resolveAllQa,
+                    set: setResolveAllQa,
+                  },
+                  {
+                    id: "option-evolve",
+                    label: "Keep improving",
+                    hint: "After deploy, an evaluator scores the app against the brief and builds what is missing, until it reaches the target score or the budget.",
+                    checked: evolve,
+                    set: setEvolve,
+                  },
+                  {
+                    id: "option-auto-approve-scope",
+                    label: "Approve scope requests automatically",
+                    hint: "When a task needs files outside its scope, it gets them and the build keeps going. After two such approvals on one task, it asks you.",
+                    checked: autoApproveScope,
+                    set: setAutoApproveScope,
                   },
                 ].map((option) => (
                   <div key={option.id} className="flex items-start gap-3">

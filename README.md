@@ -66,7 +66,7 @@ Most work happens in the dashboard. You type the brief in a form, and the agents
 | Situation | What you see | What to do |
 | --- | --- | --- |
 | A phase waits at a gate | An approval panel with the phase output (docs, branding images, task list) | **Approve** to continue, or write notes and click **Request changes**. The agent redoes the phase with your notes. |
-| A task needs a decision | A banner with the reason, for example a scope change that touches shared files | Edit `tasks.json` if needed, then **Retry**. |
+| A task needs a decision | A card with the reason and, for a scope request, the files the worker asked for | **Approve and retry** adds the files to the task (it waits for any unfinished task that owns one). **Reject** drops the task. With `autonomy.autoApproveScope: true` (Config tab, **Decisions**), scope requests are approved without stopping, at most twice per task. |
 | The run stopped or paused | A banner with the reason and the key error lines | Fix the cause, then **Resume run**. |
 | The run hit its budget | A budget banner | **Raise budget and resume** adds 50% to `budget.runUsd`. |
 | QA failed | The QA tab: findings, test output, and each screenshot next to its branding image | Nothing. Fix tasks run on their own, up to `qa.maxRounds`. |
@@ -175,6 +175,7 @@ Templates live in `templates/<name>/`: `template.json` (the manifest), `architec
 | --- | --- | --- |
 | spec | PM | `docs/spec.md` |
 | architecture | Architect | `docs/architecture.md`, `docs/adr/*`, `contracts/openapi.yaml` |
+| concepts | Illustrator, then Design reviewer; a person (or the Design reviewer) picks one | `design/concepts/<a, b, c>/`: `logo.png`, `landing.png`, `style.md`, their prompts, and `design/concepts/README.md` |
 | branding | Illustrator, then Design reviewer | `design/branding/01-logo.png`, desktop screens `02-<screen>.png` and later, mobile screens `02-<screen>.mobile.png`, `design/branding/README.md` |
 | design | Designer, then Design reviewer | step 1: `design/tokens.css`, `design/logo.svg`, `design/logo-mark.svg`, `docs/design-system.md`; the orchestrator renders `design/favicon/`; step 2: `docs/design.md` |
 | marketing | Marketer, then Design reviewer | `marketing/copy.json`, `marketing/art/*`; the orchestrator renders `marketing/<piece>-<format>.png` and `marketing/manifest.json` |
@@ -182,6 +183,14 @@ Templates live in `templates/<name>/`: `template.json` (the manifest), `architec
 | build | Worker, then Reviewer; Design reviewer for UI tasks | code and tests, one or more atomic commits per task |
 | qa | QA | `.agent-team/qa/round-<n>/`: test output, screenshots, `report.json`, verdict; fix tasks `Q<round><n>` in `tasks.json` |
 | deploy | none | live preview URL |
+
+### Concepts, branding, and the design process
+
+The phases copy the process that designed agent-team's own dashboard: choose between real alternatives, fix the style, then draw every screen from a finished screen.
+
+1. **Concepts.** The illustrator draws `branding.variations` (default 3) distinct directions. Each has a logo, a landing page at 1440×900, and a style block: hex values per color role, a font pair, Lucide icons, and a radius. With `concepts` in `autonomy.gates` (the default), the gate shows the directions side by side. Pick one and click **Approve direction B**, or run `agent-team approve <dir> concepts --choice b`. **Request changes** redraws the directions with your notes. Without the gate, the design reviewer picks one (`prompts/concept-picker.md`) and logs why. Set `branding.variations` to 0 or 1 to skip the phase. Projects whose branding already exists skip it too.
+2. **Branding.** The illustrator starts from the chosen logo and landing, and repeats the style block in every screen prompt. Each screen is drawn with the landing attached as the style reference, with the layout in pixels, NOT rules, and every visible string written out. Each prompt is saved as `<image>.prompt.txt`, and the README ends with a `## Style` section. With `branding.dark` (default `true`), the landing is also redrawn as `02-landing.dark.png` by style transfer. The designer takes the `.dark` tokens from it.
+3. **Change requests.** When a change's architecture delta says `Design: needed`, the illustrator draws only the new screens before the designer runs. It uses the saved prompts, the Style section, and screenshots of the running app from the last QA round as the style reference. The screenshots go in `.reference/` for the agent and are removed before the commit.
 
 `branding.count` (default 4, 2 to 6) sets the number of branding images, logo included. `branding.mobile` (default `true`) adds a phone version of every desktop screen. Set `branding.enabled: false` to skip the phase. Older `pipeline.yaml` files with a `mockups:` key, and `mockups` in `autonomy.gates`, still work.
 
@@ -219,8 +228,11 @@ After every task is merged and before deploy, QA checks the build. Configure it 
 ```yaml
 qa:
   enabled: true
-  maxRounds: 3   # failed rounds before the run stops for a human
+  maxRounds: 3       # failed rounds before the run stops for a human
+  resolveAll: false  # true: QA passes only with no findings left; minor ones get fix tasks too
 ```
+
+Each finding has a severity: `blocker`, `major`, or `minor`. Without `resolveAll`, QA may pass with minor notes. With it, the orchestrator rejects a pass that still lists findings, so every finding becomes a fix task. `maxRounds` still caps the rounds.
 
 Each round:
 
@@ -232,11 +244,20 @@ On pass, deploy runs. On fail, the fix tasks are added to `tasks.json`, built by
 
 The dashboard's QA tab shows each round: verdict, findings, test output, and every screenshot next to its branding image.
 
+## Evolve and learning
+
+A deployed app keeps improving on its own, and every project makes the next one better. See [docs/evolve.md](docs/evolve.md).
+
+- **Evolve** (`evolve.enabled`). After deploy, the `evaluator` role scores the live app from 0 to 100 against the brief, the chat requests, and the Operate findings. Below `evolve.targetScore`, it writes gap tasks (`E<cycle><nn>`). They are built, QA runs, the app redeploys, and the evaluator scores again. The loop ends at the target score, when a cycle finds nothing to build, at `evolve.maxCycles` (0 = no limit), or when less than `evolve.cycleBudgetUsd` of the budget is left. In that last case the run waits for **Raise budget and resume**.
+- **Learning** (`learning.enabled`). After each run and each evolve cycle, the `curator` role reads the new rejection reasons, QA findings, evaluation gaps, and incident diagnoses. It turns them into lessons in `<runs folder>/.agent-team-lessons/lessons.json`. Every agent call gets the strongest lessons for its role in its system prompt. A lesson that comes back gains weight, an unused one fades (30-day half-life), and a harmful one is retired. Lessons tied to a stack (for example `next`) reach only projects that use it.
+- **Solution memory** (`learning.memory`). Every merged task goes into a shared search index (SQLite FTS5). Each worker gets the closest solutions from other projects, with their summary and diff.
+
 ## Live preview
 
 With `deploy.enabled: true`, the orchestrator runs the finished app from `main` in a container and exposes it through a Cloudflare quick tunnel. You get a random public URL such as `https://welding-apps-symphony-registrar.trycloudflare.com`, with no account, domain, or open port.
 
 - How to start the app: `deploy.json` from the architect (`install`, `start`, `port`), else `npm start`, else a static `index.html`.
+- The app runs in `node:24-bookworm` (it can build native modules) with 2 GB of memory and 2 CPUs. It gets its public URL in `APP_URL`, `PUBLIC_URL`, `BASE_URL`, `NEXT_PUBLIC_APP_URL`, `NEXTAUTH_URL`, and `ORIGIN`, so the links it builds are not localhost.
 - The URL goes to the logs, `status`, the dashboard, the GitHub epic, and the repository homepage.
 - `agent-team deploy <projectDir>` redeploys; `agent-team undeploy <projectDir>` stops it.
 - Quick tunnels have no uptime guarantee, and the URL changes if the tunnel container restarts. For a stable address, use a named Cloudflare tunnel with your own domain.
@@ -259,6 +280,31 @@ Only one change is open at a time. Gates work as for the first build, and the ga
 When a change needs no code, its docs merge without a build, QA, or a redeploy. When `main` moved during the change (a doctor hotfix), the run merges `main` into the change branch first; on a conflict it stops and names the files. **Abandon** in the change history puts the phases back, removes the change's tasks, and closes its GitHub issue and pull requests. The branch stays for reference.
 
 The change history lists each change with its status, branch, pull request, dates, and cost. Data migrations on a live app are out of scope.
+
+## Import an existing project
+
+agent-team can take over an app it did not build. Click **Import project** on the Projects page, or run `agent-team import <projectDir> --from <git-url|folder> [--url <url>]... [--github source|new|none]`, then `agent-team run <projectDir>`.
+
+| Field | What it does |
+| --- | --- |
+| Source | A git URL (cloned) or a local folder (cloned with its history, or copied without `node_modules` and build output). The original never changes. |
+| Extra URLs | Optional. The live site, the docs, or other pages. The importer reads each one. |
+| GitHub destination | `source`: issues and pull requests on the imported GitHub repository (needs push access and a `main` default branch; no project board). `new`: a new repository, as for a new project. `none`: local git only. |
+| Approval gates | Any of spec, architecture, design. |
+
+The import run documents the app as it is. It changes no app code.
+
+| Phase | Role | Output |
+| --- | --- | --- |
+| research | Importer (reads the code, fetches the URLs) | `docs/import/research.md` |
+| spec | PM | `docs/spec.md` |
+| architecture | Architect | `docs/architecture.md`, `AGENTS.md`, `deploy.json` |
+| design | Designer | `design/tokens.css`, `docs/design-system.md`, `docs/design.md` from the existing styles |
+| baseline | none | runs install and tests, screenshots every route into `design/branding/<route>.png`, writes `.agent-team/import/baseline.json` |
+
+Branding, marketing, plan, and build do not run. When the import ends, the project page shows **Request a change**, and all later work goes through [change requests](#change-requests).
+
+The baseline never blocks the import. QA on later changes fails a round only on a **regression**: a test that passed, a route that loaded, or an app that started at import. Failures that were already there show as **Pre-existing** on the QA tab and create no fix tasks. After a change merges with a QA pass, its result becomes the new baseline. When the baseline has failures, the project page suggests a cleanup change; it starts only when you click **Start cleanup change**.
 
 ## Operate
 

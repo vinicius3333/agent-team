@@ -9,12 +9,12 @@ import {
   House,
   ListChecks,
   ListTodo,
+  MessagesSquare,
   Megaphone,
   Palette,
   ShieldCheck,
   SlidersHorizontal,
   Swords,
-  User,
   Wallet,
   type LucideIcon,
 } from "lucide-react"
@@ -40,7 +40,7 @@ export const phaseLabels: Record<ProjectPhase, string> = {
 export const phaseViews: Record<ProjectPhase, ViewDefinition[]> = {
   build: [
     { id: "overview", label: "Overview", icon: House },
-    { id: "lead", label: "Lead", icon: User },
+    { id: "chat", label: "Chat", icon: MessagesSquare },
     { id: "office", label: "Office", icon: Building },
     { id: "docs", label: "Docs", icon: FileText },
     { id: "branding", label: "Branding", icon: Palette },
@@ -69,7 +69,8 @@ export const phaseViews: Record<ProjectPhase, ViewDefinition[]> = {
 
 export const legacyTabs: Record<string, [ProjectPhase, string]> = {
   overview: ["build", "overview"],
-  lead: ["build", "lead"],
+  lead: ["build", "chat"],
+  chat: ["build", "chat"],
   office: ["build", "office"],
   docs: ["build", "docs"],
   branding: ["build", "branding"],

@@ -11,12 +11,18 @@ import { defaultLeadConfig, defaultRoles as laterRoleDefaults, defaultRunBudgetU
 import { demoAccessMetaKey, readDemoAccess } from "../access.ts"
 import { pendingFeedback } from "../feedback.ts"
 import { customTemplate, findTemplate, listTemplates, readStack } from "../templates.ts"
+import { conceptChoiceKey, conceptIds, conceptsDir } from "../concepts.ts"
 import { abandonChange, approveChangeMerge, approvePhase, approveTaskBudget, changePath, changeRoleModels, chooseTemplate, createProject, openChange, parseRoleModels, listProjects, ProjectError, raiseRunBudget, requestChanges, retryTask, runAlive, runLogPath, startRun as spawnRun, withProjectStore, type ProjectChoices } from "../project.ts"
 import { fileAtRef } from "../git.ts"
+import { readBaseline } from "../baseline.ts"
+import { dismissCleanupChange, importProject, startCleanupChange, type ImportOptions } from "../import.ts"
+import { importCleanupKey, importDoneKey } from "../project.ts"
 import { changeIdPattern } from "../tasks.ts"
 import { listIncidents, openIncident, readIncident } from "../incidents.ts"
 import { askLead, chatMessageMaxLength, chatUploadsDir } from "../lead.ts"
-import { applyLeadAction, parseLeadSettings, saveLeadSettings } from "../lead-actions.ts"
+import { applyGitIdentity, parseGitIdentity, readGitIdentity, saveGitIdentity } from "../git-identity.ts"
+import { applyLeadAction, approveTaskSuggestion, dropTask, parseLeadSettings, saveAutoApproveScope, saveLeadSettings } from "../lead-actions.ts"
+import { suggestedPaths } from "../replan.ts"
 import { trackedFiles } from "../git.ts"
 import { insightAgents, type InsightAgent } from "../config.ts"
 import { insightRunActive, runInsightAgent } from "../operate/agents.ts"
@@ -28,7 +34,7 @@ import { liveAgentPrefix, type LiveAgent } from "../harness/harness.ts"
 import { reviewerMetrics, type ReviewRow } from "../reviews.ts"
 import { authenticate, clientAddress, createLoginLimiter, fromTrustedProxy, loadAuthConfig, passwordUser, sessionCookieName, signSession, verifyPassword, type AuthConfig } from "./auth.ts"
 import { notificationStatus, sendTest, startNotificationLoop, UnknownChannelError, type NotifyDeps } from "../notify/index.ts"
-import { taskBudgetStopKey } from "../store.ts"
+import { chatSessionMetaKey, taskBudgetStopKey } from "../store.ts"
 
 const execFileAsync = promisify(execFile)
 const builtWebDir = fileURLToPath(new URL("../../web/dist/", import.meta.url))
@@ -292,6 +298,14 @@ async function command(cwd: string, file: string, args: string[]): Promise<strin
   }
 }
 
+function readTextFile(path: string): string {
+  try {
+    return readFileSync(path, "utf8").slice(0, 20_000)
+  } catch {
+    return ""
+  }
+}
+
 function brandingDirectory(projectDir: string): string | null {
   return brandingDirectories.find((dir) => existsSync(join(projectDir, dir))) ?? null
 }
@@ -369,12 +383,14 @@ function readConfig(projectDir: string) {
       target: raw.target ?? "web",
       gates: Array.isArray(raw.autonomy?.gates) ? raw.autonomy.gates.map((gate: unknown) => normalizePhaseName(String(gate))) : [],
       changeMerge: raw.autonomy?.changeMerge === "manual" ? "manual" : "auto",
+      autoApproveScope: raw.autonomy?.autoApproveScope === true,
       roles,
       branding: raw.branding ?? raw.mockups ?? null,
       qa: { enabled: raw.qa?.enabled ?? true, maxRounds: raw.qa?.maxRounds ?? 3 },
       publish: { github: { enabled: Boolean(raw.publish?.github?.enabled) } },
       budget: { perTaskUsd: raw.budget?.perTaskUsd ?? 2, runUsd: raw.budget?.runUsd ?? defaultRunBudgetUsd },
       template: templateInfo(projectDir, raw.template),
+      import: raw.import ? { source: String(raw.import.source ?? ""), urls: Array.isArray(raw.import.urls) ? raw.import.urls.map(String) : [], github: String(raw.import.github ?? "none") } : null,
       lead: {
         actions: (raw.lead?.actions ?? defaultLeadConfig.actions) as LeadActionKind[],
         autoApply: (raw.lead?.autoApply ?? defaultLeadConfig.autoApply) as LeadActionKind[],
@@ -483,18 +499,30 @@ const emptyDetails = { attachments: [], filesRead: [], followUps: [] }
 const insightBusy = new Set<string>()
 const findingIdPattern = /^\d{1,9}$/
 
-function chatMessages(projectDir: string) {
+function chatView(projectDir: string) {
   return withDatabase(
     projectDir,
     (db) => {
-      // Older state files lack the details column until a run or chat opens the store.
-      const hasDetails = all(db, "PRAGMA table_info(chat_messages)").some((column) => column.name === "details")
+      const columns = all(db, "PRAGMA table_info(chat_messages)").map((column) => column.name)
+      // Older state files lack these columns until a run or chat opens the store.
+      const hasDetails = columns.includes("details")
+      const hasSession = columns.includes("session")
+      const session = Number(all(db, "SELECT value FROM meta WHERE key = ?", chatSessionMetaKey)[0]?.value ?? 1)
       // all() returns no rows when an older state file has no chat_messages table.
-      return all(db, `SELECT id, at, author, body, actions${hasDetails ? ", details" : ""} FROM chat_messages ORDER BY id DESC LIMIT 200`)
+      const messages = all(db, `SELECT id, at, author, body, actions${hasDetails ? ", details" : ""} FROM chat_messages ${hasSession ? "WHERE session = ?" : ""} ORDER BY id DESC LIMIT 200`, ...(hasSession ? [session] : []))
         .reverse()
         .map((row) => ({ ...row, actions: JSON.parse(String(row.actions)), details: { ...emptyDetails, ...JSON.parse(String(row.details ?? "{}")) } }))
+      const sessions = hasSession
+        ? all(
+            db,
+            `SELECT session AS id, MIN(at) AS startedAt, MAX(at) AS updatedAt, COUNT(*) AS messages,
+               (SELECT body FROM chat_messages first WHERE first.session = chat_messages.session AND first.author = 'human' ORDER BY first.id LIMIT 1) AS title
+             FROM chat_messages GROUP BY session ORDER BY session DESC`,
+          ).map((row) => ({ ...row, title: String(row.title ?? "").split("\n")[0].slice(0, 80) }))
+        : []
+      return { session, sessions, messages }
     },
-    [] as Record<string, unknown>[],
+    { session: 1, sessions: [] as Record<string, unknown>[], messages: [] as Record<string, unknown>[] },
   )
 }
 
@@ -572,7 +600,7 @@ async function detail(runsDir: string, name: string) {
   const tasks = state.tasks.map((task: any) => {
     const definition = taskDefinitions.get(task.id) ?? {}
     const budgetStopUsd = Number(state.meta[taskBudgetStopKey(task.id)]) || null
-    return { issueNumber: null, needsHuman: null, ...task, ...definitionFields(definition), title: definition.title ?? task.id, budgetStopUsd }
+    return { issueNumber: null, needsHuman: null, ...task, ...definitionFields(definition), title: definition.title ?? task.id, budgetStopUsd, suggestedPaths: task.needsHuman ? suggestedPaths(task.needsHuman) : [] }
   })
   for (const [id, definition] of taskDefinitions) {
     if (!tasks.some((task: any) => task.id === id)) tasks.push({ id, status: "pending", attempts: 0, lastFailure: null, issueNumber: null, needsHuman: null, budgetStopUsd: null, ...definitionFields(definition) })
@@ -584,7 +612,8 @@ async function detail(runsDir: string, name: string) {
   const changes = changeRows(projectDir)
   const openChange = changes.find((change) => change.status === "open") ?? null
   const phaseStatus = (name: string) => state.phases.find((phase: any) => phase.name === name)?.status
-  const buildComplete = ["plan", "qa", "deploy"].every((name) => phaseStatus(name) === "approved") && state.tasks.length > 0 && state.tasks.every((task: any) => task.status === "merged")
+  const imported = meta[importDoneKey] === "1"
+  const buildComplete = ["plan", "qa", "deploy"].every((name) => phaseStatus(name) === "approved") && (state.tasks.length > 0 || imported) && state.tasks.every((task: any) => task.status === "merged")
   const [github, gitLog, worktrees, dockerPs, deploy, live] = await Promise.all([
     githubInfo(projectDir, meta, Boolean(config?.publish.github.enabled)),
     command(projectDir, "git", ["log", "--oneline", "-30"]),
@@ -622,7 +651,7 @@ async function detail(runsDir: string, name: string) {
     feedback: pendingFeedback(projectDir),
     budget: { runUsd: config?.budget.runUsd ?? defaultRunBudgetUsd, spentUsd: spend.usd, spentTokens: spend.tokens, unreportedCalls: spend.unreportedCalls },
     spend: spendBreakdown(projectDir),
-    chat: { messages: chatMessages(projectDir), thinking: leadCalls.has(name), activity: leadActivity(name) },
+    chat: { ...chatView(projectDir), thinking: leadCalls.has(name), activity: leadActivity(name) },
     changes: changes.map((change) => ({ ...change, title: change.request.trim().split("\n")[0], costUsd: changeCosts[change.id] ?? 0 })).reverse(),
     change: openChange
       ? {
@@ -634,6 +663,7 @@ async function detail(runsDir: string, name: string) {
         }
       : null,
     canRequestChange: !runActive && !openChange && buildComplete,
+    import: config?.import ? { ...config.import, done: imported, baseline: readBaseline(projectDir), cleanup: meta[importCleanupKey] ?? null } : null,
     reviewer: reviewerMetrics(reviews.map(parseReviewRow).filter((row: ReviewRow | null): row is ReviewRow => row !== null)),
   }
 }
@@ -754,6 +784,9 @@ function parseChoices(body: Record<string, unknown>): { name: string; brief: str
   for (const [field, value] of Object.entries({ github, deploy, branding })) {
     if (typeof value !== "boolean") throw new ProjectError(400, `The ${field} field must be true or false.`)
   }
+  for (const field of ["resolveAllQa", "evolve", "autoApproveScope"]) {
+    if (body[field] !== undefined && typeof body[field] !== "boolean") throw new ProjectError(400, `The ${field} field must be true or false.`)
+  }
   if (template !== undefined && typeof template !== "string") throw new ProjectError(400, "The template field must be a template name.")
   chooseTemplate(template, target as ProjectChoices["target"])
   return {
@@ -767,7 +800,35 @@ function parseChoices(body: Record<string, unknown>): { name: string; brief: str
       github: github as boolean,
       deploy: deploy as boolean,
       branding: branding as boolean,
+      resolveAllQa: body.resolveAllQa as boolean | undefined,
+      evolve: body.evolve as boolean | undefined,
+      autoApproveScope: body.autoApproveScope as boolean | undefined,
       template: template as string | undefined,
+    },
+  }
+}
+
+function parseImport(body: Record<string, unknown>): { name: string; options: ImportOptions } {
+  const { name, source, urls, github, target, deploy } = body
+  if (typeof name !== "string" || !newProjectNamePattern.test(name)) {
+    throw new ProjectError(400, "The name must be 2 to 41 characters: lowercase letters, digits, and dashes, starting with a letter or digit.")
+  }
+  if (typeof source !== "string") throw new ProjectError(400, "The source must be a git URL or a folder path.")
+  if (!Array.isArray(urls) || !urls.every((url) => typeof url === "string")) throw new ProjectError(400, "The urls field must be a list of URLs.")
+  if (typeof github !== "string") throw new ProjectError(400, "The github field must be source, new, or none.")
+  if (typeof target !== "string" || !targets.includes(target)) throw new ProjectError(400, "The target must be web, api, or web+api.")
+  if (typeof deploy !== "boolean") throw new ProjectError(400, "The deploy field must be true or false.")
+  if (!Array.isArray(body.gates) || !body.gates.every((gate) => typeof gate === "string")) throw new ProjectError(400, "The gates field must be a list of phase names.")
+  return {
+    name,
+    options: {
+      source,
+      urls: (urls as string[]).map((url) => url.trim()).filter(Boolean),
+      github: github as ImportOptions["github"],
+      target: target as ImportOptions["target"],
+      gates: [...new Set(body.gates as PlanningPhase[])],
+      deploy,
+      roles: body.roles === undefined ? undefined : parseRoleModels(body.roles),
     },
   }
 }
@@ -807,6 +868,7 @@ function overHttps(request: IncomingMessage, auth: AuthConfig): boolean {
 
 export function startUi(options: UiOptions) {
   const runsDir = resolve(options.runsDir)
+  applyGitIdentity(readGitIdentity(runsDir))
   const webDist = options.webDir ? resolve(options.webDir) + sep : builtWebDir
   const knownProject = (name: string) => projectNamePattern.test(name) && existsSync(join(runsDir, name, "pipeline.yaml"))
   const launchRun = options.startRun ?? spawnRun
@@ -895,7 +957,7 @@ export function startUi(options: UiOptions) {
   const autoApply = (name: string, messageId: number) => {
     const projectDir = join(runsDir, name)
     const autoKinds = readConfig(projectDir)?.lead.autoApply ?? []
-    const actions = withProjectStore(projectDir, (store) => store.chatMessages(200).find((message) => message.id === messageId)?.actions ?? [])
+    const actions = withProjectStore(projectDir, (store) => store.chatMessages(200, "all").find((message) => message.id === messageId)?.actions ?? [])
     actions.forEach((action, index) => {
       if (!autoKinds.includes(action.kind)) return
       try {
@@ -920,6 +982,16 @@ export function startUi(options: UiOptions) {
       }
       return send(response, 404, { error: "not found" })
     }
+    if (parts[0] === "api" && parts[1] === "git-identity" && parts.length === 2) {
+      let identity
+      try {
+        identity = parseGitIdentity(body)
+      } catch (error) {
+        return send(response, 400, { error: (error as Error).message })
+      }
+      saveGitIdentity(runsDir, identity)
+      return send(response, 200, identity)
+    }
     if (parts[0] === "api" && parts[1] === "notifications" && parts[2] === "test" && parts.length === 3) {
       const { channel } = body
       if (channel !== undefined && typeof channel !== "string") return send(response, 400, { error: "The channel field must be a channel name." })
@@ -932,6 +1004,13 @@ export function startUi(options: UiOptions) {
     }
     if (parts[0] !== "api" || parts[1] !== "projects") return send(response, 404, { error: "not found" })
 
+    if (parts.length === 3 && parts[2] === "import") {
+      const { name, options } = parseImport(body)
+      if (existsSync(join(runsDir, name))) return send(response, 409, { error: `A project named "${name}" already exists.` })
+      importProject(join(runsDir, name), options)
+      startRunIfIdle(name)
+      return send(response, 201, { name })
+    }
     if (parts.length === 2) {
       const { name, brief, choices } = parseChoices(body)
       if (existsSync(join(runsDir, name))) return send(response, 409, { error: `A project named "${name}" already exists.` })
@@ -970,6 +1049,18 @@ export function startUi(options: UiOptions) {
       }
       return send(response, 404, { error: "not found" })
     }
+    if (parts[3] === "cleanup" && parts.length === 5) {
+      if (parts[4] === "start") {
+        if (runAlive(projectDir)) return send(response, 409, { error: "A run is already in progress." })
+        const change = withProjectStore(projectDir, (store) => startCleanupChange(projectDir, store))
+        return send(response, 201, { id: change.id, branch: change.branch, started: startRunIfIdle(name) })
+      }
+      if (parts[4] === "dismiss") {
+        withProjectStore(projectDir, (store) => dismissCleanupChange(store))
+        return send(response, 200, { dismissed: true })
+      }
+      return send(response, 404, { error: "not found" })
+    }
     if (parts[3] === "operate" && parts[4] === "run" && parts.length === 5) {
       const agent = body.agent
       if (typeof agent !== "string" || !(insightAgents as readonly string[]).includes(agent)) return send(response, 400, { error: `The agent field must be one of ${insightAgents.join(", ")}.` })
@@ -993,7 +1084,7 @@ export function startUi(options: UiOptions) {
         if (!startRunIfIdle(name)) return send(response, 409, { error: "A run is already in progress." })
         return send(response, 202, { started: true })
       case "approve":
-        withProjectStore(projectDir, (store) => approvePhase(projectDir, store, requireString(body, "phase")))
+        withProjectStore(projectDir, (store) => approvePhase(projectDir, store, requireString(body, "phase"), typeof body.choice === "string" ? body.choice : undefined))
         return send(response, 200, { started: startRunIfIdle(name) })
       case "feedback": {
         const phase = requireString(body, "phase")
@@ -1003,6 +1094,13 @@ export function startUi(options: UiOptions) {
       }
       case "retry":
         withProjectStore(projectDir, (store) => retryTask(store, requireString(body, "taskId")))
+        return send(response, 200, { started: startRunIfIdle(name) })
+      case "approve-suggestion": {
+        const paths = withProjectStore(projectDir, (store) => approveTaskSuggestion(projectDir, store, requireString(body, "taskId")))
+        return send(response, 200, { paths, started: startRunIfIdle(name) })
+      }
+      case "drop-task":
+        withProjectStore(projectDir, (store) => dropTask(projectDir, store, requireString(body, "taskId")))
         return send(response, 200, { started: startRunIfIdle(name) })
       case "approve-task-budget": {
         const budgetUsd = withProjectStore(projectDir, (store) => approveTaskBudget(store, requireString(body, "taskId")))
@@ -1030,6 +1128,12 @@ export function startUi(options: UiOptions) {
           .finally(() => leadCalls.delete(name))
         return send(response, 202, { accepted: true })
       }
+      case "chat-session": {
+        if (leadCalls.has(name)) return send(response, 409, { error: "Wait for the lead to finish answering." })
+        if (body.session !== undefined && !Number.isInteger(body.session)) return send(response, 400, { error: "session must be a whole number." })
+        const session = withProjectStore(projectDir, (store) => (body.session === undefined ? store.startChatSession() : store.openChatSession(body.session as number) ? (body.session as number) : null))
+        return session === null ? send(response, 404, { error: "unknown session" }) : send(response, 200, { session })
+      }
       case "chat-stop": {
         const call = leadCalls.get(name)
         if (!call) return send(response, 409, { error: "The lead is not answering." })
@@ -1044,6 +1148,11 @@ export function startUi(options: UiOptions) {
         if (state === "applied") return send(response, 200, { saved: true, ...applyChatAction(name, messageId as number, index as number) })
         const updated = withProjectStore(projectDir, (store) => store.setChatActionState(messageId as number, index as number, state))
         return updated ? send(response, 200, { saved: true }) : send(response, 404, { error: "unknown action" })
+      }
+      case "auto-approve-scope": {
+        if (typeof body.enabled !== "boolean") return send(response, 400, { error: "enabled must be true or false." })
+        saveAutoApproveScope(projectDir, body.enabled)
+        return send(response, 200, { enabled: body.enabled })
       }
       case "lead-settings": {
         saveLeadSettings(projectDir, parseLeadSettings(body))
@@ -1076,6 +1185,7 @@ export function startUi(options: UiOptions) {
       if (parts[0] !== "api") return serveStatic(response, webDist, url.pathname)
 
       if (parts[0] === "api" && parts[1] === "defaults" && parts.length === 2) return send(response, 200, { roles: defaultRoles() })
+      if (parts[0] === "api" && parts[1] === "git-identity" && parts.length === 2) return send(response, 200, readGitIdentity(runsDir))
       if (parts[0] === "api" && parts[1] === "notifications" && parts.length === 2) return send(response, 200, notificationStatus(runsDir, options.notifyDeps?.env))
       if (parts[0] === "api" && parts[1] === "templates" && parts.length === 2) return send(response, 200, templateSummaries())
       if (parts[0] === "api" && parts[1] === "incidents" && parts.length === 2) return send(response, 200, allIncidents(runsDir))
@@ -1148,6 +1258,23 @@ export function startUi(options: UiOptions) {
           const path = dir ? projectFile(projectDir, join(dir, parts[4])) : null
           if (!path || statSync(path).size > imageMaxBytes) return send(response, 404, { error: "not found" })
           const extension = parts[4].split(".").pop()!.toLowerCase()
+          response.writeHead(200, { ...securityHeaders, "content-type": `image/${extension === "jpg" ? "jpeg" : extension}`, "cache-control": "no-store" })
+          return response.end(readFileSync(path))
+        }
+        if (parts[3] === "concepts" && parts.length === 4) {
+          const concepts = conceptIds(projectDir).map((id) => ({
+            id,
+            style: readTextFile(join(projectDir, conceptsDir, id, "style.md")),
+            images: readdirSync(join(projectDir, conceptsDir, id)).filter((file) => brandingImagePattern.test(file)).sort(),
+          }))
+          return send(response, 200, { concepts, readme: readTextFile(join(projectDir, conceptsDir, "README.md")), choice: metaValue(projectDir, conceptChoiceKey) })
+        }
+        if (parts[3] === "concepts" && parts.length === 6) {
+          const [id, file] = [parts[4], parts[5]]
+          if (!conceptIds(projectDir).includes(id) || !brandingImagePattern.test(file)) return send(response, 400, { error: "bad file name" })
+          const path = projectFile(projectDir, join(conceptsDir, id, file))
+          if (!path || statSync(path).size > imageMaxBytes) return send(response, 404, { error: "not found" })
+          const extension = file.split(".").pop()!.toLowerCase()
           response.writeHead(200, { ...securityHeaders, "content-type": `image/${extension === "jpg" ? "jpeg" : extension}`, "cache-control": "no-store" })
           return response.end(readFileSync(path))
         }

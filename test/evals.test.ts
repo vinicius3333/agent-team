@@ -28,7 +28,7 @@ function seed(store: Store, costUsd: number): void {
   store.updateTask("T002", "blocked", "stuck")
   store.countReplan("T002")
   const attempt = { subject: "T001-1", status: "done", failureClass: null, durationMs: 10, transcriptPath: "x" }
-  store.recordAttempt({ ...attempt, role: "worker", runner: "claude", model: "sonnet", costUsd, tokens: 1000 })
+  store.recordAttempt({ ...attempt, role: "worker", runner: "claude", model: "claude-opus-5-5", costUsd, tokens: 1000 })
   store.recordAttempt({ ...attempt, role: "worker", runner: "codex", model: "gpt-5.5", costUsd: null, tokens: null })
   store.recordAttempt({ ...attempt, role: "reviewer", runner: "claude", model: "opus", costUsd: 0.5, tokens: 500 })
   store.recordAttempt({ ...attempt, role: "lead", runner: "claude", model: "opus", costUsd: 9, tokens: 9000 })

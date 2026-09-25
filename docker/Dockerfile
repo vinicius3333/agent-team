@@ -1,4 +1,4 @@
-FROM node:22-bookworm-slim
+FROM node:24-bookworm-slim
 
 ARG CLAUDE_CODE_VERSION=latest
 ARG CODEX_VERSION=latest
@@ -9,7 +9,7 @@ RUN apt-get update \
   && npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} @openai/codex@${CODEX_VERSION} \
   && npm cache clean --force
 
-# node:22 ships a "node" user with uid 1000; rename it so HOME and name match what the executor mounts.
+# node:24 ships a "node" user with uid 1000; rename it so HOME and name match what the executor mounts.
 RUN usermod -l agent -d /home/agent -m node && groupmod -n agent node
 
 LABEL org.opencontainers.image.title="agent-team-runner" \

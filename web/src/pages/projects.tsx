@@ -1,5 +1,5 @@
 import { Link } from "react-router"
-import { Activity, Coins, ExternalLink, ListChecks, Plus, ServerCrash } from "lucide-react"
+import { Activity, Coins, Download, ExternalLink, ListChecks, Plus, ServerCrash } from "lucide-react"
 import { useProjectList } from "@/api/projects-context"
 import type { ProjectSummary } from "@/api/types"
 import { EmptyState } from "@/components/empty-state"
@@ -72,11 +72,18 @@ export function ProjectsPage() {
         title="Projects"
         description="Every build your agent team runs on this server."
         actions={
-          <Button asChild>
-            <Link to="/new">
-              <Plus /> New project
-            </Link>
-          </Button>
+          <div className="flex gap-2">
+            <Button asChild variant="outline">
+              <Link to="/import">
+                <Download /> Import project
+              </Link>
+            </Button>
+            <Button asChild>
+              <Link to="/new">
+                <Plus /> New project
+              </Link>
+            </Button>
+          </div>
         }
       />
       {!online && (
@@ -96,11 +103,18 @@ export function ProjectsPage() {
         <Card>
           <EmptyState illustration={<EmptyProjectsIllustration />} title="No projects yet">
             <p>Describe an idea and your agent team plans, designs, and builds it.</p>
-            <Button asChild className="mt-4">
-              <Link to="/new">
-                <Plus /> Start your first project
-              </Link>
-            </Button>
+            <div className="mt-4 flex flex-wrap justify-center gap-2">
+              <Button asChild>
+                <Link to="/new">
+                  <Plus /> Start your first project
+                </Link>
+              </Button>
+              <Button asChild variant="outline">
+                <Link to="/import">
+                  <Download /> Import an existing app
+                </Link>
+              </Button>
+            </div>
           </EmptyState>
         </Card>
       ) : (

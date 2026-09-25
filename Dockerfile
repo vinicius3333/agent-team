@@ -1,14 +1,14 @@
 # agent-team itself: the dashboard and the doctor. docker-compose.yml runs it on the host's
 # network, PID namespace and home directory, so it behaves like a process started on the host.
 
-FROM node:22-bookworm-slim AS web
+FROM node:24-bookworm-slim AS web
 WORKDIR /app/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY web/ ./
 RUN npm run build
 
-FROM node:22-bookworm-slim
+FROM node:24-bookworm-slim
 ARG TARGETARCH
 ARG DOCKER_VERSION=27.5.1
 ARG CLAUDE_CODE_VERSION=latest

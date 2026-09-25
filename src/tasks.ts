@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs"
-import { matchesGlob } from "node:path"
+import { matchesPath } from "./glob.ts"
 
 export interface Task {
   id: string
@@ -16,6 +16,27 @@ export interface Task {
   routes?: string[]
   // The change request (C001, ...) that added the task; unset for the first build.
   change?: string
+  // Files the orchestrator copies into the worktree before the worker starts, for example a generated illustration
+  // from design/illustrations/ into public/. Workers cannot copy them: their permissions only cover allowedPaths.
+  copy?: TaskCopy[]
+  // Illustrations the orchestrator has the illustrator (image generation) draw before the worker starts, when the
+  // file is not in the repo yet. They land with the task, so QA and the evaluator can ask for new art on a live app.
+  illustrations?: TaskIllustration[]
+}
+
+export interface TaskIllustration {
+  // design/illustrations/<name>.png
+  to: string
+  prompt: string
+  // A repo image the illustrator attaches as the style reference, usually a branding screen.
+  reference?: string
+}
+
+export const illustrationTargetPattern = /^design\/illustrations\/[a-z0-9][a-z0-9-]*\.png$/
+
+export interface TaskCopy {
+  from: string
+  to: string
 }
 
 export const changeIdPattern = /^C\d{3,}$/
@@ -44,7 +65,8 @@ export function nextTaskId(tasks: Pick<Task, "id">[]): string {
 }
 
 export function validateTasks(value: unknown, sharedPaths: string[] = []): Task[] {
-  if (!Array.isArray(value) || value.length === 0) throw new Error("tasks.json must be a non-empty array")
+  // An imported project starts with no tasks; the plan phase requires at least one on its own.
+  if (!Array.isArray(value)) throw new Error("tasks.json must be an array")
   const errors: string[] = []
   const ids = new Set<string>()
   for (const [index, task] of value.entries()) {
@@ -62,12 +84,29 @@ export function validateTasks(value: unknown, sharedPaths: string[] = []): Task[
     if (Array.isArray(task?.acceptance) && task.acceptance.length === 0) errors.push(`${label}: acceptance is empty`)
     if (task?.phase === "feature" && Array.isArray(task?.allowedPaths)) {
       const patterns = task.allowedPaths.filter((pattern: unknown) => typeof pattern === "string")
-      for (const shared of sharedPaths.filter((path) => patterns.some((pattern: string) => pattern === path || matchesGlob(path, pattern)))) {
+      for (const shared of sharedPaths.filter((path) => patterns.some((pattern: string) => pattern === path || matchesPath(path, pattern)))) {
         errors.push(`${label}: feature tasks may not touch the shared file ${shared}; give it to a foundation task`)
       }
     }
     if (task?.change !== undefined && (typeof task.change !== "string" || !changeIdPattern.test(task.change))) errors.push(`${label}: change must be a change id like C001`)
     if (task?.ui !== undefined && typeof task.ui !== "boolean") errors.push(`${label}: ui must be true or false`)
+    if (task?.illustrations !== undefined) {
+      const entries = Array.isArray(task.illustrations) ? task.illustrations : null
+      if (!entries || !entries.every((entry: any) => typeof entry?.to === "string" && illustrationTargetPattern.test(entry.to) && typeof entry?.prompt === "string" && entry.prompt.trim().length >= 40 && (entry.reference === undefined || (typeof entry.reference === "string" && safeRelativePath(entry.reference))))) {
+        errors.push(`${label}: illustrations must be an array of { to: "design/illustrations/<name>.png", prompt: a full image prompt, reference?: a repo image path }`)
+      }
+    }
+    if (task?.copy !== undefined) {
+      const entries = Array.isArray(task.copy) ? task.copy : null
+      if (!entries || !entries.every((entry: any) => typeof entry?.from === "string" && typeof entry?.to === "string" && safeRelativePath(entry.from) && safeRelativePath(entry.to))) {
+        errors.push(`${label}: copy must be an array of { from, to } relative paths inside the repo`)
+      } else {
+        const patterns = Array.isArray(task.allowedPaths) ? task.allowedPaths : []
+        for (const entry of entries) {
+          if (filesOutsideScope([entry.to], patterns).length) errors.push(`${label}: copy target ${entry.to} must be inside allowedPaths`)
+        }
+      }
+    }
     if (task?.routes !== undefined && (!Array.isArray(task.routes) || !task.routes.every((route: unknown) => typeof route === "string" && staticRoutePattern.test(route)))) {
       errors.push(`${label}: routes must be an array of paths that start with /, without parameters`)
     }
@@ -100,8 +139,23 @@ export function orderTasks(tasks: Task[]): Task[] {
   return ordered
 }
 
+// Adds paths to a task's scope and makes it wait for every unfinished task that already owns one of them, so the
+// two never run at once. Shared by the dashboard's Approve button and autonomy.autoApproveScope.
+export function widenTask(tasks: Task[], taskId: string, paths: string[], isFinished: (id: string) => boolean): { tasks: Task[]; owners: string[] } {
+  const index = tasks.findIndex((entry) => entry.id === taskId)
+  if (index === -1) throw new Error(`unknown task "${taskId}"`)
+  const task = tasks[index]
+  const owners = tasks.filter((other) => other.id !== taskId && !isFinished(other.id) && pathsOverlap(other.allowedPaths, paths)).map((other) => other.id)
+  const widened = { ...task, allowedPaths: [...new Set([...task.allowedPaths, ...paths])], dependsOn: [...new Set([...task.dependsOn, ...owners])] }
+  return { tasks: tasks.map((entry, position) => (position === index ? widened : entry)), owners }
+}
+
+function safeRelativePath(path: string): boolean {
+  return path.length > 0 && !path.startsWith("/") && !path.split(/[\\/]/).includes("..")
+}
+
 export function filesOutsideScope(files: string[], allowedPaths: string[]): string[] {
-  return files.filter((file) => !allowedPaths.some((pattern) => file === pattern || matchesGlob(file, pattern)))
+  return files.filter((file) => !allowedPaths.some((pattern) => file === pattern || matchesPath(file, pattern)))
 }
 
 // Conservative: two patterns overlap when the literal part before the first wildcard of one is a prefix of the other's.

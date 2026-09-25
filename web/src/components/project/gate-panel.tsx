@@ -15,6 +15,7 @@ import type { PipelineStep } from "@/api/types"
 import { StatusBadge } from "@/components/status-badge"
 import { DocumentView } from "./document-view"
 import { ProjectBranding } from "./branding"
+import { ConceptPicker } from "./concept-picker"
 import { DesignSystemPreview } from "./design-system-preview"
 import { MarketingPieces } from "./marketing-tab"
 import { useProjectView } from "./context"
@@ -45,12 +46,13 @@ function PlanOutput() {
   )
 }
 
-function PhaseOutputs({ phase, version, onSuggest }: { phase: string; version: string; onSuggest: (text: string) => void }) {
+function PhaseOutputs({ phase, version, onSuggest, choice, onChoose }: { phase: string; version: string; onSuggest: (text: string) => void; choice: string | null; onChoose: (id: string) => void }) {
   const { detail } = useProjectView()
   const delta = phase === "spec" ? detail.change?.specDelta : phase === "architecture" ? detail.change?.architectureDelta : null
   const documents = phaseDocuments[phase] ?? []
   const showBranding = phase === "branding" || phase === "design"
   const tabs = [
+    ...(phase === "concepts" ? [{ id: "concepts", label: "Directions" }] : []),
     ...(delta ? [{ id: "change-delta", label: `${detail.change?.id} delta` }] : []),
     ...(phase === "design" ? [{ id: "design-system", label: "Design system" }] : []),
     ...(showBranding ? [{ id: "branding", label: "Branding" }] : []),
@@ -68,6 +70,11 @@ function PhaseOutputs({ phase, version, onSuggest }: { phase: string; version: s
             </TabsTrigger>
           ))}
         </TabsList>
+      )}
+      {phase === "concepts" && (
+        <TabsContent value="concepts">
+          <ConceptPicker version={version} selected={choice} onSelect={onChoose} />
+        </TabsContent>
       )}
       {delta && (
         <TabsContent value="change-delta">
@@ -101,6 +108,8 @@ function PhaseOutputs({ phase, version, onSuggest }: { phase: string; version: s
 export function GatePanel({ phase }: { phase: string }) {
   const { name, detail } = useProjectView()
   const [message, setMessage] = useState("")
+  const [choice, setChoice] = useState<string | null>(null)
+  const needsChoice = phase === "concepts"
   const [busy, setBusy] = useState<"approve" | "feedback" | null>(null)
   const [error, setError] = useState<string | null>(null)
   const label = stepLabels[phase as PipelineStep] ?? phase
@@ -108,10 +117,14 @@ export function GatePanel({ phase }: { phase: string }) {
   const version = detail.phases.find((entry) => entry.name === phase)?.updatedAt ?? ""
 
   const approve = async () => {
+    if (needsChoice && !choice) {
+      setError("Choose a direction first.")
+      return
+    }
     setBusy("approve")
     setError(null)
     try {
-      const { started } = await api.approve(name, phase)
+      const { started } = await api.approve(name, phase, needsChoice ? (choice ?? undefined) : undefined)
       if (started) toast.success(`${label} approved. The build continues.`)
       else toast.warning(`${label} approved, but a run is still active. Resume the run once it stops.`)
     } catch (reason) {
@@ -151,7 +164,7 @@ export function GatePanel({ phase }: { phase: string }) {
           <CardDescription>Read what the agents wrote, then approve it or ask for changes.</CardDescription>
         </CardHeader>
         <CardContent>
-          <PhaseOutputs phase={phase} version={version} onSuggest={(text) => setMessage((current) => (current.trim() ? `${current.trim()}\n\n${text}` : text).slice(0, feedbackLimit))} />
+          <PhaseOutputs phase={phase} version={version} choice={choice} onChoose={(id) => { setChoice(id); setError(null) }} onSuggest={(text) => setMessage((current) => (current.trim() ? `${current.trim()}\n\n${text}` : text).slice(0, feedbackLimit))} />
         </CardContent>
       </Card>
       <Card className="h-fit border-warning/40 lg:sticky lg:top-4">
@@ -215,8 +228,8 @@ export function GatePanel({ phase }: { phase: string }) {
             </Alert>
           )}
           <div className="flex flex-col gap-2">
-            <Button size="lg" onClick={approve} disabled={busy !== null}>
-              {busy === "approve" ? <Loader2 className="animate-spin" /> : <Play />} Approve
+            <Button size="lg" onClick={approve} disabled={busy !== null || (needsChoice && !choice)}>
+              {busy === "approve" ? <Loader2 className="animate-spin" /> : <Play />} {needsChoice ? (choice ? `Approve direction ${choice.toUpperCase()}` : "Choose a direction") : "Approve"}
             </Button>
             <Button size="lg" variant="outline" onClick={requestChanges} disabled={busy !== null}>
               {busy === "feedback" ? <Loader2 className="animate-spin" /> : <MessageSquare />} Request changes

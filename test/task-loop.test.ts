@@ -51,6 +51,10 @@ test("parseBlock reads the structured form and the old free text", () => {
   assert.deepEqual(parseBlock('BLOCKED: {"kind":"scope","needPaths":["src/router.ts"],"reason":"route registry"}'), { kind: "scope", needPaths: ["src/router.ts"], reason: "route registry" })
   assert.deepEqual(parseBlock("  BLOCKED: the contract has no /users endpoint"), { kind: "spec", needPaths: [], reason: "the contract has no /users endpoint" })
   assert.equal(parseBlock("Done. BLOCKED: nothing"), null)
+  const late = parseBlock('I could not wire the tab.\n\nBLOCKED: {"kind":"scope","needPaths":["src/nav.tsx"],"reason":"nav is outside scope"}')
+  assert.deepEqual(late, { kind: "scope", needPaths: ["src/nav.tsx"], reason: "nav is outside scope" })
+  assert.deepEqual(parseBlock("**BLOCKED:** the spec contradicts itself"), { kind: "spec", needPaths: [], reason: "the spec contradicts itself" })
+  assert.deepEqual(parseBlock('BLOCKED: spec: {"kind":"scope","needPaths":["src/a.test.ts"],"reason":"breaks a test"}'), { kind: "scope", needPaths: ["src/a.test.ts"], reason: "breaks a test" })
 })
 
 test("decideReplan applies safe changes and sends risky ones to a human", () => {
@@ -324,4 +328,60 @@ test("pathsOverlap flags patterns that can match the same file", () => {
   assert.equal(pathsOverlap(["package.json"], ["package-lock.json"]), false)
   assert.equal(pathsOverlap(["package.json"], ["package.json"]), true)
   assert.equal(pathsOverlap(["src/*.ts"], ["src/**/*.css"]), true)
+})
+
+test("an illustration the task asks for is drawn once before the worker, cached, and lands with the task", async () => {
+  const illustration = { to: "design/illustrations/benefit-draw.png", prompt: "A flat illustration of a family drawing secret-santa names from a bowl, cream background.", reference: "design/branding/02-landing.png" }
+  const { projectDir, store, run } = setupProject("illustrations", [
+    task("T001", { allowedPaths: ["src/t001/**", "public/illustrations/**"], illustrations: [illustration], copy: [{ from: illustration.to, to: "public/illustrations/benefit-draw.png" }] }),
+  ])
+  let copiedBeforeWorker = false
+  const { harness, jobs } = stubHarness({
+    illustrator: [
+      (_job, workdir) => {
+        writeFile(workdir, illustration.to, "png")
+        return "drawn"
+      },
+    ],
+    worker: [
+      (_job, workdir) => {
+        copiedBeforeWorker = existsSync(join(workdir, "public/illustrations/benefit-draw.png"))
+        writeFile(workdir, "src/t001/index.ts")
+        return "done"
+      },
+    ],
+    reviewer: [pass],
+  })
+  assert.equal(await run(harness), "completed")
+  assert.equal(store.task("T001").status, "merged")
+  assert.ok(copiedBeforeWorker, "the copy ran after the illustrator drew the file")
+  const illustrator = jobs.find((job) => job.role === "illustrator")!
+  assert.deepEqual(illustrator.writablePaths, [illustration.to, "design/illustrations/benefit-draw.prompt.txt"])
+  assert.match(illustrator.taskPrompt, /Attach design\/branding\/02-landing\.png/)
+  assert.ok(existsSync(join(projectDir, ".agent-team/illustrations/T001/benefit-draw.png")), "the drawing is cached for retries")
+  assert.equal(readFileSync(join(projectDir, illustration.to), "utf8"), "png")
+  assert.match(readFileSync(join(projectDir, "design/illustrations/benefit-draw.prompt.txt"), "utf8"), /secret-santa names/)
+})
+
+test("autoApproveScope gives a twice-blocked task its files instead of stopping, at most twice", async () => {
+  const { projectDir, store, run } = setupProject("auto-approve", [task("T001")])
+  const yamlPath = join(projectDir, "pipeline.yaml")
+  writeFileSync(yamlPath, readFileSync(yamlPath, "utf8").replace("autoApproveScope: false", "autoApproveScope: true"))
+  const { harness } = stubHarness({
+    worker: [
+      'BLOCKED: {"kind":"scope","needPaths":["src/extra/x.ts"],"reason":"needs src/extra"}',
+      'BLOCKED: {"kind":"scope","needPaths":["src/app/[id]/page.ts"],"reason":"needs the route"}',
+      (_job, workdir) => {
+        writeFile(workdir, "src/app/[id]/page.ts")
+        return "done"
+      },
+    ],
+    replanner: ['Widen it.\n```json\n{"action":"rebind","allowedPaths":["src/t001/**","src/extra/**"]}\n```'],
+    reviewer: [pass],
+  })
+  assert.equal(await run(harness), "completed")
+  assert.equal(store.task("T001").status, "merged")
+  assert.deepEqual(mainTasks(projectDir)[0].allowedPaths, ["src/t001/**", "src/extra/**", "src/app/[id]/page.ts"])
+  assert.equal(store.meta("task.T001.autoApprovals"), "1")
+  assert.ok(readEvents(projectDir, "task").some((message) => /scope approved automatically \(src\/app\/\[id\]\/page\.ts\)/.test(message)))
 })

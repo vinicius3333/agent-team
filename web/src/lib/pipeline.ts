@@ -2,20 +2,25 @@ import type { Attempt, PhaseStatus, PipelineStep, ProjectDetail, ProjectSummary,
 import { pipelineSteps } from "@/api/types"
 
 export const stepLabels: Record<PipelineStep, string> = {
+  research: "Research",
   spec: "Spec",
   architecture: "Architecture",
+  concepts: "Concepts",
   branding: "Branding",
   design: "Design",
   marketing: "Marketing",
   plan: "Plan",
+  baseline: "Baseline",
   build: "Build",
   qa: "QA",
   deploy: "Deploy",
 }
 
 export const phaseRoles: Record<string, string> = {
+  research: "importer",
   spec: "pm",
   architecture: "architect",
+  concepts: "illustrator",
   branding: "illustrator",
   design: "designer",
   marketing: "marketer",
@@ -24,17 +29,21 @@ export const phaseRoles: Record<string, string> = {
 }
 
 export const phaseOutputs: Record<string, string[]> = {
+  research: ["docs/import/research.md"],
   spec: ["docs/spec.md"],
   architecture: ["docs/architecture.md", "docs/adr/", "contracts/openapi.yaml"],
+  concepts: ["design/concepts/<a, b, c>/logo.png, landing.png, style.md", "design/concepts/README.md"],
   branding: ["design/branding/01-logo.png", "design/branding/*.png", "design/branding/README.md"],
   design: ["design/tokens.css", "design/logo.svg", "design/logo-mark.svg", "docs/design-system.md", "docs/design.md"],
   marketing: ["marketing/copy.json", "marketing/art/*", "marketing/<piece>-<format>.png", "marketing/manifest.json"],
   plan: ["tasks.json"],
+  baseline: [".agent-team/import/baseline.json", "design/branding/<route>.png"],
   build: ["code and tests, one merge per task"],
   qa: [".agent-team/qa/round-<n>/: tests.json, report.json, <route>.png, verdict.json"],
 }
 
 export const phaseDocuments: Record<string, string[]> = {
+  research: ["docs/import/research.md"],
   spec: ["docs/spec.md"],
   architecture: ["docs/architecture.md"],
   branding: ["design/branding/README.md"],
@@ -53,7 +62,9 @@ export function projectStatus(project: Pick<ProjectSummary, "counts" | "phases" 
   if (project.active) return "running"
   const phasesDone = project.phases.length > 0 && project.phases.every((phase) => phase.status === "approved" || phase.status === "skipped")
   const total = Object.values(project.counts).reduce((sum, count) => sum + (count ?? 0), 0)
-  if (phasesDone && total && project.counts.merged === total) return "done"
+  // An imported project is done with no tasks once its baseline ran.
+  const imported = project.phases.some((phase) => phase.name === "baseline")
+  if (phasesDone && (total ? project.counts.merged === total : imported)) return "done"
   if (project.phases.some((phase) => phase.status === "failed")) return "failed"
   return "idle"
 }
@@ -120,12 +131,21 @@ export function qaState(detail: ProjectDetail): { status: StepStatus; note: stri
   return { status, note: notes[status] ?? "" }
 }
 
+const importedSteps: PipelineStep[] = ["research", "spec", "architecture", "design", "baseline", "build", "qa", "deploy"]
+
+// An imported project documents the app and takes a baseline instead of branding, marketing, and a plan.
+export function projectSteps(detail: Pick<ProjectDetail, "import">): PipelineStep[] {
+  return detail.import ? importedSteps : pipelineSteps.filter((step) => step !== "research" && step !== "baseline")
+}
+
 export function stepStates(detail: ProjectDetail): StepState[] {
   const byName = new Map(detail.phases.map((phase) => [phase.name, phase.status]))
   const skipped = skippedPhases(detail)
   const counts = taskCounts(detail.tasks)
   const total = detail.tasks.length
-  return pipelineSteps.map((step) => {
+  return projectSteps(detail).map((step) => {
+    // Right after an import nothing was built, tested, or deployed yet; the first change does that.
+    if (detail.import?.done && !total && (step === "build" || step === "qa" || step === "deploy")) return { step, status: "skipped", note: "first change" }
     if (step === "build") {
       const planningDone = detail.phases.filter((phase) => phase.name !== "deploy" && phase.name !== "qa").every((phase) => phase.status === "approved" || phase.status === "skipped")
       const status: StepStatus = !total

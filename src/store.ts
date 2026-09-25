@@ -38,6 +38,16 @@ export interface ChatDetails {
   followUps: string[]
 }
 
+export const chatSessionMetaKey = "chat.session"
+
+export interface ChatSession {
+  id: number
+  title: string
+  startedAt: string
+  updatedAt: string
+  messages: number
+}
+
 export const emptyChatDetails: ChatDetails = { attachments: [], filesRead: [], followUps: [] }
 
 export interface ChatMessage {
@@ -185,7 +195,9 @@ export function openStore(path: string) {
       at TEXT NOT NULL,
       author TEXT NOT NULL,
       body TEXT NOT NULL,
-      actions TEXT NOT NULL DEFAULT '[]'
+      actions TEXT NOT NULL DEFAULT '[]',
+      details TEXT NOT NULL DEFAULT '{}',
+      session INTEGER NOT NULL DEFAULT 1
     );
     CREATE TABLE IF NOT EXISTS changes (
       id TEXT PRIMARY KEY,
@@ -253,6 +265,7 @@ export function openStore(path: string) {
   if (!attemptColumns.some((column) => column.name === "change_id")) db.exec("ALTER TABLE attempts ADD COLUMN change_id TEXT")
   const chatColumns = db.prepare("PRAGMA table_info(chat_messages)").all() as { name: string }[]
   if (!chatColumns.some((column) => column.name === "details")) db.exec("ALTER TABLE chat_messages ADD COLUMN details TEXT NOT NULL DEFAULT '{}'")
+  if (!chatColumns.some((column) => column.name === "session")) db.exec("ALTER TABLE chat_messages ADD COLUMN session INTEGER NOT NULL DEFAULT 1")
   const taskColumns = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[]
   if (!taskColumns.some((column) => column.name === "issue_number")) db.exec("ALTER TABLE tasks ADD COLUMN issue_number INTEGER")
   if (!taskColumns.some((column) => column.name === "replans")) db.exec("ALTER TABLE tasks ADD COLUMN replans INTEGER NOT NULL DEFAULT 0")
@@ -504,15 +517,48 @@ export function openStore(path: string) {
       const row = db.prepare("SELECT MAX(id) AS id FROM events").get() as { id: number | null }
       return row.id ?? 0
     },
+    chatSession(): number {
+      return Number(this.meta(chatSessionMetaKey) ?? 1)
+    },
+    // Reuses the current session when it has no messages yet, so repeated clicks do not pile up empty sessions.
+    startChatSession(): number {
+      const current = this.chatSession()
+      const used = db.prepare("SELECT COUNT(*) AS count FROM chat_messages WHERE session = ?").get(current) as { count: number }
+      if (!used.count) return current
+      const latest = db.prepare("SELECT COALESCE(MAX(session), 1) AS session FROM chat_messages").get() as { session: number }
+      const next = Math.max(latest.session, current) + 1
+      this.setMeta(chatSessionMetaKey, String(next))
+      return next
+    },
+    openChatSession(session: number): boolean {
+      const exists = db.prepare("SELECT 1 FROM chat_messages WHERE session = ? LIMIT 1").get(session)
+      if (!exists && session !== this.chatSession()) return false
+      this.setMeta(chatSessionMetaKey, String(session))
+      return true
+    },
+    // Newest first; the title is the first human message.
+    chatSessions(): ChatSession[] {
+      return db
+        .prepare(
+          `SELECT session AS id, MIN(at) AS startedAt, MAX(at) AS updatedAt, COUNT(*) AS messages,
+             (SELECT body FROM chat_messages first WHERE first.session = chat_messages.session AND first.author = 'human' ORDER BY first.id LIMIT 1) AS title
+           FROM chat_messages GROUP BY session ORDER BY session DESC`,
+        )
+        .all()
+        .map((row) => ({ ...(row as Omit<ChatSession, "title">), title: String((row as { title: string | null }).title ?? "").split("\n")[0].slice(0, 80) }))
+    },
     addChatMessage(author: ChatAuthor, body: string, actions: LeadAction[] = [], details: Partial<ChatDetails> = {}): number {
       const result = db
-        .prepare("INSERT INTO chat_messages (at, author, body, actions, details) VALUES (?, ?, ?, ?, ?)")
-        .run(now(), author, body, JSON.stringify(actions), JSON.stringify({ ...emptyChatDetails, ...details }))
+        .prepare("INSERT INTO chat_messages (at, author, body, actions, details, session) VALUES (?, ?, ?, ?, ?, ?)")
+        .run(now(), author, body, JSON.stringify(actions), JSON.stringify({ ...emptyChatDetails, ...details }), this.chatSession())
       return Number(result.lastInsertRowid)
     },
-    // Oldest first.
-    chatMessages(limit: number): ChatMessage[] {
-      const rows = db.prepare("SELECT id, at, author, body, actions, details FROM chat_messages ORDER BY id DESC LIMIT ?").all(limit) as { id: number; at: string; author: ChatAuthor; body: string; actions: string; details: string }[]
+    // Oldest first. Reads the current session unless told otherwise.
+    chatMessages(limit: number, scope?: number | "all"): ChatMessage[] {
+      const session = scope ?? this.chatSession()
+      const filter = session === "all" ? "" : "WHERE session = ?"
+      const parameters = session === "all" ? [limit] : [session, limit]
+      const rows = db.prepare(`SELECT id, at, author, body, actions, details FROM chat_messages ${filter} ORDER BY id DESC LIMIT ?`).all(...parameters) as { id: number; at: string; author: ChatAuthor; body: string; actions: string; details: string }[]
       return rows.reverse().map((row) => ({ ...row, actions: JSON.parse(row.actions) as LeadAction[], details: { ...emptyChatDetails, ...JSON.parse(row.details) } }))
     },
     chatAction(messageId: number, index: number): LeadAction | null {

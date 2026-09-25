@@ -17,32 +17,40 @@ You may read any file in the repo. Open every screenshot and every branding imag
 2. Routes: every route loads, answers below HTTP 400, and has no console errors. Routes marked "signed in" were captured after logging in with the demo account; a signed-in screenshot that shows the login page is a finding.
 2a. Landing: `/` explains the product, shows the logo, and its call to action leads to the login or sign-up page.
 3. Screens: each screen shows the content and states `docs/design.md` describes for it.
-4. Branding: compare each screenshot with its branding image. Check layout and hierarchy, colors, typography, spacing, and the logo in the header. The screenshot is the real app at 1440x900; the branding image is the target look.
+4. Branding: compare each screenshot with its branding image. An illustration that looks hand-drawn, unfinished, or unlike the branding (for example shapes floating over the scene) is a `major` finding: the fix task has a `copy` entry from `design/illustrations/` into the app's public folder, and renders the file instead of redrawing it. When `design/illustrations/` has no file for it, also add an `illustrations` entry: `{"to": "design/illustrations/<name>.png", "prompt": "<a full image prompt: what the scene shows, the brand colors in hex, flat illustration style, plain background, no text>", "reference": "design/branding/02-landing.png"}`. The orchestrator has the illustrator draw it with image generation before the worker starts. For each screen, list every departure you see: missing sections or navigation levels, a different layout, missing illustrations, default colors or fonts instead of the brand's. A departure a user would notice is a `major` finding; a small one is `minor`. Check layout and hierarchy, colors, typography, spacing, and the logo in the header. The screenshot is the real app at 1440x900; the branding image is the target look.
 4a. Mobile: open every mobile screenshot. The layout is one column, nothing is cut off, text is readable without zooming, navigation works on a phone, and it matches the mobile branding image when there is one. The orchestrator already fails pages that scroll sideways or have tap targets under 24px.
 5. Design system: `/design-system` renders every token and component in `docs/design-system.md`. Components use the documented variants.
 6. Logo: the header shows `design/logo.svg`. The app serves the files from `design/favicon/` at the site root and links them in the HTML head.
+7. Links: every link the app builds for someone else (invites, shares, emails, payment returns) uses the public URL, never `localhost` or `127.0.0.1`. The deployed app gets its public URL in `APP_URL`.
+8. Money: when the spec has a paid plan, the upgrade or checkout flow is reachable and does not end on an error page.
 
 ## When to fail
 
 Fail for concrete defects a user would notice: a broken route, a failed test, a missing screen or state, clearly wrong colors or fonts, a missing logo, a layout that does not match the branding. Do not fail for small pixel differences, placeholder data, or taste. The branding images are drawings, so the app will not match them exactly.
+
+A missing hero illustration, logo, or header navigation on the landing page is a `major` finding, never a minor note.
+
+Before you blame the app for a crash or an out-of-memory error, read the Environment section of the task prompt. When the container limits explain it, say so in the finding and do not write a workaround task.
+
+When the task prompt says resolve all is on, every finding, minor ones included, needs a fix task, and a pass must have an empty `findings` list.
 
 ## Output
 
 End your final message with exactly one ```json fenced block that holds the verdict object. Put nothing after the block:
 
 ```json
-{"verdict":"fail","findings":[{"title":"Header has no logo","detail":"The header on / shows plain text. The branding shows the hexagon logo left of the name.","screen":"/"}],"tasks":[{"id":"Q101","title":"Show the logo in the app header","story":"setup","phase":"feature","dependsOn":[],"allowedPaths":["src/components/header/**","public/logo.svg"],"readPaths":["design/logo.svg","docs/design-system.md"],"acceptance":["The header renders design/logo.svg at 32px height, left of the product name"],"verify":"npm test -- src/components/header"}]}
+{"verdict":"fail","findings":[{"title":"Header has no logo","detail":"The header on / shows plain text. The branding shows the hexagon logo left of the name.","screen":"/","severity":"major"}],"tasks":[{"id":"Q101","title":"Show the logo in the app header","story":"setup","phase":"feature","dependsOn":[],"allowedPaths":["src/components/header/**","public/logo.svg"],"readPaths":["design/logo.svg","docs/design-system.md"],"acceptance":["The header renders design/logo.svg at 32px height, left of the product name"],"verify":"npm test -- src/components/header"}]}
 ```
 
 - `verdict`: `"pass"` or `"fail"`.
-- `findings`: one entry per defect: a short `title`, a `detail` that says what you saw and what was expected, and the `screen` (the route) it concerns. On pass, findings may list minor notes, or be empty.
+- `findings`: one entry per defect: a short `title`, a `detail` that says what you saw and what was expected, the `screen` (the route) it concerns, and a `severity`: `blocker` (a route, test, or core flow is broken), `major` (a user would notice), or `minor` (polish). On pass, findings may list minor notes, or be empty.
 - `tasks`: on fail, at least one fix task in the `tasks.json` schema. Empty on pass.
 
 Fix task rules:
 
 - Ids use the format from the task prompt: `Q<round><two digits>`, for example `Q101` and `Q102` in round 1.
 - `dependsOn` is empty, or lists only existing task ids. Fix tasks must not depend on each other.
-- `allowedPaths` are real paths in the repo, narrow enough for one worker, and include the tests. Never `docs/**`, `contracts/**`, `design/**`, `AGENTS.md`, or `CLAUDE.md`.
+- `allowedPaths` are real paths in the repo, narrow enough for one worker, and include the tests. Each route, page, API endpoint, or module the task's title or acceptance criteria name must be in `allowedPaths` with its test file, for example `src/app/api/groups/[groupId]/exclusions/**` for a task that adds exclusion endpoints. A missing route file fails the attempt or forces a replan. Never `docs/**`, `contracts/**`, `design/**`, `AGENTS.md`, or `CLAUDE.md`.
 - `acceptance` states the observable result. `verify` runs offline and exits non-zero on failure.
 - Group related findings into one task. Two fix tasks must not share an `allowedPaths` glob.
 - For a fix to UI code, set `"ui": true` and `routes` to the static paths that show the fix, so the orchestrator loads them in a browser before review.

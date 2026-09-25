@@ -67,7 +67,7 @@ test("parseQaVerdict accepts pass and valid fail verdicts", () => {
   const fix = task("Q101", { dependsOn: ["T001"] })
   const fail = parseQaVerdict(JSON.stringify({ verdict: "fail", findings: [{ title: "No logo", detail: "header", screen: "/" }], tasks: [fix, task("Q102")] }), 1, existing)
   assert.equal(fail.verdict, "fail")
-  assert.deepEqual(fail.findings, [{ title: "No logo", detail: "header", screen: "/" }])
+  assert.deepEqual(fail.findings, [{ title: "No logo", detail: "header", screen: "/", severity: "major" }])
   assert.deepEqual(fail.tasks.map((entry) => entry.id), ["Q101", "Q102"])
 })
 
@@ -110,7 +110,7 @@ test("qa config defaults to enabled with 3 rounds and a claude opus role", () =>
   const projectDir = join(scratch, "config")
   createProject(projectDir, "brief")
   const config = loadConfig(join(projectDir, "pipeline.yaml"))
-  assert.deepEqual(config.qa, { enabled: true, maxRounds: 3 })
+  assert.deepEqual(config.qa, { enabled: true, maxRounds: 3, resolveAll: false })
   assert.deepEqual(config.roles.qa, { runner: "claude", model: "opus", fallbacks: [] })
   const legacyPath = join(scratch, "legacy.yaml")
   writeFileSync(legacyPath, "roles:\n  pm: { runner: claude, model: opus }\n  architect: { runner: claude, model: opus }\n  designer: { runner: claude, model: opus }\n  planner: { runner: claude, model: opus }\n  worker: { runner: claude, model: sonnet }\n  reviewer: { runner: codex, model: gpt-5.5 }\nqa:\n  maxRounds: 0\n")

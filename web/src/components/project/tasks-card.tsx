@@ -1,14 +1,16 @@
 import { useState } from "react"
-import { CircleDollarSign, Loader2, RotateCcw } from "lucide-react"
+import { CircleDollarSign, Columns3, List, Loader2, RotateCcw } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@/api/client"
-import type { Task } from "@/api/types"
+import type { Task, TaskStatus } from "@/api/types"
 import { EmptyState } from "@/components/empty-state"
 import { StatusBadge } from "@/components/status-badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { maxRetries, taskCounts } from "@/lib/pipeline"
+import { cn } from "@/lib/utils"
 import { useProjectView } from "./context"
 
 export function RetryButton({ task, size = "sm" }: { task: Task; size?: "sm" | "default" }) {
@@ -82,12 +84,98 @@ export function TaskAction({ task, size = "sm" }: { task: Task; size?: "sm" | "d
   return null
 }
 
+type TaskLayout = "list" | "board"
+
+const layoutKey = "agent-team.tasks.layout"
+
+function readLayout(): TaskLayout {
+  try {
+    return localStorage.getItem(layoutKey) === "board" ? "board" : "list"
+  } catch {
+    return "list"
+  }
+}
+
+function saveLayout(layout: TaskLayout) {
+  try {
+    localStorage.setItem(layoutKey, layout)
+  } catch {
+    // Private windows can refuse storage; the choice then lasts for this visit only.
+  }
+}
+
+const boardColumns: { status: TaskStatus; label: string; accent: string }[] = [
+  { status: "pending", label: "To do", accent: "bg-muted-foreground/40" },
+  { status: "running", label: "In progress", accent: "bg-blue-500" },
+  { status: "blocked", label: "Blocked", accent: "bg-destructive" },
+  { status: "merged", label: "Done", accent: "bg-emerald-500" },
+]
+
+function TaskBoard({ tasks }: { tasks: Task[] }) {
+  const { openPanel } = useProjectView()
+  return (
+    <div className="-mx-px flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2 sm:px-0 md:grid md:snap-none md:grid-cols-4 md:overflow-visible">
+      {boardColumns.map((column) => {
+        const cards = tasks.filter((task) => task.status === column.status)
+        return (
+          <section key={column.status} aria-label={column.label} className="flex w-[80vw] max-w-xs shrink-0 snap-start flex-col gap-2 rounded-lg bg-muted/40 p-2 md:w-auto md:max-w-none">
+            <h3 className="flex items-center gap-2 px-1 text-sm font-medium">
+              <span className={cn("size-2 rounded-full", column.accent)} aria-hidden="true" />
+              {column.label}
+              <span className="ml-auto text-xs text-muted-foreground tabular-nums">{cards.length}</span>
+            </h3>
+            {cards.length === 0 && <p className="px-1 py-4 text-center text-xs text-muted-foreground">Nothing here</p>}
+            {cards.map((task) => (
+              <div
+                key={task.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => openPanel({ kind: "task", id: task.id })}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault()
+                    openPanel({ kind: "task", id: task.id })
+                  }
+                }}
+                aria-label={`${task.id} ${task.title}. Show details`}
+                className="flex cursor-pointer flex-col gap-2 rounded-md border bg-card p-3 text-sm shadow-xs transition-colors hover:bg-accent/50 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+              >
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span className="font-mono">{task.id}</span>
+                  {task.phase && <span className="truncate">{task.phase}</span>}
+                  {task.attempts > 0 && <span className="ml-auto tabular-nums">{task.attempts} {task.attempts === 1 ? "try" : "tries"}</span>}
+                </div>
+                <p className="line-clamp-3">{task.title}</p>
+                {task.budgetStopUsd ? (
+                  <p className="text-xs text-destructive">Budget reached (${task.budgetStopUsd.toFixed(2)})</p>
+                ) : (
+                  task.lastFailure && task.status !== "merged" && <p className="text-xs text-destructive">Last attempt failed</p>
+                )}
+                {task.dependsOn.length > 0 && task.status === "pending" && <p className="text-xs text-muted-foreground">Waits for {task.dependsOn.join(", ")}</p>}
+                <div className="empty:hidden">
+                  <TaskAction task={task} />
+                </div>
+              </div>
+            ))}
+          </section>
+        )
+      })}
+    </div>
+  )
+}
+
 export function TasksCard() {
   const { detail, openPanel } = useProjectView()
   const limit = maxRetries(detail)
   const counts = taskCounts(detail.tasks)
   const workerFor = (taskId: string) => detail.attempts.find((attempt) => attempt.role === "worker" && attempt.subject.startsWith(`${taskId}-`))
   const configuredWorker = detail.config?.roles.worker
+  const [layout, setLayout] = useState<TaskLayout>(readLayout)
+  const changeLayout = (value: string) => {
+    if (value !== "list" && value !== "board") return
+    setLayout(value)
+    saveLayout(value)
+  }
 
   return (
     <Card className="min-w-0 gap-3">
@@ -96,11 +184,22 @@ export function TasksCard() {
         <CardDescription>
           {detail.tasks.length ? `${counts.merged} merged, ${counts.running} running, ${counts.pending} pending, ${counts.blocked} blocked` : "No plan yet"}
         </CardDescription>
-        <CardAction className="text-sm text-muted-foreground tabular-nums">{detail.tasks.length} total</CardAction>
+        <CardAction>
+          <ToggleGroup type="single" variant="outline" size="sm" value={layout} onValueChange={changeLayout} aria-label="Task layout">
+            <ToggleGroupItem value="list" aria-label="List">
+              <List />
+            </ToggleGroupItem>
+            <ToggleGroupItem value="board" aria-label="Board">
+              <Columns3 />
+            </ToggleGroupItem>
+          </ToggleGroup>
+        </CardAction>
       </CardHeader>
       <CardContent className="px-0 sm:px-6">
         {detail.tasks.length === 0 ? (
           <EmptyState title="Tasks appear after the plan step">The planner writes tasks.json. Each task then gets a worker and a reviewer.</EmptyState>
+        ) : layout === "board" ? (
+          <TaskBoard tasks={detail.tasks} />
         ) : (
           <Table>
             <TableHeader>

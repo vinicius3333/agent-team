@@ -5,7 +5,11 @@ import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { after, test } from "node:test"
 import { loadConfig } from "../src/config.ts"
-import { validateBranding } from "../src/pipeline.ts"
+import { execFileSync } from "node:child_process"
+import { conceptChoiceKey, conceptIds } from "../src/concepts.ts"
+import { designReviewPrompt, parseConceptPick, validateBranding, validateConcepts } from "../src/pipeline.ts"
+import { approvePhase } from "../src/project.ts"
+import { validateTasks } from "../src/tasks.ts"
 import { openStore } from "../src/store.ts"
 
 const scratch = mkdtempSync(join(tmpdir(), "agent-team-branding-"))
@@ -22,16 +26,16 @@ function writePipeline(name: string, yaml: string): string {
 test("the old mockups key and gate map to branding", () => {
   const legacy = examplePipeline
     .replace(/^branding:\n  enabled: true.*\n  count: 4.*$/m, "mockups:\n  enabled: false\n  count: 5")
-    .replace("gates: [spec, architecture]", "gates: [spec, mockups, branding]")
+    .replace("gates: [spec, architecture, concepts]", "gates: [spec, mockups, branding]")
   assert.match(legacy, /^mockups:/m)
   const config = loadConfig(writePipeline("legacy", legacy))
-  assert.deepEqual(config.branding, { enabled: false, count: 5, mobile: true })
+  assert.deepEqual(config.branding, { enabled: false, count: 5, mobile: true, variations: 3, dark: true })
   assert.deepEqual(config.autonomy.gates, ["spec", "branding"])
 })
 
 test("the branding key wins over mockups and defaults to 4 images", () => {
   const config = loadConfig(writePipeline("current", examplePipeline))
-  assert.deepEqual(config.branding, { enabled: true, count: 4, mobile: true })
+  assert.deepEqual(config.branding, { enabled: true, count: 4, mobile: true, variations: 3, dark: true })
   const both = loadConfig(writePipeline("both", `${examplePipeline}\nmockups:\n  count: 6\n`))
   assert.equal(both.branding.count, 4)
 })
@@ -67,5 +71,74 @@ test("validateBranding needs the logo, count - 1 screens, and a README", () => {
   writeFileSync(join(brandingDir, "02-dashboard.png"), "")
   assert.throws(() => validateBranding(dir, 3), /expected at least 2/)
   writeFileSync(join(brandingDir, "03-settings.png"), "")
+  assert.throws(() => validateBranding(dir, 3), /design\/illustrations\/ has no hero\.png/)
+  mkdirSync(join(dir, "design/illustrations"))
+  writeFileSync(join(dir, "design/illustrations/hero.png"), "")
   validateBranding(dir, 3)
+})
+
+test("validateBranding with dark on needs the dark landing, which does not count as a screen", () => {
+  const dir = join(scratch, "dark")
+  const brandingDir = join(dir, "design/branding")
+  mkdirSync(brandingDir, { recursive: true })
+  for (const file of ["01-logo.png", "README.md", "02-landing.png", "02-landing.mobile.png"]) writeFileSync(join(brandingDir, file), "")
+  mkdirSync(join(dir, "design/illustrations"))
+  writeFileSync(join(dir, "design/illustrations/hero.png"), "")
+  validateBranding(dir, 2, true)
+  assert.throws(() => validateBranding(dir, 2, true, true), /02-landing\.dark\.png/)
+  writeFileSync(join(brandingDir, "02-landing.dark.png"), "")
+  validateBranding(dir, 2, true, true)
+  assert.throws(() => validateBranding(dir, 3, true, true), /expected at least 2/)
+})
+
+test("validateConcepts needs every direction with its logo, landing, and style", () => {
+  const dir = join(scratch, "concepts")
+  const conceptsDir = join(dir, "design/concepts")
+  mkdirSync(conceptsDir, { recursive: true })
+  writeFileSync(join(conceptsDir, "README.md"), "")
+  for (const id of ["a", "b"]) {
+    mkdirSync(join(conceptsDir, id))
+    for (const file of ["logo.png", "landing.png", "style.md"]) writeFileSync(join(conceptsDir, id, file), "")
+  }
+  assert.throws(() => validateConcepts(dir, 3), /has 2 directions \(a, b\); expected 3/)
+  mkdirSync(join(conceptsDir, "c"))
+  writeFileSync(join(conceptsDir, "c", "logo.png"), "")
+  assert.throws(() => validateConcepts(dir, 3), /c\/landing\.png/)
+  writeFileSync(join(conceptsDir, "c", "landing.png"), "")
+  writeFileSync(join(conceptsDir, "c", "style.md"), "")
+  assert.deepEqual(validateConcepts(dir, 3), ["a", "b", "c"])
+  assert.deepEqual(conceptIds(dir), ["a", "b", "c"])
+})
+
+test("parseConceptPick accepts only a listed direction", () => {
+  assert.deepEqual(parseConceptPick('Done.\n```json\n{"choice":"b","reason":"warm"}\n```', ["a", "b", "c"]), { choice: "b", reason: "warm" })
+  assert.throws(() => parseConceptPick('{"choice":"d"}', ["a", "b", "c"]), /one of a, b, c/)
+})
+
+test("approving concepts needs a direction that exists, and records it for the branding phase", () => {
+  const dir = join(scratch, "approve")
+  mkdirSync(join(dir, "design/concepts/a"), { recursive: true })
+  mkdirSync(join(dir, "design/concepts/b"), { recursive: true })
+  execFileSync("git", ["init", "-q"], { cwd: dir })
+  const store = openStore(join(scratch, "approve.db"))
+  store.setPhase("concepts", "awaiting_approval")
+  assert.throws(() => approvePhase(dir, store, "concepts"), /Choose a direction to approve the concepts: a, b/)
+  assert.throws(() => approvePhase(dir, store, "concepts", "z"), /Choose a direction/)
+  approvePhase(dir, store, "concepts", "b")
+  assert.equal(store.meta(conceptChoiceKey), "b")
+  assert.equal(store.phaseStatus("concepts"), "approved")
+})
+
+test("the design review of concepts asks for distinct directions, and a change's branding for matching screens", () => {
+  const config = loadConfig(writePipeline("review", examplePipeline))
+  assert.match(designReviewPrompt({ phase: "concepts", config, files: ["design/concepts/a/landing.png"], previousError: null }), /3 directions[\s\S]*truly different[\s\S]*- design\/concepts\/a\/landing\.png/)
+  assert.match(designReviewPrompt({ phase: "branding", config, files: [], previousError: null, changeId: "C002" }), /Change C002: expected new screen images/)
+})
+
+test("a task's copy entries must land inside its allowedPaths", () => {
+  const base = { id: "Q101", title: "hero", phase: "feature", dependsOn: [], allowedPaths: ["src/landing/**", "public/illustrations/**"], readPaths: [], acceptance: ["shows it"], verify: "npm test" }
+  validateTasks([{ ...base, copy: [{ from: "design/illustrations/hero.png", to: "public/illustrations/hero.png" }] }])
+  assert.throws(() => validateTasks([{ ...base, copy: [{ from: "design/illustrations/hero.png", to: "public/hero.png" }] }]), /copy target public\/hero\.png must be inside allowedPaths/)
+  assert.throws(() => validateTasks([{ ...base, copy: [{ from: "../secret", to: "public/illustrations/x.png" }] }]), /relative paths inside the repo/)
+  assert.throws(() => validateTasks([{ ...base, copy: "design/illustrations/hero.png" }]), /copy must be an array/)
 })

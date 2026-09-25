@@ -89,6 +89,8 @@ test("validateBranding needs a mobile version of each desktop screen when mobile
   const brandingDir = join(dir, "design/branding")
   mkdirSync(brandingDir, { recursive: true })
   for (const file of ["01-logo.png", "README.md", "02-board.png", "03-settings.png", "02-board.mobile.png"]) writeFileSync(join(brandingDir, file), "")
+  mkdirSync(join(dir, "design/illustrations"))
+  writeFileSync(join(dir, "design/illustrations/hero.png"), "")
   validateBranding(dir, 3)
   assert.throws(() => validateBranding(dir, 3, true), /no mobile version of: 03-settings\.png \(expected 03-settings\.mobile\.png\)/)
   writeFileSync(join(brandingDir, "03-settings.mobile.png"), "")

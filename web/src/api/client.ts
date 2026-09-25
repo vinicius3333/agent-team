@@ -1,4 +1,4 @@
-import type { Defaults, Finding, FindingStatus, InsightAgent, OperateSnapshot, LeadActionState, LeadSettings, NotificationStatus, NotificationTestResult, RoleCandidate, Incident, IncidentDetail, NewProjectRequest, ProjectDetail, ProjectSummary, QaRound, StackTemplate } from "@/api/types"
+import type { Defaults, GitIdentity, Finding, FindingStatus, InsightAgent, OperateSnapshot, LeadActionState, LeadSettings, NotificationStatus, NotificationTestResult, RoleCandidate, Incident, IncidentDetail, ImportProjectRequest, ConceptsView, NewProjectRequest, ProjectDetail, ProjectSummary, QaRound, StackTemplate } from "@/api/types"
 
 export class ApiError extends Error {
   status: number
@@ -65,12 +65,15 @@ export const api = {
   login: (password: string) => post<void>("/api/auth/login", { password }),
   logout: () => post<void>("/api/auth/logout", {}),
 
+  gitIdentity: () => getJson<GitIdentity | null>("/api/git-identity"),
+  saveGitIdentity: (identity: GitIdentity) => post<GitIdentity>("/api/git-identity", identity),
   defaults: () => getJson<Defaults>("/api/defaults"),
   templates: () => getJson<StackTemplate[]>("/api/templates"),
   projects: () => getJson<ProjectSummary[]>("/api/projects"),
   project: (name: string) => getJson<ProjectDetail>(projectPath(name)),
   markdownFiles: (name: string) => getJson<string[]>(`${projectPath(name)}/markdown`),
   branding: (name: string) => getJson<string[]>(`${projectPath(name)}/branding`),
+  concepts: (name: string) => getJson<ConceptsView>(`${projectPath(name)}/concepts`),
   qa: (name: string) => getJson<QaRound[]>(`${projectPath(name)}/qa`),
   file: (name: string, path: string) => getText(`${projectPath(name)}/file?path=${encodeURIComponent(path)}`),
   incidents: () => getJson<Incident[]>("/api/incidents"),
@@ -81,13 +84,20 @@ export const api = {
   findings: (name: string, status: FindingStatus | "all" = "open") => getJson<Finding[]>(`${projectPath(name)}/findings?status=${status}`),
 
   createProject: (body: NewProjectRequest) => post<{ name: string }>("/api/projects", body),
+  importProject: (body: ImportProjectRequest) => post<{ name: string }>("/api/projects/import", body),
+  startCleanup: (name: string) => post<{ id: string; branch: string; started: boolean }>(`${projectPath(name)}/cleanup/start`, {}),
+  dismissCleanup: (name: string) => post<{ dismissed: boolean }>(`${projectPath(name)}/cleanup/dismiss`, {}),
   run: (name: string) => post<{ started: boolean }>(`${projectPath(name)}/run`, {}),
-  approve: (name: string, phase: string) => post<{ started: boolean }>(`${projectPath(name)}/approve`, { phase }),
+  approve: (name: string, phase: string, choice?: string) => post<{ started: boolean }>(`${projectPath(name)}/approve`, choice ? { phase, choice } : { phase }),
   feedback: (name: string, phase: string, message: string) => post<{ started: boolean }>(`${projectPath(name)}/feedback`, { phase, message }),
   approveTaskBudget: (name: string, taskId: string) => post<{ budgetUsd: number; started: boolean }>(`${projectPath(name)}/approve-task-budget`, { taskId }),
   retry: (name: string, taskId: string) => post<{ started: boolean }>(`${projectPath(name)}/retry`, { taskId }),
+  approveSuggestion: (name: string, taskId: string) => post<{ paths: string[]; started: boolean }>(`${projectPath(name)}/approve-suggestion`, { taskId }),
+  setAutoApproveScope: (name: string, enabled: boolean) => post<{ enabled: boolean }>(`${projectPath(name)}/auto-approve-scope`, { enabled }),
+  dropTask: (name: string, taskId: string) => post<{ started: boolean }>(`${projectPath(name)}/drop-task`, { taskId }),
   saveRoles: (name: string, roles: Record<string, RoleCandidate>) => post<{ saved: boolean }>(`${projectPath(name)}/roles`, { roles }),
   chat: (name: string, message: string, attachments: string[] = []) => post<{ accepted: boolean }>(`${projectPath(name)}/chat`, { message, attachments }),
+  chatSession: (name: string, session?: number) => post<{ session: number }>(`${projectPath(name)}/chat-session`, session === undefined ? {} : { session }),
   chatStop: (name: string) => post<{ stopped: boolean }>(`${projectPath(name)}/chat-stop`, {}),
   chatAction: (name: string, messageId: number, index: number, state: Exclude<LeadActionState, "proposed">) =>
     post<{ saved: boolean; note?: string; started?: boolean }>(`${projectPath(name)}/chat-action`, { messageId, index, state }),
@@ -112,6 +122,7 @@ export const api = {
 export const urls = {
   stream: (name: string) => `/api/stream/${encodeURIComponent(name)}`,
   brandingImage: (name: string, file: string) => `${projectPath(name)}/branding/${encodeURIComponent(file)}`,
+  conceptImage: (name: string, id: string, file: string) => `${projectPath(name)}/concepts/${encodeURIComponent(id)}/${encodeURIComponent(file)}`,
   qaFile: (name: string, round: number, file: string) => `${projectPath(name)}/qa/${round}/${encodeURIComponent(file)}`,
   raw: (name: string, path: string) => `${projectPath(name)}/raw?path=${encodeURIComponent(path)}`,
   file: (name: string, path: string) => `${projectPath(name)}/file?path=${encodeURIComponent(path)}`,

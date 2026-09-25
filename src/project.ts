@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { parseDocument, type Document } from "yaml"
 import { loadConfig, normalizePhaseName, planningPhases, roles, runnerNames, type Candidate, type PipelineConfig, type PlanningPhase, type Role, type RunnerName } from "./config.ts"
+import { conceptChoiceKey, conceptIds } from "./concepts.ts"
 import { appendFeedback, archiveFeedback } from "./feedback.ts"
 import { commitAll, commitOf, commitPaths, createBranch, fileAtRef, initRepository } from "./git.ts"
 import { changeTitle, createGitHub } from "./github.ts"
@@ -79,6 +80,10 @@ export interface ProjectChoices {
   github: boolean
   deploy: boolean
   branding: boolean
+  // Optional so older clients keep working; undefined keeps the value in pipeline.example.yaml.
+  resolveAllQa?: boolean
+  evolve?: boolean
+  autoApproveScope?: boolean
   // A stack template name; undefined or "custom" lets the architect choose the stack.
   template?: string
 }
@@ -120,13 +125,13 @@ export function createProject(projectDir: string, brief: string, choices?: Parti
 }
 
 // Keeps the scaffold's own ignore lines and adds the ones every project needs.
-function writeGitignore(projectDir: string): void {
+export function writeGitignore(projectDir: string): void {
   const path = join(projectDir, ".gitignore")
   const existing = existsSync(path) ? readFileSync(path, "utf8").split("\n").filter(Boolean) : []
   writeFileSync(path, `${[...new Set([...baseIgnores, ...existing])].join("\n")}\n`)
 }
 
-function applyChoices(pipelineYaml: string, choices: Partial<ProjectChoices>, template: StackTemplate | null): string {
+export function applyChoices(pipelineYaml: string, choices: Partial<ProjectChoices>, template: StackTemplate | null): string {
   const document = parseDocument(pipelineYaml)
   if (choices.target !== undefined) document.set("target", choices.target)
   if (template) {
@@ -142,6 +147,9 @@ function applyChoices(pipelineYaml: string, choices: Partial<ProjectChoices>, te
   if (choices.github !== undefined) document.setIn(["publish", "github", "enabled"], choices.github)
   if (choices.deploy !== undefined) document.setIn(["deploy", "enabled"], choices.deploy)
   if (choices.branding !== undefined) document.setIn(["branding", "enabled"], choices.branding)
+  if (choices.resolveAllQa !== undefined) document.setIn(["qa", "resolveAll"], choices.resolveAllQa)
+  if (choices.evolve !== undefined) document.setIn(["evolve", "enabled"], choices.evolve)
+  if (choices.autoApproveScope !== undefined) document.setIn(["autonomy", "autoApproveScope"], choices.autoApproveScope)
   const workerModels: RoleModels = choices.workerRunner === "codex" ? { worker: { runner: "codex", model: "gpt-5.5" } } : {}
   applyRoleModels(document, { ...workerModels, ...choices.roles })
   return document.toString()
@@ -189,8 +197,15 @@ function commitHumanEdits(projectDir: string, store: Store, phase: PlanningPhase
   if (!store.currentChange()) commitAll(projectDir, `docs(${phase}): apply human edits`)
 }
 
-export function approvePhase(projectDir: string, store: Store, phase: string | undefined): void {
+// Approving the concepts phase needs the chosen direction (a, b, c...), which the branding phase then follows.
+export function approvePhase(projectDir: string, store: Store, phase: string | undefined, choice?: string): void {
   const approved = requireAwaitingApproval(store, phase)
+  if (approved === "concepts") {
+    const ids = conceptIds(projectDir)
+    if (!choice || !ids.includes(choice)) throw new ProjectError(400, `Choose a direction to approve the concepts: ${ids.join(", ") || "none found"}.`)
+    store.setMeta(conceptChoiceKey, choice)
+    store.log("gate", `concepts: direction ${choice} chosen`)
+  }
   commitHumanEdits(projectDir, store, approved)
   archiveFeedback(projectDir, approved)
   store.setPhase(approved, "approved")
@@ -243,9 +258,14 @@ export function raiseRunBudget(projectDir: string, store: Store, runUsd?: number
   const document = parseDocument(readFileSync(path, "utf8"))
   document.setIn(["budget", "runUsd"], raised)
   writeFileSync(path, document.toString())
+  commitPaths(projectDir, ["pipeline.yaml"], "chore: raise the run budget")
   store.log("budget", `budget.runUsd raised from $${current.toFixed(2)} to $${raised.toFixed(2)}`)
   return raised
 }
+
+// Kept here, not in pipeline.ts, so the dashboard reads it without loading the pipeline.
+export const importDoneKey = "import.done"
+export const importCleanupKey = "import.cleanup"
 
 export const changeRequestMaxLength = 4000
 // The phases a change reruns; design joins them when the architecture delta asks for it.
@@ -256,10 +276,11 @@ export function changePath(id: string, file: string): string {
 }
 
 // Done means the last run got through QA and deploy (deploy counts as approved when it is off) with every task merged.
+// An imported project counts as done with no tasks, once its import finished.
 export function buildComplete(store: Store): boolean {
   if (!["plan", "qa", "deploy"].every((phase) => store.phaseStatus(phase) === "approved")) return false
   const tasks = store.tasks()
-  return tasks.length > 0 && tasks.every((task) => task.status === "merged")
+  return (tasks.length > 0 || store.meta(importDoneKey) === "1") && tasks.every((task) => task.status === "merged")
 }
 
 function changeSlug(request: string): string {

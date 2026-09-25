@@ -11,6 +11,7 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { ThemeProvider } from "@/hooks/use-theme"
 import { IncidentPage, IncidentsPage } from "@/pages/incidents"
 import { LoginPage } from "@/pages/login"
+import { ImportProjectPage } from "@/pages/import-project"
 import { NewProjectPage } from "@/pages/new-project"
 import { ProjectsPage } from "@/pages/projects"
 import { SettingsPage } from "@/pages/settings"
@@ -41,6 +42,7 @@ function Dashboard() {
           <Route element={<Layout />}>
             <Route index element={<ProjectsPage />} />
             <Route path="new" element={<NewProjectPage />} />
+            <Route path="import" element={<ImportProjectPage />} />
             <Route path="projects/:name/:phase?/:view?" element={
                 <Suspense fallback={null}>
                   <ProjectPage />

@@ -1,4 +1,5 @@
 import { useProjectList } from "@/api/projects-context"
+import { GitIdentityCard } from "@/components/git-identity-card"
 import { NotificationsCard } from "@/components/notifications-card"
 import { PageHeader } from "@/components/page-header"
 import { themeOptions } from "@/components/theme-toggle"
@@ -28,6 +29,7 @@ export function SettingsPage() {
             </ToggleGroup>
           </CardContent>
         </Card>
+        <GitIdentityCard />
         <NotificationsCard />
         <Card>
           <CardHeader>

@@ -34,5 +34,6 @@ End your final message with exactly one ```json fenced block that holds the verd
 - `verdict`: `"pass"` or `"fail"`.
 - `reasons`: short statements of each defect. Empty on pass.
 - `fixes`: one concrete instruction per reason, written for the worker, naming the file and what to change. Empty on pass.
+- `departures` (optional, also on pass): short notes on where the screens differ from the branding image in ways too small to fail, for example "breadcrumb stops at the project level; the branding shows project / change / task". The orchestrator logs them on the project timeline.
 
 Do not edit any files.

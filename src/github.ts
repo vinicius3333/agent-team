@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
 import { basename, join } from "node:path"
 import type { PipelineConfig } from "./config.ts"
+import { isAncestor } from "./git.ts"
 import { fastForward, type Workspace } from "./harness/workspace.ts"
 import type { Change, Store } from "./store.ts"
 import type { Task } from "./tasks.ts"
@@ -90,6 +91,7 @@ export function createGitHub(context: GitHubContext) {
   }
 
   function ensureProject(): { number: string; id: string } | null {
+    if (!settings.board) return null
     const number = store.meta("github.project.number")
     const id = store.meta("github.project.id")
     if (number && id) return { number, id }
@@ -143,6 +145,7 @@ export function createGitHub(context: GitHubContext) {
   }
 
   function ensureEpic(): number | null {
+    if (!settings.board) return null
     const cached = store.meta("github.epic")
     if (cached) return Number(cached)
     const brief = existsSync(join(projectDir, "input.md")) ? readFileSync(join(projectDir, "input.md"), "utf8") : ""
@@ -287,6 +290,14 @@ export function createGitHub(context: GitHubContext) {
     mergeChange(change: Change, body: string): string | null {
       if (!enabled || !ensureRepository()) return null
       return attempt(`merge ${change.branch}`, () => {
+        run("git", ["fetch", "-q", "origin", "main"], projectDir)
+        // A run that stopped after GitHub merged the pull request, but before main caught up, resumes here.
+        const earlier = store.change(change.id)?.prUrl
+        if (earlier && isAncestor(projectDir, change.branch, "origin/main")) {
+          fastForward(projectDir, "origin/main")
+          store.log("github", `${earlier} was already merged; main caught up`)
+          return earlier
+        }
         run("git", ["push", "-q", "origin", `${change.branch}:${change.branch}`], projectDir)
         const url = run("gh", ["pr", "create", "-R", repo(), "--base", "main", "--head", change.branch, "--title", `feat: ${changeTitle(change)}`, "--body-file", "-"], projectDir, body)
         store.setChangePullRequest(change.id, url)
