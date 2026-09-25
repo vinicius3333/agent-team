@@ -3,7 +3,7 @@
   <img alt="agent-team" src="docs/brand/logo/horizontal-light.svg" width="320">
 </picture>
 
-A self-hosted orchestrator that turns a plain-text product brief into a working web app or API. A team of AI agents writes the spec, architecture, branding, design system, and task plan. Scoped worker agents then build the app one task at a time, and a reviewer checks each task.
+A self-hosted orchestrator that turns a plain-text product brief into a working web app or API. A team of AI agents writes the spec, architecture, branding, design system, and task plan. Scoped worker agents then build the tasks, several at once (`parallelTasks`), and a reviewer checks each one.
 
 ![A team of agents passing work around the agent-team hexagon](docs/brand/assets/readme-hero.png)
 
