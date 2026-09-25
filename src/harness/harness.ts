@@ -39,14 +39,16 @@ export interface HarnessOutcome {
 
 // Longest time the harness waits for a cooled-down runner (e.g. a subscription limit resetting) before giving up.
 const maxCooldownWaitMs = 60 * 60_000
+const cooldownPollMs = 60_000
 
 export function createHarness(options: {
   config: HarnessConfig
   store: Store
   signal: AbortSignal
   resolveRunner?: (name: Candidate["runner"]) => AgentRunner
+  pollMs?: number
 }) {
-  const { config, store, signal, resolveRunner = getRunner } = options
+  const { config, store, signal, resolveRunner = getRunner, pollMs = cooldownPollMs } = options
 
   async function runCandidate(candidate: Candidate, job: AgentJob, executor: Executor): Promise<HarnessOutcome> {
     let outcome: HarnessOutcome | null = null
@@ -91,11 +93,14 @@ export function createHarness(options: {
   }
 
   async function waitForCandidate(chain: Candidate[]): Promise<boolean> {
-    const soonest = Math.min(...chain.map((candidate) => store.runnerCooldownUntil(candidate.runner)))
-    const waitMs = soonest - Date.now()
+    const soonestAvailable = () => Math.min(...chain.map((candidate) => store.runnerCooldownUntil(candidate.runner)))
+    const waitMs = soonestAvailable() - Date.now()
     if (waitMs <= 0 || waitMs > maxCooldownWaitMs) return false
     store.log("harness", `all runners cooling down; waiting ${Math.round(waitMs / 60_000)} min`)
-    await sleep(waitMs, undefined, { signal }).catch(() => {})
+    // Polls instead of one long sleep, so a cooldown cleared from the dashboard or the CLI takes effect at once.
+    while (!signal.aborted && soonestAvailable() > Date.now()) {
+      await sleep(Math.min(pollMs, soonestAvailable() - Date.now()), undefined, { signal }).catch(() => {})
+    }
     return !signal.aborted
   }
 

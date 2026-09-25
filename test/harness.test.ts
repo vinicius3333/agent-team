@@ -80,6 +80,17 @@ test("retries the same runner on transient errors", async () => {
   assert.equal(claude.calls, 0)
 })
 
+test("a cooldown cleared during the wait lets the runner go again at once", async () => {
+  const store = openStore(":memory:")
+  const claude = scriptedRunner("claude", [result({ status: "failed", diagnostics: "Failed to authenticate: OAuth session expired" }), result({ summary: "logged in again" })])
+  const harness = createHarness({ config, store, signal: new AbortController().signal, resolveRunner: () => claude, pollMs: 10 })
+  setTimeout(() => store.clearCooldowns(), 50)
+  const started = Date.now()
+  const outcome = await harness.run({ runner: "claude", model: "b", fallbacks: [] }, job, hostExecutor("/tmp"))
+  assert.equal(outcome.result.summary, "logged in again")
+  assert.ok(Date.now() - started < 5_000, "the wait ends when the cooldown is cleared, not when it runs out")
+})
+
 test("agent failures go back to the caller without fallback", async () => {
   const store = openStore(":memory:")
   const codex = scriptedRunner("codex", [result({ status: "failed", summary: "could not make tests pass" })])
