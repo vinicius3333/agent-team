@@ -1,4 +1,4 @@
-import { matchesGlob } from "node:path"
+import { matchesPath } from "./glob.ts"
 import type { CommitGroup } from "./harness/workspace.ts"
 import { extractJsonObject } from "./json.ts"
 
@@ -47,7 +47,7 @@ export interface PhaseCommit {
 // Sorts the phase's changed files into its commits by glob, in order; the first commit that matches a file takes it.
 export function groupPhaseFiles(changed: string[], commits: PhaseCommit[]): CommitGroup[] {
   const claimed = new Set<string>()
-  const matchesAny = (file: string, patterns: string[]) => patterns.some((pattern) => file === pattern || matchesGlob(file, pattern))
+  const matchesAny = (file: string, patterns: string[]) => patterns.some((pattern) => file === pattern || matchesPath(file, pattern))
   return commits.map(({ message, matches, exclude = [] }) => {
     const files = changed.filter((file) => !claimed.has(file) && matchesAny(file, matches) && !matchesAny(file, exclude))
     for (const file of files) claimed.add(file)

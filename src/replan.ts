@@ -1,4 +1,4 @@
-import { matchesGlob } from "node:path"
+import { matchesPath } from "./glob.ts"
 import { extractJsonObject } from "./json.ts"
 import { orderTasks, validateTasks, type Task } from "./tasks.ts"
 
@@ -165,7 +165,7 @@ export function scopeConflict(paths: string[], tasks: Task[], exceptIds: string[
 }
 
 function globsOverlap(first: string, second: string): boolean {
-  return first === second || matchesGlob(first, second) || matchesGlob(second, first)
+  return first === second || matchesPath(first, second) || matchesPath(second, first)
 }
 
 function isStringList(value: unknown): value is string[] {

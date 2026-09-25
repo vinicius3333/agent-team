@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs"
-import { matchesGlob } from "node:path"
+import { matchesPath } from "./glob.ts"
 
 export interface Task {
   id: string
@@ -84,7 +84,7 @@ export function validateTasks(value: unknown, sharedPaths: string[] = []): Task[
     if (Array.isArray(task?.acceptance) && task.acceptance.length === 0) errors.push(`${label}: acceptance is empty`)
     if (task?.phase === "feature" && Array.isArray(task?.allowedPaths)) {
       const patterns = task.allowedPaths.filter((pattern: unknown) => typeof pattern === "string")
-      for (const shared of sharedPaths.filter((path) => patterns.some((pattern: string) => pattern === path || matchesGlob(path, pattern)))) {
+      for (const shared of sharedPaths.filter((path) => patterns.some((pattern: string) => pattern === path || matchesPath(path, pattern)))) {
         errors.push(`${label}: feature tasks may not touch the shared file ${shared}; give it to a foundation task`)
       }
     }
@@ -144,7 +144,7 @@ function safeRelativePath(path: string): boolean {
 }
 
 export function filesOutsideScope(files: string[], allowedPaths: string[]): string[] {
-  return files.filter((file) => !allowedPaths.some((pattern) => file === pattern || matchesGlob(file, pattern)))
+  return files.filter((file) => !allowedPaths.some((pattern) => file === pattern || matchesPath(file, pattern)))
 }
 
 // Conservative: two patterns overlap when the literal part before the first wildcard of one is a prefix of the other's.
