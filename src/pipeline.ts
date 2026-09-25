@@ -6,7 +6,7 @@ import { groupPhaseFiles, parseCommitPlan, type PhaseCommit } from "./commits.ts
 import { faviconDir, faviconFiles, generateFavicons, markPath, validateMark } from "./favicon.ts"
 import { copyPath, manifestPath, marketingDir, renderMarketing, validateMarketing } from "./marketing.ts"
 import { baselinePath, cleanupRequest, createBaseline, gateFailures, nextBaselinePath, promoteNextBaseline, readBaseline, splitFailures, writeBaseline } from "./baseline.ts"
-import { changedFiles, commitOf, fileAtRef, isAncestor, restorePaths, stagedDiff, trackedFiles } from "./git.ts"
+import { changedFiles, commitOf, commitPaths, fileAtRef, isAncestor, restorePaths, stagedDiff, trackedFiles } from "./git.ts"
 import { createDockerExecutor, ensureImage } from "./harness/docker.ts"
 import { hostExecutor, type Executor } from "./harness/executor.ts"
 import { defaultAllowlist, ensureEgressProxy } from "./harness/network.ts"
@@ -1243,6 +1243,8 @@ async function mergeChange(context: PipelineContext, change: Change): Promise<Ru
     return "awaiting_approval"
   }
   try {
+    // A hand edit of pipeline.yaml stays uncommitted in the project folder, and git refuses to merge over it.
+    if (commitPaths(projectDir, ["pipeline.yaml"], "chore: save project settings")) store.log("change", `${change.id}: committed the uncommitted pipeline.yaml on main before the merge`)
     if (!isAncestor(projectDir, "main", change.branch)) {
       const workspace = createWorkspace(projectDir, `change-${change.id}-sync`, change.branch)
       try {

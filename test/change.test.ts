@@ -248,6 +248,17 @@ test("a conflict with main stops the run for a person and names the files", asyn
   assert.equal(git(projectDir, ["log", "-1", "--format=%s", "main"]), "fix: hotfix on main", "main keeps only the hotfix")
 })
 
+test("an uncommitted pipeline.yaml on main does not block the final merge", async () => {
+  const { projectDir, store, run } = completedProject("dirty-settings")
+  openChange(projectDir, store, "Add tags")
+  writeFileSync(join(projectDir, "pipeline.yaml"), `${readFileSync(join(projectDir, "pipeline.yaml"), "utf8")}# a hand edit\n`)
+  const { harness } = changeAgents()
+  assert.equal(await run(harness), "completed")
+  assert.equal(store.change("C001")?.status, "merged")
+  assert.match(git(projectDir, ["show", "main:pipeline.yaml"]), /# a hand edit/)
+  assert.equal(git(projectDir, ["status", "--porcelain", "--", "pipeline.yaml"]), "")
+})
+
 test("abandon restores the phase rows and removes the change's tasks", () => {
   const { projectDir, store } = completedProject("abandon")
   const change = openChange(projectDir, store, "Add tags")
