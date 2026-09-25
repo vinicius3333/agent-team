@@ -419,20 +419,11 @@ async function landCodeFix(options: {
   const title = commitTitle(report.summary)
   git(worktree.path, [...identity, "commit", "-q", "-m", title, "-m", `Incident ${incident.project}/${incident.id}.\n\n${report.summary}`])
 
-  let base = "main"
-  const stacked = notifier.openDoctorPullRequests().find((pr) => pr.files.some((file) => files.includes(file)))
-  if (stacked) {
-    try {
-      git(options.sourceDir, ["fetch", "-q", "origin", stacked.branch])
-      git(worktree.path, ["rebase", "-q", "--onto", `origin/${stacked.branch}`, "origin/main"])
-      base = stacked.branch
-    } catch (error) {
-      try {
-        git(worktree.path, ["rebase", "--abort"])
-      } catch {}
-      return { kind: "rejected", reason: `the fix touches files of the open pull request ${stacked.url}, and rebasing onto it failed: ${errorText(error).slice(0, 500)}` }
-    }
-  }
+  const overlapping = notifier.openDoctorPullRequests().find((pr) => pr.files.some((file) => files.includes(file))) ?? null
+  // An open pull request that nobody merged must not block every later fix to the same files: when the fix does not apply on top of it, it goes on main.
+  const stacked = overlapping && rebaseOnto(worktree, options.sourceDir, overlapping.branch) ? overlapping : null
+  const unstacked = overlapping && !stacked ? overlapping : null
+  const base = stacked?.branch ?? "main"
 
   const outputs: string[] = []
   for (const command of ["npm ci --no-audit --no-fund", "npx tsc --noEmit", "npm test"]) {
@@ -445,6 +436,7 @@ async function landCodeFix(options: {
   const body = [
     `The agent-team doctor opened this pull request for incident \`${incident.project}/${incident.id}\`${incident.issueUrl ? ` (${incident.issueUrl})` : ""}.`,
     stacked ? `\nIt builds on ${stacked.url}, which changes the same files. Merge that one first.` : "",
+    unstacked ? `\nIt changes the same files as ${unstacked.url} but does not apply on top of it, so it is based on main. Merging both needs a manual conflict fix.` : "",
     "",
     "## Diagnosis",
     "",
@@ -476,6 +468,19 @@ async function landCodeFix(options: {
     hotfixError = errorText(error).slice(0, 500)
   }
   return { kind: "landed", prUrl, branch: worktree.branch, files, hotfixError }
+}
+
+function rebaseOnto(worktree: Workspace, sourceDir: string, branch: string): boolean {
+  try {
+    git(sourceDir, ["fetch", "-q", "origin", branch])
+    git(worktree.path, ["rebase", "-q", "--onto", `origin/${branch}`, "origin/main"])
+    return true
+  } catch {
+    try {
+      git(worktree.path, ["rebase", "--abort"])
+    } catch {}
+    return false
+  }
 }
 
 export function copyHotfix(from: string, to: string, files: string[]): void {

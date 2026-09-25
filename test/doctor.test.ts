@@ -445,6 +445,35 @@ test("a fix that touches the files of an open doctor PR is stacked on that PR's 
   assert.equal(prCreate[prCreate.indexOf("--base") + 1], "doctor/earlier")
 })
 
+test("a fix that does not apply on top of an open doctor PR goes on main instead of being rejected", async () => {
+  const { runsDir, projectDir, sourceDir, installDir } = setup()
+  git(sourceDir, ["checkout", "-q", "-b", "doctor/stale"])
+  writeFileSync(join(sourceDir, "src", "json.ts"), readFileSync(join(sourceDir, "src", "json.ts"), "utf8").replace("version = 1", "version = 3"))
+  git(sourceDir, ["commit", "-q", "-am", "fix(doctor): stale fix"])
+  git(sourceDir, ["push", "-q", "origin", "doctor/stale"])
+  git(sourceDir, ["checkout", "-q", "main"])
+  const store = openProjectStore(projectDir)
+  stop(store, "failed", blockedReason)
+  store.close()
+  const { deps, gh } = stubDeps(installDir, [
+    (_job, workdir) => {
+      writeFileSync(join(workdir, "src", "json.ts"), readFileSync(join(workdir, "src", "json.ts"), "utf8").replace("version = 1", "version = 2"))
+      writeFileSync(join(workdir, "test", "json.test.ts"), "// regression test\n")
+      return { summary: report({ codeFix: true, summary: "Fix the parser again." }) }
+    },
+  ])
+  const listPullRequests = deps.gh!
+  deps.gh = (args, cwd, input) =>
+    args[0] === "pr" && args[1] === "list"
+      ? JSON.stringify([{ headRefName: "doctor/stale", url: "https://github.com/owner/agent-team/pull/7", files: [{ path: "src/json.ts" }] }])
+      : listPullRequests(args, cwd, input)
+  await checkOnce({ runsDir, deps })
+  const [incident] = listIncidents(projectDir)
+  assert.equal(incident.status, "fixed", JSON.stringify(incident.actions))
+  const prCreate = gh.find((args) => args[0] === "pr" && args[1] === "create")!
+  assert.equal(prCreate[prCreate.indexOf("--base") + 1], "main")
+})
+
 test("the dashboard lists incidents, shows one with its transcripts, and flags the project", async (t) => {
   const { runsDir, projectDir, installDir } = setup()
   const store = openProjectStore(projectDir)
