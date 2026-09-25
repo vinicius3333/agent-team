@@ -142,6 +142,12 @@ node src/cli.ts deploy ~/projects/my-app                  # redeploy the live pr
 node src/cli.ts undeploy ~/projects/my-app                # stop the live preview
 node src/cli.ts operate ~/projects/my-app --agent research   # run Operate agents now and print findings
 node src/cli.ts findings ~/projects/my-app                # list open findings
+node src/cli.ts backlog ~/projects/my-app --add "Dark mode"   # add your own backlog item
+node src/cli.ts sprint ~/projects/my-app --now            # start a sprint now
+node src/cli.ts sprints ~/projects/my-app                 # list the sprints
+node src/cli.ts backlog ~/projects/my-app --add "Dark mode"   # add your own backlog item
+node src/cli.ts sprint ~/projects/my-app --now            # start a sprint now
+node src/cli.ts sprints ~/projects/my-app                 # sprint history
 node src/cli.ts doctor ~/projects                         # watch every project and repair stopped runs
 node src/cli.ts notify-test ~/projects --channel phone    # send a test notification
 ```
@@ -246,12 +252,12 @@ On pass, deploy runs. On fail, the fix tasks are added to `tasks.json`, built by
 
 The dashboard's QA tab shows each round: verdict, findings, test output, and every screenshot next to its branding image.
 
-## Evolve and learning
+## Sprints and learning
 
-A deployed app keeps improving on its own, and every project makes the next one better. See [docs/evolve.md](docs/evolve.md).
+A deployed app keeps improving on its own, and every project makes the next one better. See [docs/sprints.md](docs/sprints.md).
 
-- **Evolve** (`evolve.enabled`). After deploy, the `evaluator` role scores the live app from 0 to 100 against the brief, the chat requests, and the Operate findings. Below `evolve.targetScore`, it writes gap tasks (`E<cycle><nn>`). They are built, QA runs, the app redeploys, and the evaluator scores again. The loop ends at the target score, when a cycle finds nothing to build, at `evolve.maxCycles` (0 = no limit), or when less than `evolve.cycleBudgetUsd` of the budget is left. In that last case the run waits for **Raise budget and resume**.
-- **Learning** (`learning.enabled`). After each run and each evolve cycle, the `curator` role reads the new rejection reasons, QA findings, evaluation gaps, and incident diagnoses. It turns them into lessons in `<runs folder>/.agent-team-lessons/lessons.json`. Every agent call gets the strongest lessons for its role in its system prompt. A lesson that comes back gains weight, an unused one fades (30-day half-life), and a harmful one is retired. Lessons tied to a stack (for example `next`) reach only projects that use it.
+- **Sprints** (`sprints.enabled`). Every `sprints.everyDays` (default 7), the doctor starts a sprint on a live app. The `evaluator` scores the app from 0 to 100 against the brief, and its gaps join the backlog. The `pm` picks one goal and up to `sprints.maxItems` backlog items: Operate findings, evaluator gaps, its own feature ideas (`sprints.newFeatures`), and items you added. They ship as one change request, with QA, a merge, and a redeploy. `sprints.budgetUsd` caps one sprint and `sprints.monthlyUsd` caps 30 days. **Operate > Sprints** shows the plan and the history; **Start sprint now** skips the wait.
+- **Learning** (`learning.enabled`). After each run and each sprint, the `curator` role reads the new rejection reasons, QA findings, evaluation gaps, and incident diagnoses. It turns them into lessons in `<runs folder>/.agent-team-lessons/lessons.json`. Every agent call gets the strongest lessons for its role in its system prompt. A lesson that comes back gains weight, an unused one fades (30-day half-life), and a harmful one is retired. Lessons tied to a stack (for example `next`) reach only projects that use it.
 - **Solution memory** (`learning.memory`). Every merged task goes into a shared search index (SQLite FTS5). Each worker gets the closest solutions from other projects, with their summary and diff.
 
 ## Live preview
@@ -318,7 +324,7 @@ After deploy, three agents watch the live app and write **findings**: a problem,
 | analytics | PostHog: weekly active users, pageviews, the signup funnel, top events | every 24 hours |
 | research | the spec and the competitors in `operate.competitors`, with web search | every 7 days |
 
-The doctor (`agent-team doctor`) probes each live app every 5 minutes and runs due agents. **Run now** in the dashboard, or `agent-team operate <projectDir>`, runs one at once. Nothing changes the app on its own: **Approve as change** turns a finding into a change request. Configure it under `operate:` in `pipeline.yaml`; `enabled: false` turns it off.
+The doctor (`agent-team doctor`) probes each live app every 5 minutes and runs due agents. **Run now** in the dashboard, or `agent-team operate <projectDir>`, runs one at once. Findings join the backlog. With [sprints](#sprints-and-learning) on, the next sprint picks from it; **Approve as change** turns one finding into a change request at once. Configure it under `operate:` in `pipeline.yaml`; `enabled: false` turns it off.
 
 For analytics, create a PostHog project, set `operate.posthog` (`projectId`, `publicKey`, and `apiKeyEnv`, the name of the env var that holds a personal API key), and redeploy. The `react-vite` and `fullstack` templates send page views and `track()` events only when the key is set. To try the views with demo data, run `node scripts/seed-operate.ts <projectDir>`.
 
