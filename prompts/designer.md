@@ -31,6 +31,7 @@ Write these files:
      - a line `Branding (mobile): 02-<screen>.mobile.png` if the branding has a mobile image for this screen
      - the layout at 390px wide, as a second ASCII sketch, and how it changes at 768px in one line
      - the states: empty, loading, error, and success
+     - a line `Illustrations: design/illustrations/hero.png` naming each illustration file the screen shows, when it shows any. Say where it sits and at what size. Workers copy these files; they never redraw them
      - the API calls it makes, if any
    - `## Navigation`: how users move between screens. If the app has accounts, add a line `Login: /login` with the login page's path. The automated checks fill its email and password fields with the demo account and submit the form, so the page needs one email field, one password field, and a submit button.
 

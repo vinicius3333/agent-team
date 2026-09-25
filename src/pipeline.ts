@@ -48,6 +48,8 @@ const maxCodeMapLines = 200
 const maxSummaryLines = 3
 const progressPath = "docs/progress.md"
 const smokePassedKey = "smoke.passedOnce"
+// Illustration files drawn by the illustrator; workers copy them into the app instead of drawing their own.
+const illustrationsDir = "design/illustrations"
 // Screenshots of the running app, copied into a change's branding worktree as the style reference and removed before the commit.
 const appReferenceDir = ".reference"
 // Written by the architect and the orchestrator; no worker may edit them, whatever its allowedPaths say.
@@ -124,6 +126,7 @@ const phaseDefinitions: Record<PlanningPhase, PhaseDefinition> = {
       "design/branding/02-<screen>.png and later desktop screens",
       "design/branding/02-<screen>.mobile.png and so on, when mobile screens are on",
       "design/branding/README.md",
+      `${illustrationsDir}/hero.png and the other illustrations the screens show`,
     ],
     validate: (dir, config) => validateBranding(dir, config.branding.count, config.branding.mobile, config.branding.dark),
     commits: [
@@ -131,6 +134,7 @@ const phaseDefinitions: Record<PlanningPhase, PhaseDefinition> = {
       { message: "design(branding): add the desktop screens", matches: ["design/branding/*"], exclude: ["design/branding/*.mobile.*", "design/branding/*.dark.*", "design/branding/*.md"] },
       { message: "design(branding): add the mobile screens", matches: ["design/branding/*.mobile.*"] },
       { message: "design(branding): add the dark landing", matches: ["design/branding/*.dark.*"] },
+      { message: "design(illustrations): add the illustrations", matches: [`${illustrationsDir}/*`] },
     ],
     reviewed: true,
   },
@@ -316,6 +320,7 @@ function changeSteps(phase: PlanningPhase, definition: PhaseDefinition, change: 
           instructions,
           "Draw only the screens the change adds or changes. Number them after the highest existing image, and draw a mobile version of each.",
           `Attach design/branding/02-landing.png and the closest screenshot in ${appReferenceDir}/ as the brand and style reference. Reuse the Style section of design/branding/README.md and the structure of the saved .prompt.txt files, so the new screens match the app people already use.`,
+          `Draw each new illustration the new screens show on its own in ${illustrationsDir}/, as in the Illustrations section of the README. Reuse an existing illustration when it fits.`,
           "Save each prompt next to its image, and add the new images to the README. Do not redraw or delete existing images.",
         ].join("\n"),
         validate: definition.validate,
@@ -492,6 +497,8 @@ export function validateBranding(dir: string, count: number, mobile = false, dar
   const screens = images.filter((file) => !mobileImagePattern.test(file) && !darkImagePattern.test(file))
   if (dark && !images.some((file) => darkImagePattern.test(file) && !mobileImagePattern.test(file))) throw new Error("design/branding/ has no dark theme image; expected 02-landing.dark.png, the landing redrawn in the dark theme")
   if (screens.length < count - 1) throw new Error(`design/branding/ has ${screens.length} desktop screen images; expected at least ${count - 1}`)
+  const illustrations = existsSync(join(dir, illustrationsDir)) ? readdirSync(join(dir, illustrationsDir)).filter((file) => imagePattern.test(file)) : []
+  if (!illustrations.some((file) => /^hero\./i.test(file))) throw new Error(`${illustrationsDir}/ has no hero.png: draw the landing's hero illustration alone, so workers can copy it instead of redrawing it`)
   if (!mobile) return
   const missing = screens.filter((file) => !images.includes(mobileImageName(file)))
   if (missing.length) throw new Error(`design/branding/ has no mobile version of: ${missing.join(", ")} (expected ${missing.map(mobileImageName).join(", ")})`)

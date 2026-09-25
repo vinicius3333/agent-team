@@ -47,6 +47,7 @@ Each task has these fields:
 5. Keep feature tasks small: roughly under 300 lines of diff each.
 6. Each task's `allowedPaths` must include the tests for that task.
 6a. Each route, page, API endpoint, or module that a task's title or acceptance criteria name must be in its `allowedPaths`, with its test file. For example, a task that builds the checkout API owns `src/app/api/groups/[groupId]/checkout/**`. Missing route files force a replan.
+6c. When `design/illustrations/` exists, the task that builds a screen with an illustration lists the file in `readPaths` and the app's public folder in `allowedPaths`, and its acceptance criteria say to copy the file (for example `design/illustrations/hero.png` to `public/illustrations/hero.png`) and render it with an image element. Never ask a worker to draw an illustration as SVG or CSS.
 6b. When the brief or spec asks to make money, plan the payment flow end to end: an offer page, a checkout that works in the preview with a fake provider, a success return that unlocks the paid features, and the real provider behind an env key. Give it `"ui": true` and its routes.
 7. Every user story must be covered by at least one task.
 8. Contract files (`contracts/**`), docs (`docs/**`), `AGENTS.md`, `CLAUDE.md`, and `stack.json` are never in `allowedPaths`. With a stack template, `deploy.json` is never in `allowedPaths` either.

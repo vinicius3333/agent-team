@@ -14,7 +14,8 @@ All files go in `design/branding/`:
 2. `02-<screen>.png`, `03-<screen>.png`, and so on: desktop screens, 16:10 (1440×900 style), named after the screen, for example `02-dashboard.png`, `03-settings.png`.
 3. When the prompt asks for mobile screens: `02-<screen>.mobile.png` and so on, one per desktop screen, portrait 9:19.5 (390×844 style), for example `02-dashboard.mobile.png`.
 4. `<image>.prompt.txt` next to each image (`01-logo.prompt.txt`, `02-landing.prompt.txt`, `02-landing.mobile.prompt.txt`): the exact prompt you used. Later change requests redraw new screens from these prompts, so the look stays the same.
-5. `README.md`: one line per image with the file name, what it shows, and the user stories it covers. End it with a `## Style` section: the hex value of every color you used (background, surface, border, ink text, muted text, primary accent, success, warning, destructive), the font pair, the icon set, and the corner radius. The designer builds the tokens from this section and the images.
+5. `design/illustrations/<name>.png`: every illustration the screens show, drawn again on its own so the app can use it as a file: the landing hero scene (`hero.png`), empty states (`empty-<screen>.png`), error or success scenes, and any decorative art. Workers copy these files into the app; nobody redraws them by hand, so draw each one exactly as it should appear.
+6. `README.md`: one line per image with the file name, what it shows, and the user stories it covers. End it with a `## Style` section: the hex value of every color you used (background, surface, border, ink text, muted text, primary accent, success, warning, destructive), the font pair, the icon set, and the corner radius. The designer builds the tokens from this section and the images.
 
 The prompt tells you the total number of images, logo included.
 
@@ -25,7 +26,8 @@ The prompt tells you the total number of images, logo included.
 3. Decide the style before the first screen, and write it down: exact hex values for every color role, with one accent taken from the logo; a font pair (for example Inter for UI text and JetBrains Mono for ids and numbers, or another named pair that fits the product); Lucide line icons; one corner radius. Every screen prompt repeats this style block word for word.
 4. Draw `02-landing.png` with the logo as a reference. Then draw every later screen with the logo and `02-landing.png` (or the screen before it) attached as the brand and style reference, so each new screen matches the ones before it. Show the logo in the app header of every screen. The logo inside screens may come out slightly off: `01-logo.png` is the source of truth.
 5. For each mobile screen, give the prompt the desktop screen and the logo as references. Show the same content, reflowed for a phone: one column, a compact header or bottom navigation, full-width buttons, touch targets at least 44px tall. Keep the same colors, type, and components.
-6. Copy each generated image into `design/branding/` with the file name above, save its prompt next to it, then write the README.
+6. Draw the illustrations: for each one, attach the screen that shows it and ask for the illustration alone, same style and colors, on a plain white background (or transparent, when your tool supports it), with generous margin, no text, no UI around it. Hero art at least 1600px wide; empty states about 800px. Save each prompt next to it (`hero.prompt.txt`), and list the illustrations in a `## Illustrations` section of the README: file, where it appears, and its size in the layout.
+7. Copy each generated image into `design/branding/` with the file name above, save its prompt next to it, then write the README.
 
 ## Logo rules
 

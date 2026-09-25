@@ -70,6 +70,9 @@ test("validateBranding needs the logo, count - 1 screens, and a README", () => {
   writeFileSync(join(brandingDir, "02-dashboard.png"), "")
   assert.throws(() => validateBranding(dir, 3), /expected at least 2/)
   writeFileSync(join(brandingDir, "03-settings.png"), "")
+  assert.throws(() => validateBranding(dir, 3), /design\/illustrations\/ has no hero\.png/)
+  mkdirSync(join(dir, "design/illustrations"))
+  writeFileSync(join(dir, "design/illustrations/hero.png"), "")
   validateBranding(dir, 3)
 })
 
@@ -78,6 +81,8 @@ test("validateBranding with dark on needs the dark landing, which does not count
   const brandingDir = join(dir, "design/branding")
   mkdirSync(brandingDir, { recursive: true })
   for (const file of ["01-logo.png", "README.md", "02-landing.png", "02-landing.mobile.png"]) writeFileSync(join(brandingDir, file), "")
+  mkdirSync(join(dir, "design/illustrations"))
+  writeFileSync(join(dir, "design/illustrations/hero.png"), "")
   validateBranding(dir, 2, true)
   assert.throws(() => validateBranding(dir, 2, true, true), /02-landing\.dark\.png/)
   writeFileSync(join(brandingDir, "02-landing.dark.png"), "")
