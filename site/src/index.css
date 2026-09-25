@@ -1,0 +1,232 @@
+@import "tailwindcss";
+
+:root {
+  --radius: 0.625rem;
+  --band: #0b0b10;
+  --syntax-key: #6d28d9;
+
+  --background: #f7f7fa;
+  --foreground: #0b0b10;
+  --card: #ffffff;
+  --card-foreground: #0b0b10;
+  --popover: #ffffff;
+  --popover-foreground: #0b0b10;
+  --primary: #7c3aed;
+  --primary-foreground: #ffffff;
+  --secondary: #f1edfd;
+  --secondary-foreground: #5b21b6;
+  --muted: #f1f1f5;
+  --muted-foreground: #62627a;
+  --accent: #f1edfd;
+  --accent-foreground: #5b21b6;
+  --destructive: #dc2626;
+  --border: #e6e6ec;
+  --input: #e6e6ec;
+  --ring: #7c3aed;
+
+  --success: #15803d;
+  --success-foreground: #ffffff;
+  --warning: #b45309;
+  --warning-foreground: #ffffff;
+
+  --chart-1: #7c3aed;
+  --chart-2: #16a34a;
+  --chart-3: #0ea5e9;
+  --chart-4: #d97706;
+  --chart-5: #db2777;
+
+  --sidebar: #ffffff;
+  --sidebar-foreground: #0b0b10;
+  --sidebar-primary: #7c3aed;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #f1edfd;
+  --sidebar-accent-foreground: #5b21b6;
+  --sidebar-border: #e6e6ec;
+  --sidebar-ring: #7c3aed;
+}
+
+/* The viewer's explicit choice (data-theme) wins over the system setting in both directions. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --band: #14141c;
+    --syntax-key: #b79cff;
+    --background: #0b0b10;
+    --foreground: #f4f4f7;
+    --card: #14141c;
+    --card-foreground: #f4f4f7;
+    --popover: #14141c;
+    --popover-foreground: #f4f4f7;
+    --primary: #7c3aed;
+    --primary-foreground: #ffffff;
+    --secondary: #221a3a;
+    --secondary-foreground: #ddd6fe;
+    --muted: #1c1c26;
+    --muted-foreground: #a1a1b5;
+    --accent: #221a3a;
+    --accent-foreground: #ddd6fe;
+    --destructive: #f87171;
+    --border: #2a2a36;
+    --input: #2a2a36;
+    --ring: #8b5cf6;
+
+    --success: #22c55e;
+    --success-foreground: #0b0b10;
+    --warning: #f59e0b;
+    --warning-foreground: #0b0b10;
+
+    --chart-1: #8b5cf6;
+    --chart-2: #22c55e;
+    --chart-3: #38bdf8;
+    --chart-4: #f59e0b;
+    --chart-5: #f472b6;
+
+    --sidebar: #0f0f16;
+    --sidebar-foreground: #f4f4f7;
+    --sidebar-primary: #7c3aed;
+    --sidebar-primary-foreground: #ffffff;
+    --sidebar-accent: #221a3a;
+    --sidebar-accent-foreground: #ddd6fe;
+    --sidebar-border: #2a2a36;
+    --sidebar-ring: #8b5cf6;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --band: #14141c;
+  --syntax-key: #b79cff;
+  --background: #0b0b10;
+  --foreground: #f4f4f7;
+  --card: #14141c;
+  --card-foreground: #f4f4f7;
+  --popover: #14141c;
+  --popover-foreground: #f4f4f7;
+  --primary: #7c3aed;
+  --primary-foreground: #ffffff;
+  --secondary: #221a3a;
+  --secondary-foreground: #ddd6fe;
+  --muted: #1c1c26;
+  --muted-foreground: #a1a1b5;
+  --accent: #221a3a;
+  --accent-foreground: #ddd6fe;
+  --destructive: #f87171;
+  --border: #2a2a36;
+  --input: #2a2a36;
+  --ring: #8b5cf6;
+
+  --success: #22c55e;
+  --success-foreground: #0b0b10;
+  --warning: #f59e0b;
+  --warning-foreground: #0b0b10;
+
+  --chart-1: #8b5cf6;
+  --chart-2: #22c55e;
+  --chart-3: #38bdf8;
+  --chart-4: #f59e0b;
+  --chart-5: #f472b6;
+
+  --sidebar: #0f0f16;
+  --sidebar-foreground: #f4f4f7;
+  --sidebar-primary: #7c3aed;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #221a3a;
+  --sidebar-accent-foreground: #ddd6fe;
+  --sidebar-border: #2a2a36;
+  --sidebar-ring: #8b5cf6;
+}
+
+@theme inline {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+@keyframes pixel-assemble {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes caret-blink {
+  50% { opacity: 0; }
+}
+
+.pixel-assemble {
+  animation: pixel-assemble 500ms ease-out both;
+  transform-box: fill-box;
+}
+
+.caret {
+  animation: caret-blink 1s steps(1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pixel-assemble, .caret {
+    animation: none;
+  }
+}
+
+/* A full-width ink band: it swaps the tokens, so every component inside turns dark. */
+.ink-band {
+  --background: #0b0b10;
+  --foreground: #f4f4f7;
+  --card: #14141c;
+  --card-foreground: #f4f4f7;
+  --muted: #1c1c26;
+  --muted-foreground: #a1a1b5;
+  --accent: #221a3a;
+  --accent-foreground: #ddd6fe;
+  --border: #2a2a36;
+  --success: #22c55e;
+  --syntax-key: #b79cff;
+  color-scheme: dark;
+  background: var(--band);
+  color: var(--foreground);
+}
