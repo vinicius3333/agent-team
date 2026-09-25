@@ -9,6 +9,7 @@ import { execFileSync } from "node:child_process"
 import { conceptChoiceKey, conceptIds } from "../src/concepts.ts"
 import { designReviewPrompt, parseConceptPick, validateBranding, validateConcepts } from "../src/pipeline.ts"
 import { approvePhase } from "../src/project.ts"
+import { validateTasks } from "../src/tasks.ts"
 import { openStore } from "../src/store.ts"
 
 const scratch = mkdtempSync(join(tmpdir(), "agent-team-branding-"))
@@ -132,4 +133,12 @@ test("the design review of concepts asks for distinct directions, and a change's
   const config = loadConfig(writePipeline("review", examplePipeline))
   assert.match(designReviewPrompt({ phase: "concepts", config, files: ["design/concepts/a/landing.png"], previousError: null }), /3 directions[\s\S]*truly different[\s\S]*- design\/concepts\/a\/landing\.png/)
   assert.match(designReviewPrompt({ phase: "branding", config, files: [], previousError: null, changeId: "C002" }), /Change C002: expected new screen images/)
+})
+
+test("a task's copy entries must land inside its allowedPaths", () => {
+  const base = { id: "Q101", title: "hero", phase: "feature", dependsOn: [], allowedPaths: ["src/landing/**", "public/illustrations/**"], readPaths: [], acceptance: ["shows it"], verify: "npm test" }
+  validateTasks([{ ...base, copy: [{ from: "design/illustrations/hero.png", to: "public/illustrations/hero.png" }] }])
+  assert.throws(() => validateTasks([{ ...base, copy: [{ from: "design/illustrations/hero.png", to: "public/hero.png" }] }]), /copy target public\/hero\.png must be inside allowedPaths/)
+  assert.throws(() => validateTasks([{ ...base, copy: [{ from: "../secret", to: "public/illustrations/x.png" }] }]), /relative paths inside the repo/)
+  assert.throws(() => validateTasks([{ ...base, copy: "design/illustrations/hero.png" }]), /copy must be an array/)
 })

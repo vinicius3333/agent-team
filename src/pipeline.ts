@@ -297,6 +297,16 @@ function changePhaseDefinition(context: PipelineContext, phase: PlanningPhase, c
   }
 }
 
+// A missing source fails the attempt with a clear reason instead of letting the worker guess.
+function copyTaskFiles(dir: string, task: Task): void {
+  for (const entry of task.copy ?? []) {
+    const source = join(dir, entry.from)
+    if (!existsSync(source)) throw new Error(`${task.id}: copy source ${entry.from} does not exist`)
+    mkdirSync(join(dir, entry.to, ".."), { recursive: true })
+    cpSync(source, join(dir, entry.to), { recursive: true })
+  }
+}
+
 function brandingImages(dir: string): string[] {
   const path = join(dir, "design/branding")
   return existsSync(path) ? readdirSync(path).filter((file) => imagePattern.test(file)) : []
@@ -1524,6 +1534,7 @@ async function attemptTask(context: PipelineContext, task: Task, attempt: number
       if (!setup.passed) return { kind: "infrastructure", reason: `workspace setup failed (${setupCommand}):\n${setup.output}` }
     }
 
+    copyTaskFiles(workspace.path, task)
     const files = trackedFiles(workspace.path)
     const hasProgress = existsSync(join(workspace.path, progressPath))
     const dependencyFiles = dependencyChanges(store, task)

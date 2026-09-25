@@ -16,6 +16,14 @@ export interface Task {
   routes?: string[]
   // The change request (C001, ...) that added the task; unset for the first build.
   change?: string
+  // Files the orchestrator copies into the worktree before the worker starts, for example a generated illustration
+  // from design/illustrations/ into public/. Workers cannot copy them: their permissions only cover allowedPaths.
+  copy?: TaskCopy[]
+}
+
+export interface TaskCopy {
+  from: string
+  to: string
 }
 
 export const changeIdPattern = /^C\d{3,}$/
@@ -69,6 +77,17 @@ export function validateTasks(value: unknown, sharedPaths: string[] = []): Task[
     }
     if (task?.change !== undefined && (typeof task.change !== "string" || !changeIdPattern.test(task.change))) errors.push(`${label}: change must be a change id like C001`)
     if (task?.ui !== undefined && typeof task.ui !== "boolean") errors.push(`${label}: ui must be true or false`)
+    if (task?.copy !== undefined) {
+      const entries = Array.isArray(task.copy) ? task.copy : null
+      if (!entries || !entries.every((entry: any) => typeof entry?.from === "string" && typeof entry?.to === "string" && safeRelativePath(entry.from) && safeRelativePath(entry.to))) {
+        errors.push(`${label}: copy must be an array of { from, to } relative paths inside the repo`)
+      } else {
+        const patterns = Array.isArray(task.allowedPaths) ? task.allowedPaths : []
+        for (const entry of entries) {
+          if (filesOutsideScope([entry.to], patterns).length) errors.push(`${label}: copy target ${entry.to} must be inside allowedPaths`)
+        }
+      }
+    }
     if (task?.routes !== undefined && (!Array.isArray(task.routes) || !task.routes.every((route: unknown) => typeof route === "string" && staticRoutePattern.test(route)))) {
       errors.push(`${label}: routes must be an array of paths that start with /, without parameters`)
     }
@@ -99,6 +118,10 @@ export function orderTasks(tasks: Task[]): Task[] {
   }
   if (ordered.length !== byId.size) throw new Error("tasks.json ordering lost tasks")
   return ordered
+}
+
+function safeRelativePath(path: string): boolean {
+  return path.length > 0 && !path.startsWith("/") && !path.split(/[\\/]/).includes("..")
 }
 
 export function filesOutsideScope(files: string[], allowedPaths: string[]): string[] {
