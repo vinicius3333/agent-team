@@ -1,6 +1,6 @@
-import { spawn } from "node:child_process"
+import { execFileSync, spawn } from "node:child_process"
 import { existsSync, mkdirSync, openSync, closeSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
-import { join } from "node:path"
+import { basename, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { parseDocument, type Document } from "yaml"
 import { loadConfig, normalizePhaseName, planningPhases, roles, runnerNames, type Candidate, type PipelineConfig, type PlanningPhase, type Role, type RunnerName } from "./config.ts"
@@ -365,6 +365,62 @@ export function runAlive(projectDir: string): boolean {
 }
 
 export function startRun(projectDir: string, logPath: string): number {
+  const image = process.env.AGENT_TEAM_RUN_IMAGE
+  return image ? startRunContainer(projectDir, logPath, image) : startRunProcess(projectDir, logPath)
+}
+
+export interface RunContainerOptions {
+  image: string
+  projectDir: string
+  logPath: string
+  home: string
+  uid: number
+  gid: number
+  groups: number[]
+}
+
+export function runContainerName(projectDir: string): string {
+  return `agent-team-run-${basename(projectDir).toLowerCase().replace(/[^a-z0-9_.-]/g, "-")}`
+}
+
+// Mirrors the ui service in docker-compose.yml (host network and PIDs, the same user, home, /tmp and Docker socket),
+// so the run sees the same paths and its pid means the same thing to the dashboard and the doctor.
+export function runContainerArgs(options: RunContainerOptions): string[] {
+  const { image, projectDir, logPath, home, uid, gid } = options
+  const extraGroups = [...new Set(options.groups)].filter((group) => group !== gid)
+  return [
+    "run", "-d", "--rm",
+    "--name", runContainerName(projectDir),
+    "--user", `${uid}:${gid}`,
+    ...extraGroups.flatMap((group) => ["--group-add", String(group)]),
+    "--network", "host",
+    "--pid", "host",
+    "--env", `HOME=${home}`,
+    "--volume", "/var/run/docker.sock:/var/run/docker.sock",
+    "--volume", "/tmp:/tmp",
+    "--volume", `${home}:${home}`,
+    image,
+    "sh", "-c", 'exec node --disable-warning=ExperimentalWarning "$0" run "$1" >> "$2" 2>&1', cliPath, projectDir, logPath,
+  ]
+}
+
+// Each run gets its own container, so a redeploy of the dashboard and the doctor does not kill it.
+// The run keeps the image it started with until it finishes.
+function startRunContainer(projectDir: string, logPath: string, image: string): number {
+  const docker = (args: string[]) => execFileSync("docker", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim()
+  const name = runContainerName(projectDir)
+  try {
+    // Only a stopped container goes; without --force, docker refuses to remove a running one.
+    docker(["rm", name])
+  } catch {}
+  docker(runContainerArgs({ image, projectDir, logPath, home: process.env.HOME ?? "/home/opc", uid: process.getuid!(), gid: process.getgid!(), groups: process.getgroups!() }))
+  const pid = Number(docker(["inspect", "--format", "{{.State.Pid}}", name]))
+  // Recorded now so a second request sees the run before it writes its own pid.
+  if (pid) withProjectStore(projectDir, (store) => store.setMeta("run.pid", String(pid)))
+  return pid
+}
+
+function startRunProcess(projectDir: string, logPath: string): number {
   const log = openSync(logPath, "a")
   try {
     const child = spawn(process.execPath, ["--disable-warning=ExperimentalWarning", cliPath, "run", projectDir], {

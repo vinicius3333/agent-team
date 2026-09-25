@@ -39,4 +39,5 @@ COPY --from=web /app/web/dist ./web/dist
 
 USER opc
 ENV HOME=/home/opc
+ENTRYPOINT ["sh", "/app/docker/entrypoint.sh"]
 CMD ["node", "--disable-warning=ExperimentalWarning", "src/cli.ts", "ui", "/home/opc/agent-team-runs", "--port", "4400"]

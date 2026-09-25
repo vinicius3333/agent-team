@@ -9,12 +9,11 @@ x-agent-team: &agent-team
     - "${DOCKER_GID:-989}"
   network_mode: host
   pid: host
-  environment:
+  environment: &agent-team-environment
     HOME: ${AGENT_TEAM_HOME:-/home/opc}
-  # Dokploy runs compose inside its own container, where host files are not visible, so env_file
-  # cannot point at the host. The token file is read at start from the mounted home instead; it
-  # holds CLAUDE_CODE_OAUTH_TOKEN and stays on the host, out of the repository and Dokploy.
-  entrypoint: ["sh", "-c", "set -a && . \"$$HOME/.config/agent-team/doctor.env\" && set +a && exec \"$$@\"", "agent-team"]
+    # Each run gets its own container from this image, so a redeploy of ui and doctor does not kill it.
+    AGENT_TEAM_RUN_IMAGE: agent-team:latest
+  # The image's entrypoint (docker/entrypoint.sh) loads $HOME/.config/agent-team/doctor.env from the mounted home.
   volumes:
     - /var/run/docker.sock:/var/run/docker.sock
     - /tmp:/tmp
@@ -28,10 +27,9 @@ services:
     # the docker0 gateway. That address is not reachable from the internet. The UI refuses a non-loopback
     # bind without a login, so doctor.env must set AGENT_TEAM_UI_PASSWORD_HASH and
     # AGENT_TEAM_UI_SESSION_SECRET (or AGENT_TEAM_UI_TRUSTED_PROXIES and AGENT_TEAM_UI_PROXY_USER_HEADER).
-    # The entrypoint sources that file with sh, which keeps them out of Dokploy. sh expands "$", so wrap
-    # the hash in single quotes there: AGENT_TEAM_UI_PASSWORD_HASH='scrypt$32768$8$1$...'
+    # Wrap the hash in single quotes there: AGENT_TEAM_UI_PASSWORD_HASH='scrypt$32768$8$1$...'
     environment:
-      HOME: ${AGENT_TEAM_HOME:-/home/opc}
+      <<: *agent-team-environment
       AGENT_TEAM_UI_HOSTS: ${AGENT_TEAM_UI_HOSTS:-agent-team.137-131-153-58.sslip.io}
     command: ["node", "--disable-warning=ExperimentalWarning", "src/cli.ts", "ui", "${AGENT_TEAM_HOME:-/home/opc}/agent-team-runs", "--port", "4400", "--host", "${AGENT_TEAM_UI_BIND:-172.17.0.1}"]
 

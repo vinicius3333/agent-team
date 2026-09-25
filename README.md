@@ -119,6 +119,8 @@ The server reads the header only from the listed IPs or CIDRs. You can set this 
 - Tailscale: `tailscale serve --bg --https=4400 http://127.0.0.1:4400`, then open `https://<machine>.<tailnet>.ts.net:4400`. Only devices on your tailnet can reach it. Never use `tailscale funnel` without a login: it puts the dashboard on the internet.
 - Reverse proxy: run with `--host` on an address the proxy can reach, such as the docker0 gateway `172.17.0.1`, and add the proxy's host name to `AGENT_TEAM_UI_HOSTS`. The Dokploy deploy in `docker-compose.yml` does this for `agent-team.137-131-153-58.sslip.io`. Put the hash and secret in `~/.config/agent-team/doctor.env` on the host; the container reads that file at start.
 
+In the Dokploy deploy, `AGENT_TEAM_RUN_IMAGE` makes each run start in its own container (`agent-team-run-<project>`), from the image that was live when the run started. A redeploy restarts the dashboard and the doctor but leaves running builds alone. Without the variable, a run is a child process of the dashboard, as on a laptop.
+
 The server refuses to listen on a non-loopback address without a login. `--insecure-no-auth` skips that check for setups where a proxy does the login and you do not want to list it; the server prints a warning at every start. Anyone who reaches an open port can start paid agent runs and read every project file.
 
 The server answers only `localhost`, `127.0.0.1`, and `*.ts.net` hosts; add others with `AGENT_TEAM_UI_HOSTS`.
