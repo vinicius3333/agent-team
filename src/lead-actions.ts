@@ -163,6 +163,7 @@ export function saveAutoApproveScope(projectDir: string, enabled: boolean): void
     writeFileSync(path, original)
     throw new ProjectError(400, (error as Error).message)
   }
+  commitPaths(projectDir, ["pipeline.yaml"], `chore: ${enabled ? "approve" : "stop approving"} scope requests automatically`)
 }
 
 export function parseLeadSettings(value: unknown): LeadConfig {

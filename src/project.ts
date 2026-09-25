@@ -258,6 +258,7 @@ export function raiseRunBudget(projectDir: string, store: Store, runUsd?: number
   const document = parseDocument(readFileSync(path, "utf8"))
   document.setIn(["budget", "runUsd"], raised)
   writeFileSync(path, document.toString())
+  commitPaths(projectDir, ["pipeline.yaml"], "chore: raise the run budget")
   store.log("budget", `budget.runUsd raised from $${current.toFixed(2)} to $${raised.toFixed(2)}`)
   return raised
 }
