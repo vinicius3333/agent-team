@@ -845,9 +845,12 @@ async function runPlanningPhase(context: PipelineContext, phase: PhaseName): Pro
   store.setPhase(phase, "running")
   if (definition.role === "architect") logTemplateHintConflicts(context)
   let previousError: string | null = null
+  // Every rejection so far, oldest first, including each design review round. A retry starts from a fresh
+  // workspace, so without the earlier ones it can undo a fix an earlier round asked for.
+  const rejections: string[] = []
   for (let attempt = 1; attempt <= phaseAttempts; attempt++) {
     store.log("phase", `${phase}: attempt ${attempt} with ${definition.role}`)
-    const result = await attemptPhase(context, phase, definition, attempt, previousError)
+    const result = await attemptPhase(context, phase, definition, attempt, rejections)
     if (result.kind === "infrastructure") {
       store.setPhase(phase, "pending")
       noteStop(context, `${phase} paused: ${result.reason}`)
@@ -856,6 +859,7 @@ async function runPlanningPhase(context: PipelineContext, phase: PhaseName): Pro
     }
     if (result.kind === "failed" || result.kind === "blocked") {
       previousError = result.reason
+      if (rejections.at(-1) !== previousError) rejections.push(previousError)
       store.log("phase", `${phase}: output rejected: ${previousError}`)
       continue
     }
@@ -880,15 +884,16 @@ async function runPlanningPhase(context: PipelineContext, phase: PhaseName): Pro
 
 // Planning agents also work in a throwaway worktree, so they never see the orchestrator state or write to main's .git.
 // The phase runs its steps in order, then the design reviewer (for reviewed phases), and lands as one commit per group.
-async function attemptPhase(context: PipelineContext, phase: PhaseName, definition: PhaseDefinition, attempt: number, previousError: string | null): Promise<AttemptResult> {
+async function attemptPhase(context: PipelineContext, phase: PhaseName, definition: PhaseDefinition, attempt: number, rejections: string[]): Promise<AttemptResult> {
   const { projectDir, config, store } = context
+  const previousErrors = [...rejections]
   const name = `phase-${phase}-${attempt}`
   const workspace = createWorkspace(projectDir, name, landingBranch(context))
   const executor = await createExecutor(context, workspace.path, name)
   const change = store.currentChange()
   const changeNotes = change && (definition.role === "architect" || definition.role === "planner") ? [["## Code map (git ls-files, without lockfiles and assets)", "", "```", ...codeMap(trackedFiles(workspace.path)), "```"].join("\n")] : []
   const runPhaseAgent = async (subject: string, notes: string[]): Promise<AttemptResult | null> => {
-    const outcome = await runAgent(context, executor, definition.role, subject, definition.tools ?? planningTools, phasePrompt(context, phase, previousError, [...notes, ...changeNotes], definition, change), { promptName: definition.promptName })
+    const outcome = await runAgent(context, executor, definition.role, subject, definition.tools ?? planningTools, phasePrompt(context, phase, previousErrors, [...notes, ...changeNotes], definition, change), { promptName: definition.promptName })
     if (isInfrastructureFailure(outcome)) return { kind: "infrastructure", reason: `${outcome.failureClass}: ${outcome.result.summary}` }
     if (outcome.result.status !== "done") return { kind: "failed", reason: `agent ${outcome.result.status}: ${outcome.result.summary}` }
     return null
@@ -940,6 +945,7 @@ async function attemptPhase(context: PipelineContext, phase: PhaseName, definiti
         store.log("review", `${phase}: design review ${round}: ${verdict.verdict}${verdict.reasons.length ? `: ${verdict.reasons.join("; ").slice(0, 500)}` : ""}`)
         if (verdict.verdict === "pass") break
         const rejection = `the design reviewer rejected the ${phase} output.\nReasons: ${verdict.reasons.join("; ")}\nFixes: ${verdict.fixes.join("; ")}`
+        rejections.push(rejection)
         if (round >= designReviewRounds) return { kind: "failed", reason: rejection }
         const fixNotes = [`The design reviewer rejected your output. Edit your existing files to fix every problem below. Do not start over.`, ...verdict.fixes.map((fix) => `- ${fix}`)]
         const failure =
@@ -1122,7 +1128,7 @@ function ensureClaudeMemoryFile(context: PipelineContext, dir: string): void {
 export function phasePrompt(
   context: Pick<PipelineContext, "projectDir" | "config"> & { store?: Store },
   phase: PhaseName,
-  previousError: string | null,
+  previousError: string | string[] | null,
   notes: string[] = [],
   definition = phaseDefinitions[phase as PlanningPhase],
   change: Change | null = null,
@@ -1167,7 +1173,14 @@ export function phasePrompt(
     lines.push("A human reviewed your last output and asked for these changes:", feedback.trim())
     lines.push("Edit your existing outputs to address this feedback. Do not start over.")
   }
-  if (previousError) lines.push(`Your previous output was rejected. Fix this: ${previousError}`)
+  // Earlier rejections come first so a retry keeps those fixes; the last one is what to fix now.
+  const previousErrors = previousError === null ? [] : typeof previousError === "string" ? [previousError] : previousError
+  if (previousErrors.length > 1) {
+    lines.push("Earlier outputs were rejected for these reasons too. Keep those fixes in place:")
+    previousErrors.slice(0, -1).forEach((reason, index) => lines.push(`${index + 1}. ${reason.trim()}`))
+  }
+  const lastError = previousErrors.at(-1)
+  if (lastError) lines.push(`Your previous output was rejected. Fix this: ${lastError}`)
   lines.push(...notes)
   return lines.join("\n")
 }
