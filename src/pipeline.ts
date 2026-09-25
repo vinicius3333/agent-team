@@ -1426,6 +1426,7 @@ async function attemptTask(context: PipelineContext, task: Task, attempt: number
       if (review.kind === "stopped") return review.result.kind === "failed" ? { ...review.result, diff } : review.result
       const { verdict: design } = review
       store.log("review", `${task.id} attempt ${attempt}: UI review ${design.verdict}${design.reasons.length ? `: ${design.reasons.join("; ").slice(0, 500)}` : ""}`)
+      if (design.departures?.length) store.log("review", `${task.id}: departures from the branding: ${design.departures.join("; ").slice(0, 1000)}`)
       if (design.verdict !== "pass") {
         return { kind: "failed", reason: `the design reviewer rejected the screens.\nReasons: ${design.reasons.join("; ")}\nFixes: ${design.fixes.join("; ")}`, diff }
       }
@@ -2102,6 +2103,8 @@ export interface ReviewVerdict {
   verdict: "pass" | "fail"
   reasons: string[]
   fixes: string[]
+  // UI review only: gaps too small to fail the task, logged on the project timeline.
+  departures?: string[]
 }
 
 export function parseVerdict(text: string): ReviewVerdict {
@@ -2111,7 +2114,8 @@ export function parseVerdict(text: string): ReviewVerdict {
   const fixes = parsed.fixes ?? []
   if (!isStringList(reasons) || !isStringList(fixes)) throw new Error("reasons and fixes must be arrays of strings")
   if (parsed.verdict === "fail" && !reasons.length) throw new Error("a fail verdict needs at least one reason")
-  return { verdict: parsed.verdict, reasons, fixes }
+  const departures = isStringList(parsed.departures) ? parsed.departures : []
+  return { verdict: parsed.verdict, reasons, fixes, ...(departures.length ? { departures } : {}) }
 }
 
 function isStringList(value: unknown): value is string[] {
