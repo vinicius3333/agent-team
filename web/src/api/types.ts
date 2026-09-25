@@ -149,6 +149,8 @@ export interface RoleConfig extends RoleCandidate {
 export interface ProjectConfig {
   target: Target
   gates: PlanningPhase[]
+  // Absent on servers from before the switch.
+  autoApproveScope?: boolean
   roles: Record<string, RoleConfig>
   branding: { enabled?: boolean; count?: number } | null
   qa: { enabled: boolean; maxRounds: number }
@@ -382,6 +384,7 @@ export interface NewProjectRequest {
   branding: boolean
   resolveAllQa?: boolean
   evolve?: boolean
+  autoApproveScope?: boolean
   // Left out for the custom stack.
   template?: string
 }

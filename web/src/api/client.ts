@@ -93,6 +93,7 @@ export const api = {
   approveTaskBudget: (name: string, taskId: string) => post<{ budgetUsd: number; started: boolean }>(`${projectPath(name)}/approve-task-budget`, { taskId }),
   retry: (name: string, taskId: string) => post<{ started: boolean }>(`${projectPath(name)}/retry`, { taskId }),
   approveSuggestion: (name: string, taskId: string) => post<{ paths: string[]; started: boolean }>(`${projectPath(name)}/approve-suggestion`, { taskId }),
+  setAutoApproveScope: (name: string, enabled: boolean) => post<{ enabled: boolean }>(`${projectPath(name)}/auto-approve-scope`, { enabled }),
   dropTask: (name: string, taskId: string) => post<{ started: boolean }>(`${projectPath(name)}/drop-task`, { taskId }),
   saveRoles: (name: string, roles: Record<string, RoleCandidate>) => post<{ saved: boolean }>(`${projectPath(name)}/roles`, { roles }),
   chat: (name: string, message: string, attachments: string[] = []) => post<{ accepted: boolean }>(`${projectPath(name)}/chat`, { message, attachments }),

@@ -22,13 +22,13 @@ import { conceptChoiceKey, conceptIds, conceptsDir } from "./concepts.ts"
 import { learnLessons, runEvolution } from "./improve.ts"
 import { formatLessons, lessonsFor, lessonsPath, loadLessons, projectStacks } from "./lessons.ts"
 import { formatSolutions, memoryPath, recordSolution, searchSolutions, type Solution } from "./memory.ts"
-import { changeTaskConflict, decideReplan, formatBlock, normalizeFailure, parseBlock, parseReplanAction, type Block, type ReplanDecision } from "./replan.ts"
+import { changeTaskConflict, decideReplan, formatBlock, normalizeFailure, parseBlock, parseReplanAction, suggestedPaths, type Block, type ReplanDecision } from "./replan.ts"
 import { budgetReachedPrefix, changeMergedPrefix, changeOpenedPrefix, changeWaitingText, gateReadyText, humanDecisionText } from "./notify/events.ts"
 import { diffFileHashes, flaggedFiles } from "./reviews.ts"
 import { captureScreenshots, type VisualReport } from "./screenshots.ts"
 import { runUiSmoke, type SmokeCheck } from "./smoke.ts"
 import { taskBudgetKey, taskBudgetStopKey, type Change, type Store } from "./store.ts"
-import { filesOutsideScope, loadTasks, nextTaskId, orderTasks, parseTasks, pathsOverlap, validateTasks, type Task } from "./tasks.ts"
+import { filesOutsideScope, loadTasks, nextTaskId, orderTasks, parseTasks, pathsOverlap, validateTasks, widenTask, type Task } from "./tasks.ts"
 import { commandMismatches, conflictingHints, formatCommands, readStack, resolveCommands, stackFile, templateDeployPlan, templatePromptLines, workspaceSetupCommand } from "./templates.ts"
 
 const phaseAttempts = 2
@@ -1439,7 +1439,8 @@ async function runTask(context: PipelineContext, task: Task): Promise<TaskOutcom
 async function handleBlock(context: PipelineContext, task: Task, block: Block): Promise<TaskOutcome> {
   const { store } = context
   if (store.task(task.id).replans >= maxReplansPerTask) {
-    return requireHuman(context, task, `${task.id} was already replanned once and is blocked again. ${formatBlock(block)}`)
+    const reason = `${task.id} was already replanned once and is blocked again. ${formatBlock(block)}`
+    return (await autoApproveScope(context, task, reason)) ?? requireHuman(context, task, reason)
   }
   store.log("replan", `${task.id}: asking the planner to replan (${block.kind} block)`)
   const result = await replanTask(context, task, block)
@@ -1450,10 +1451,48 @@ async function handleBlock(context: PipelineContext, task: Task, block: Block): 
     return "paused"
   }
   store.countReplan(task.id)
-  if (result.kind === "human") return requireHuman(context, task, `${result.reason}\n${formatBlock(block)}`)
+  if (result.kind === "human") {
+    const reason = `${result.reason}\n${formatBlock(block)}`
+    return (await autoApproveScope(context, task, reason)) ?? requireHuman(context, task, reason)
+  }
   store.resetTask(task.id)
   if (!result.tasks.some((entry) => entry.id === task.id)) store.removeTask(task.id)
   store.log("replan", `${task.id}: ${result.summary}; attempts reset`)
+  return "replanned"
+}
+
+const maxAutoApprovals = 2
+
+// autonomy.autoApproveScope: gives a blocked task the files it asked for, as the dashboard's Approve button would,
+// instead of stopping the run. null means a person decides: the mode is off, nothing was asked for, or the task
+// already used its automatic approvals.
+async function autoApproveScope(context: PipelineContext, task: Task, reason: string): Promise<TaskOutcome | null> {
+  const { projectDir, store } = context
+  // Reread so the dashboard switch applies to a running build.
+  let enabled = context.config.autonomy.autoApproveScope
+  try {
+    enabled = loadConfig(join(projectDir, "pipeline.yaml")).autonomy.autoApproveScope
+  } catch {}
+  if (!enabled) return null
+  const paths = suggestedPaths(reason)
+  const countKey = `task.${task.id}.autoApprovals`
+  const used = Number(store.meta(countKey) ?? 0)
+  if (!paths.length || used >= maxAutoApprovals) return null
+  const workspace = createWorkspace(projectDir, `auto-approve-${task.id}-${used + 1}`, landingBranch(context))
+  try {
+    const current = loadTasks(join(workspace.path, "tasks.json"))
+    const { tasks, owners } = widenTask(current, task.id, paths, (id) => store.task(id)?.status === "merged")
+    const body = [`${task.id} asked for files outside its scope, and autonomy.autoApproveScope is on.`, "", ...paths.map((path) => `- ${path}`), ...(owners.length ? ["", `It now waits for ${owners.join(", ")}.`] : [])].join("\n")
+    landTasksFile(context, workspace, tasks, `chore(plan): widen ${task.id} automatically`, body)
+  } catch (error) {
+    store.log("task", `${task.id}: automatic scope approval failed, asking a person: ${(error as Error).message.slice(0, 300)}`)
+    return null
+  } finally {
+    removeWorkspace(projectDir, workspace)
+  }
+  store.setMeta(countKey, String(used + 1))
+  store.resetTask(task.id)
+  store.log("task", `${task.id}: scope approved automatically (${paths.join(", ")}); attempts reset`)
   return "replanned"
 }
 

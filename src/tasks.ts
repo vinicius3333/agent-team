@@ -139,6 +139,17 @@ export function orderTasks(tasks: Task[]): Task[] {
   return ordered
 }
 
+// Adds paths to a task's scope and makes it wait for every unfinished task that already owns one of them, so the
+// two never run at once. Shared by the dashboard's Approve button and autonomy.autoApproveScope.
+export function widenTask(tasks: Task[], taskId: string, paths: string[], isFinished: (id: string) => boolean): { tasks: Task[]; owners: string[] } {
+  const index = tasks.findIndex((entry) => entry.id === taskId)
+  if (index === -1) throw new Error(`unknown task "${taskId}"`)
+  const task = tasks[index]
+  const owners = tasks.filter((other) => other.id !== taskId && !isFinished(other.id) && pathsOverlap(other.allowedPaths, paths)).map((other) => other.id)
+  const widened = { ...task, allowedPaths: [...new Set([...task.allowedPaths, ...paths])], dependsOn: [...new Set([...task.dependsOn, ...owners])] }
+  return { tasks: tasks.map((entry, position) => (position === index ? widened : entry)), owners }
+}
+
 function safeRelativePath(path: string): boolean {
   return path.length > 0 && !path.startsWith("/") && !path.split(/[\\/]/).includes("..")
 }

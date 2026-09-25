@@ -83,6 +83,7 @@ export interface ProjectChoices {
   // Optional so older clients keep working; undefined keeps the value in pipeline.example.yaml.
   resolveAllQa?: boolean
   evolve?: boolean
+  autoApproveScope?: boolean
   // A stack template name; undefined or "custom" lets the architect choose the stack.
   template?: string
 }
@@ -148,6 +149,7 @@ export function applyChoices(pipelineYaml: string, choices: Partial<ProjectChoic
   if (choices.branding !== undefined) document.setIn(["branding", "enabled"], choices.branding)
   if (choices.resolveAllQa !== undefined) document.setIn(["qa", "resolveAll"], choices.resolveAllQa)
   if (choices.evolve !== undefined) document.setIn(["evolve", "enabled"], choices.evolve)
+  if (choices.autoApproveScope !== undefined) document.setIn(["autonomy", "autoApproveScope"], choices.autoApproveScope)
   const workerModels: RoleModels = choices.workerRunner === "codex" ? { worker: { runner: "codex", model: "gpt-5.5" } } : {}
   applyRoleModels(document, { ...workerModels, ...choices.roles })
   return document.toString()

@@ -21,7 +21,7 @@ import { changeIdPattern } from "../tasks.ts"
 import { listIncidents, openIncident, readIncident } from "../incidents.ts"
 import { askLead, chatMessageMaxLength, chatUploadsDir } from "../lead.ts"
 import { applyGitIdentity, parseGitIdentity, readGitIdentity, saveGitIdentity } from "../git-identity.ts"
-import { applyLeadAction, approveTaskSuggestion, dropTask, parseLeadSettings, saveLeadSettings } from "../lead-actions.ts"
+import { applyLeadAction, approveTaskSuggestion, dropTask, parseLeadSettings, saveAutoApproveScope, saveLeadSettings } from "../lead-actions.ts"
 import { suggestedPaths } from "../replan.ts"
 import { trackedFiles } from "../git.ts"
 import { insightAgents, type InsightAgent } from "../config.ts"
@@ -383,6 +383,7 @@ function readConfig(projectDir: string) {
       target: raw.target ?? "web",
       gates: Array.isArray(raw.autonomy?.gates) ? raw.autonomy.gates.map((gate: unknown) => normalizePhaseName(String(gate))) : [],
       changeMerge: raw.autonomy?.changeMerge === "manual" ? "manual" : "auto",
+      autoApproveScope: raw.autonomy?.autoApproveScope === true,
       roles,
       branding: raw.branding ?? raw.mockups ?? null,
       qa: { enabled: raw.qa?.enabled ?? true, maxRounds: raw.qa?.maxRounds ?? 3 },
@@ -783,7 +784,7 @@ function parseChoices(body: Record<string, unknown>): { name: string; brief: str
   for (const [field, value] of Object.entries({ github, deploy, branding })) {
     if (typeof value !== "boolean") throw new ProjectError(400, `The ${field} field must be true or false.`)
   }
-  for (const field of ["resolveAllQa", "evolve"]) {
+  for (const field of ["resolveAllQa", "evolve", "autoApproveScope"]) {
     if (body[field] !== undefined && typeof body[field] !== "boolean") throw new ProjectError(400, `The ${field} field must be true or false.`)
   }
   if (template !== undefined && typeof template !== "string") throw new ProjectError(400, "The template field must be a template name.")
@@ -801,6 +802,7 @@ function parseChoices(body: Record<string, unknown>): { name: string; brief: str
       branding: branding as boolean,
       resolveAllQa: body.resolveAllQa as boolean | undefined,
       evolve: body.evolve as boolean | undefined,
+      autoApproveScope: body.autoApproveScope as boolean | undefined,
       template: template as string | undefined,
     },
   }
@@ -1146,6 +1148,11 @@ export function startUi(options: UiOptions) {
         if (state === "applied") return send(response, 200, { saved: true, ...applyChatAction(name, messageId as number, index as number) })
         const updated = withProjectStore(projectDir, (store) => store.setChatActionState(messageId as number, index as number, state))
         return updated ? send(response, 200, { saved: true }) : send(response, 404, { error: "unknown action" })
+      }
+      case "auto-approve-scope": {
+        if (typeof body.enabled !== "boolean") return send(response, 400, { error: "enabled must be true or false." })
+        saveAutoApproveScope(projectDir, body.enabled)
+        return send(response, 200, { enabled: body.enabled })
       }
       case "lead-settings": {
         saveLeadSettings(projectDir, parseLeadSettings(body))

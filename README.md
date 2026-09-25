@@ -66,7 +66,7 @@ Most work happens in the dashboard. You type the brief in a form, and the agents
 | Situation | What you see | What to do |
 | --- | --- | --- |
 | A phase waits at a gate | An approval panel with the phase output (docs, branding images, task list) | **Approve** to continue, or write notes and click **Request changes**. The agent redoes the phase with your notes. |
-| A task needs a decision | A banner with the reason, for example a scope change that touches shared files | Edit `tasks.json` if needed, then **Retry**. |
+| A task needs a decision | A card with the reason and, for a scope request, the files the worker asked for | **Approve and retry** adds the files to the task (it waits for any unfinished task that owns one). **Reject** drops the task. With `autonomy.autoApproveScope: true` (Config tab, **Decisions**), scope requests are approved without stopping, at most twice per task. |
 | The run stopped or paused | A banner with the reason and the key error lines | Fix the cause, then **Resume run**. |
 | The run hit its budget | A budget banner | **Raise budget and resume** adds 50% to `budget.runUsd`. |
 | QA failed | The QA tab: findings, test output, and each screenshot next to its branding image | Nothing. Fix tasks run on their own, up to `qa.maxRounds`. |

@@ -12,6 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { planningPhases } from "@/api/types"
 import { stepLabels } from "@/lib/pipeline"
+import { DecisionsCard } from "./decisions-card"
 import { LeadSettingsCard } from "./lead-settings-card"
 import { useProjectView } from "./context"
 
@@ -141,6 +142,7 @@ export function ConfigTab() {
           </dl>
         </CardContent>
       </Card>
+      <DecisionsCard enabled={config.autoApproveScope ?? false} />
       <LeadSettingsCard />
     </div>
   )

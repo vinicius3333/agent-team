@@ -228,6 +228,7 @@ export function NewProjectPage() {
   const [branding, setBranding] = useState(true)
   const [resolveAllQa, setResolveAllQa] = useState(false)
   const [evolve, setEvolve] = useState(true)
+  const [autoApproveScope, setAutoApproveScope] = useState(true)
   const [errors, setErrors] = useState<FormErrors>({})
   const [touched, setTouched] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -273,6 +274,7 @@ export function NewProjectPage() {
         branding,
         resolveAllQa,
         evolve,
+        autoApproveScope,
         ...(template === customStack ? {} : { template }),
       })
       toast.success(`Started ${created.name}`)
@@ -441,6 +443,13 @@ export function NewProjectPage() {
                     hint: "After deploy, an evaluator scores the app against the brief and builds what is missing, until it reaches the target score or the budget.",
                     checked: evolve,
                     set: setEvolve,
+                  },
+                  {
+                    id: "option-auto-approve-scope",
+                    label: "Approve scope requests automatically",
+                    hint: "When a task needs files outside its scope, it gets them and the build keeps going. After two such approvals on one task, it asks you.",
+                    checked: autoApproveScope,
+                    set: setAutoApproveScope,
                   },
                 ].map((option) => (
                   <div key={option.id} className="flex items-start gap-3">

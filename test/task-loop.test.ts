@@ -362,3 +362,26 @@ test("an illustration the task asks for is drawn once before the worker, cached,
   assert.equal(readFileSync(join(projectDir, illustration.to), "utf8"), "png")
   assert.match(readFileSync(join(projectDir, "design/illustrations/benefit-draw.prompt.txt"), "utf8"), /secret-santa names/)
 })
+
+test("autoApproveScope gives a twice-blocked task its files instead of stopping, at most twice", async () => {
+  const { projectDir, store, run } = setupProject("auto-approve", [task("T001")])
+  const yamlPath = join(projectDir, "pipeline.yaml")
+  writeFileSync(yamlPath, readFileSync(yamlPath, "utf8").replace("autoApproveScope: false", "autoApproveScope: true"))
+  const { harness } = stubHarness({
+    worker: [
+      'BLOCKED: {"kind":"scope","needPaths":["src/extra/x.ts"],"reason":"needs src/extra"}',
+      'BLOCKED: {"kind":"scope","needPaths":["src/app/[id]/page.ts"],"reason":"needs the route"}',
+      (_job, workdir) => {
+        writeFile(workdir, "src/app/[id]/page.ts")
+        return "done"
+      },
+    ],
+    replanner: ['Widen it.\n```json\n{"action":"rebind","allowedPaths":["src/t001/**","src/extra/**"]}\n```'],
+    reviewer: [pass],
+  })
+  assert.equal(await run(harness), "completed")
+  assert.equal(store.task("T001").status, "merged")
+  assert.deepEqual(mainTasks(projectDir)[0].allowedPaths, ["src/t001/**", "src/extra/**", "src/app/[id]/page.ts"])
+  assert.equal(store.meta("task.T001.autoApprovals"), "1")
+  assert.ok(readEvents(projectDir, "task").some((message) => /scope approved automatically \(src\/app\/\[id\]\/page\.ts\)/.test(message)))
+})

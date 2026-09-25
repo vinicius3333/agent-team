@@ -7,7 +7,7 @@ import { commitAndRebase, createWorkspace, fastForward, removeWorkspace } from "
 import { approvePhase, ProjectError, raiseRunBudget, requestChanges, retryTask } from "./project.ts"
 import type { LeadAction, Store, TaskChanges, TaskDraft } from "./store.ts"
 import { suggestedPaths } from "./replan.ts"
-import { orderTasks, pathsOverlap, validateTasks, type Task } from "./tasks.ts"
+import { orderTasks, validateTasks, widenTask, type Task } from "./tasks.ts"
 
 // Applies a lead action on the server, so auto-apply and the dashboard button share one path.
 // Returns whether the action wants the run started when it is idle.
@@ -127,12 +127,9 @@ export function approveTaskSuggestion(projectDir: string, store: Store, taskId: 
   if (row?.status !== "blocked" || !row.humanReason) throw new ProjectError(409, `${taskId} is not waiting for a decision.`)
   const paths = suggestedPaths(row.humanReason)
   if (!paths.length) throw new ProjectError(409, `${taskId} has no suggested files. Edit tasks.json, then retry it.`)
-  const tasks = readTasks(projectDir, store)
-  const index = tasks.findIndex((entry) => entry.id === taskId)
-  if (index === -1) throw new ProjectError(404, `unknown task "${taskId}"`)
-  const task = tasks[index]
-  const owners = tasks.filter((other) => other.id !== taskId && store.task(other.id)?.status !== "merged" && pathsOverlap(other.allowedPaths, paths)).map((other) => other.id)
-  tasks[index] = { ...task, allowedPaths: [...new Set([...task.allowedPaths, ...paths])], dependsOn: [...new Set([...task.dependsOn, ...owners])] }
+  const current = readTasks(projectDir, store)
+  if (!current.some((entry) => entry.id === taskId)) throw new ProjectError(404, `unknown task "${taskId}"`)
+  const { tasks, owners } = widenTask(current, taskId, paths, (id) => store.task(id)?.status === "merged")
   writeTasks(projectDir, store, tasks, `chore(plan): widen ${taskId} as approved`)
   store.resetTask(taskId)
   store.log("task", `${taskId}: scope approved (${paths.join(", ")})${owners.length ? `; it now waits for ${owners.join(", ")}` : ""}`)
@@ -151,6 +148,21 @@ export function dropTask(projectDir: string, store: Store, taskId: string): void
   writeTasks(projectDir, store, tasks.filter((entry) => entry.id !== taskId), `chore(plan): drop ${taskId} by request`)
   store.removeTask(taskId)
   store.log("task", `${taskId} dropped by request`)
+}
+
+// The dashboard's switch for autonomy.autoApproveScope; a running build reads it at its next decision.
+export function saveAutoApproveScope(projectDir: string, enabled: boolean): void {
+  const path = join(projectDir, "pipeline.yaml")
+  const original = readFileSync(path, "utf8")
+  const document = parseDocument(original)
+  document.setIn(["autonomy", "autoApproveScope"], enabled)
+  writeFileSync(path, document.toString())
+  try {
+    loadConfig(path)
+  } catch (error) {
+    writeFileSync(path, original)
+    throw new ProjectError(400, (error as Error).message)
+  }
 }
 
 export function parseLeadSettings(value: unknown): LeadConfig {
