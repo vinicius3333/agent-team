@@ -1,9 +1,9 @@
 import { useState, type ReactNode } from "react"
 import { Link } from "react-router"
-import { Loader2, Play } from "lucide-react"
+import { Bot, Gauge, Loader2, Play, Sparkles, UserRound, type LucideIcon } from "lucide-react"
 import { toast } from "sonner"
 import { api, ApiError } from "@/api/client"
-import type { Finding, FindingSeverity, InsightAgent, InsightRun, MetricPoint, OperateSnapshot } from "@/api/types"
+import type { Finding, FindingSeverity, FindingSource, InsightAgent, InsightRun, MetricPoint, OperateSnapshot } from "@/api/types"
 import { Markdown } from "@/components/markdown"
 import { StatusBadge } from "@/components/status-badge"
 import { Button } from "@/components/ui/button"
@@ -22,6 +22,24 @@ const severityClasses: Record<FindingSeverity, string> = {
 
 export function SeverityBadge({ severity }: { severity: FindingSeverity }) {
   return <span className={cn("inline-flex w-18 shrink-0 justify-center rounded-full border px-2 py-0.5 text-xs font-medium capitalize", severityClasses[severity])}>{severity}</span>
+}
+
+const sourceIcons: Record<FindingSource, LucideIcon> = {
+  monitoring: Bot,
+  analytics: Bot,
+  research: Bot,
+  evaluator: Gauge,
+  product: Sparkles,
+  manual: UserRound,
+}
+
+export function SourceLabel({ source, className }: { source: FindingSource; className?: string }) {
+  const Icon = sourceIcons[source]
+  return (
+    <span className={cn("items-center gap-1.5 text-xs text-muted-foreground", className)}>
+      <Icon className="size-4" aria-hidden="true" /> {agentLabels[source]}
+    </span>
+  )
 }
 
 const toneClasses: Record<MetricTone, string> = {

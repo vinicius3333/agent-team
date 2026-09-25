@@ -2,6 +2,7 @@ import {
   Activity,
   Bot,
   Building,
+  CalendarClock,
   ChartColumn,
   Cpu,
   FileText,
@@ -56,7 +57,8 @@ export const phaseViews: Record<ProjectPhase, ViewDefinition[]> = {
     { id: "health", label: "Health", icon: Activity },
     { id: "analytics", label: "Analytics", icon: ChartColumn },
     { id: "competitors", label: "Competitors", icon: Swords },
-    { id: "next-steps", label: "Next steps", icon: ListTodo },
+    { id: "next-steps", label: "Backlog", icon: ListTodo },
+    { id: "sprints", label: "Sprints", icon: CalendarClock },
     { id: "changes", label: "Changes", icon: GitPullRequest },
   ],
   system: [

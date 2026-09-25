@@ -383,7 +383,7 @@ export interface NewProjectRequest {
   deploy: boolean
   branding: boolean
   resolveAllQa?: boolean
-  evolve?: boolean
+  sprints?: boolean
   autoApproveScope?: boolean
   // Left out for the custom stack.
   template?: string
@@ -491,12 +491,14 @@ export interface NotificationTestResult {
 
 export const insightAgents = ["monitoring", "analytics", "research"] as const
 export type InsightAgent = (typeof insightAgents)[number]
+// The backlog: the Operate agents' findings, the evaluator's gaps, the PM's feature ideas, and items added by hand.
+export type FindingSource = InsightAgent | "evaluator" | "product" | "manual"
 export type FindingSeverity = "high" | "medium" | "low"
 export type FindingStatus = "open" | "approved" | "dismissed"
 
 export interface Finding {
   id: number
-  source: InsightAgent
+  source: FindingSource
   severity: FindingSeverity
   title: string
   evidence: string
@@ -505,6 +507,50 @@ export interface Finding {
   changeId: string | null
   createdAt: string
   updatedAt: string
+}
+
+export type SprintStatus = "planning" | "building" | "done" | "skipped" | "failed" | "abandoned"
+
+export interface Sprint {
+  number: number
+  status: SprintStatus
+  goal: string
+  score: number | null
+  changeId: string | null
+  costAtStart: number
+  costUsd: number | null
+  note: string
+  startedAt: string
+  finishedAt: string | null
+}
+
+export interface SprintSettings {
+  enabled: boolean
+  everyDays: number
+  budgetUsd: number
+  monthlyUsd: number
+  maxItems: number
+  newFeatures: boolean
+}
+
+export interface SprintSnapshot {
+  settings: SprintSettings
+  deployEnabled: boolean
+  // Newest first.
+  sprints: Sprint[]
+  nextDueAt: string | null
+  // Why the doctor would not start a sprint now; startBlocker is the same for "Start sprint now".
+  blocker: string | null
+  startBlocker: string | null
+  spentUsd30d: number
+  projectCostUsd: number
+  backlogSize: number
+}
+
+export interface NewBacklogItem {
+  title: string
+  detail: string
+  severity: FindingSeverity
 }
 
 export interface InsightRun {

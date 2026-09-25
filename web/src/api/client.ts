@@ -1,4 +1,4 @@
-import type { Defaults, GitIdentity, Finding, FindingStatus, InsightAgent, OperateSnapshot, LeadActionState, LeadSettings, NotificationStatus, NotificationTestResult, RoleCandidate, Incident, IncidentDetail, ImportProjectRequest, ConceptsView, NewProjectRequest, ProjectDetail, ProjectSummary, QaRound, StackTemplate } from "@/api/types"
+import type { Defaults, GitIdentity, Finding, FindingStatus, InsightAgent, NewBacklogItem, SprintSnapshot, OperateSnapshot, LeadActionState, LeadSettings, NotificationStatus, NotificationTestResult, RoleCandidate, Incident, IncidentDetail, ImportProjectRequest, ConceptsView, NewProjectRequest, ProjectDetail, ProjectSummary, QaRound, StackTemplate } from "@/api/types"
 
 export class ApiError extends Error {
   status: number
@@ -82,6 +82,7 @@ export const api = {
   transcript: (name: string, file: string) => getText(`${projectPath(name)}/transcript/${encodeURIComponent(file)}`),
   operate: (name: string) => getJson<OperateSnapshot>(`${projectPath(name)}/operate`),
   findings: (name: string, status: FindingStatus | "all" = "open") => getJson<Finding[]>(`${projectPath(name)}/findings?status=${status}`),
+  sprints: (name: string) => getJson<SprintSnapshot>(`${projectPath(name)}/sprints`),
 
   createProject: (body: NewProjectRequest) => post<{ name: string }>("/api/projects", body),
   importProject: (body: ImportProjectRequest) => post<{ name: string }>("/api/projects/import", body),
@@ -114,6 +115,8 @@ export const api = {
   approveChangeMerge: (name: string, id: string) => post<{ started: boolean }>(`${projectPath(name)}/changes/${encodeURIComponent(id)}/merge`, {}),
   approveFinding: (name: string, id: number) => post<{ changeId: string; branch: string; started: boolean }>(`${projectPath(name)}/findings/${id}/approve`, {}),
   dismissFinding: (name: string, id: number) => post<{ dismissed: boolean }>(`${projectPath(name)}/findings/${id}/dismiss`, {}),
+  addBacklogItem: (name: string, item: NewBacklogItem) => post<Finding>(`${projectPath(name)}/findings`, item),
+  startSprint: (name: string) => post<{ started: boolean }>(`${projectPath(name)}/sprints/start`, {}),
   runInsight: (name: string, agent: InsightAgent) => post<{ accepted: boolean }>(`${projectPath(name)}/operate/run`, { agent }),
   // Without runUsd the server adds 50%.
   raiseBudget: (name: string, runUsd?: number) => post<{ runUsd: number; started: boolean }>(`${projectPath(name)}/raise-budget`, runUsd === undefined ? {} : { runUsd }),

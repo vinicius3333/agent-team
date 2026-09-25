@@ -227,7 +227,7 @@ export function NewProjectPage() {
   const [deploy, setDeploy] = useState(true)
   const [branding, setBranding] = useState(true)
   const [resolveAllQa, setResolveAllQa] = useState(false)
-  const [evolve, setEvolve] = useState(true)
+  const [sprints, setSprints] = useState(true)
   const [autoApproveScope, setAutoApproveScope] = useState(true)
   const [errors, setErrors] = useState<FormErrors>({})
   const [touched, setTouched] = useState(false)
@@ -273,7 +273,7 @@ export function NewProjectPage() {
         deploy,
         branding,
         resolveAllQa,
-        evolve,
+        sprints,
         autoApproveScope,
         ...(template === customStack ? {} : { template }),
       })
@@ -438,11 +438,11 @@ export function NewProjectPage() {
                     set: setResolveAllQa,
                   },
                   {
-                    id: "option-evolve",
-                    label: "Keep improving",
-                    hint: "After deploy, an evaluator scores the app against the brief and builds what is missing, until it reaches the target score or the budget.",
-                    checked: evolve,
-                    set: setEvolve,
+                    id: "option-sprints",
+                    label: "Run sprints",
+                    hint: "Once the app is live, a sprint runs every 7 days: an evaluator scores the app, the PM picks backlog items, and the team ships them. At most $25 per sprint and $100 per month.",
+                    checked: sprints,
+                    set: setSprints,
                   },
                   {
                     id: "option-auto-approve-scope",

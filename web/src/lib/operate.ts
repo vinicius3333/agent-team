@@ -1,17 +1,23 @@
-import type { Finding, FindingSeverity, HealthCheckPoint, InsightAgent, OperateSnapshot } from "@/api/types"
+import type { Finding, FindingSeverity, FindingSource, HealthCheckPoint, OperateSnapshot } from "@/api/types"
 
 export type MetricTone = "good" | "worse" | "down" | "none"
 
-export const sourceLabels: Record<InsightAgent, string> = {
+export const sourceLabels: Record<FindingSource, string> = {
   monitoring: "Monitoring",
   analytics: "PostHog",
   research: "Competitors",
+  evaluator: "Evaluator",
+  product: "Product ideas",
+  manual: "Mine",
 }
 
-export const agentLabels: Record<InsightAgent, string> = {
+export const agentLabels: Record<FindingSource, string> = {
   monitoring: "Monitoring agent",
   analytics: "PostHog agent",
   research: "Research agent",
+  evaluator: "Evaluator",
+  product: "Product idea",
+  manual: "Added by hand",
 }
 
 const severityRank: Record<FindingSeverity, number> = { high: 0, medium: 1, low: 2 }

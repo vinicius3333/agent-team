@@ -22,6 +22,8 @@ const statusTones: Record<string, Tone> = {
   running: "running",
   starting: "running",
   working: "running",
+  planning: "running",
+  building: "running",
   awaiting_approval: "warning",
   open: "warning",
   cooling: "warning",
@@ -45,7 +47,7 @@ export function toneOf(status: string): Tone {
 function StatusIcon({ status }: { status: string }) {
   const className = "size-3.5"
   const tone = toneOf(status)
-  if (status === "running" || status === "starting" || status === "working") return <Loader2 className={cn(className, "animate-spin")} />
+  if (status === "running" || status === "starting" || status === "working" || status === "planning" || status === "building") return <Loader2 className={cn(className, "animate-spin")} />
   if (status === "awaiting_approval") return <PauseCircle className={className} />
   if (status === "skipped") return <CircleMinus className={className} />
   if (status === "pending") return <Clock className={className} />
