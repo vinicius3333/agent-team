@@ -44,7 +44,8 @@ export function nextTaskId(tasks: Pick<Task, "id">[]): string {
 }
 
 export function validateTasks(value: unknown, sharedPaths: string[] = []): Task[] {
-  if (!Array.isArray(value) || value.length === 0) throw new Error("tasks.json must be a non-empty array")
+  // An imported project starts with no tasks; the plan phase requires at least one on its own.
+  if (!Array.isArray(value)) throw new Error("tasks.json must be an array")
   const errors: string[] = []
   const ids = new Set<string>()
   for (const [index, task] of value.entries()) {

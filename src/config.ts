@@ -14,7 +14,7 @@ export function normalizePhaseName(name: string): string {
   return legacyPhaseNames[name] ?? name
 }
 
-export const roles = ["pm", "architect", "illustrator", "designer", "marketer", "planner", "worker", "reviewer", "qa", "doctor", "lead", "design-reviewer", "monitor", "analyst", "researcher"] as const
+export const roles = ["importer", "pm", "architect", "illustrator", "designer", "marketer", "planner", "worker", "reviewer", "qa", "doctor", "lead", "design-reviewer", "monitor", "analyst", "researcher", "evaluator", "curator"] as const
 export type Role = (typeof roles)[number]
 
 export const runnerNames = ["claude", "codex"] as const
@@ -41,7 +41,18 @@ export interface HarnessConfig {
 }
 
 export interface PublishConfig {
-  github: { enabled: boolean; owner: string | null; visibility: "private" | "public"; name: string | null }
+  // board false skips the project board and the build epic, for a repository agent-team does not own.
+  github: { enabled: boolean; owner: string | null; visibility: "private" | "public"; name: string | null; board: boolean }
+}
+
+export const importGitHubModes = ["source", "new", "none"] as const
+export type ImportGitHubMode = (typeof importGitHubModes)[number]
+
+// Set for a project imported from an existing repository instead of built from a brief.
+export interface ImportConfig {
+  source: string
+  urls: string[]
+  github: ImportGitHubMode
 }
 
 export type InsightAgent = FindingSource
@@ -74,7 +85,10 @@ export interface PipelineConfig {
   marketing: { enabled: boolean; pieces: number; formats: MarketingFormat[] }
   publish: PublishConfig
   deploy: { enabled: boolean }
-  qa: { enabled: boolean; maxRounds: number }
+  // resolveAll: a QA pass with open findings counts as a fail, so every finding, minor ones included, gets a fix task.
+  qa: { enabled: boolean; maxRounds: number; resolveAll: boolean }
+  evolve: EvolveConfig
+  learning: LearningConfig
   // runUsd caps the reported agent cost of the whole project; the run stops for a human when it is reached.
   budget: { perTaskUsd: number; runUsd: number }
   // How many tasks run at once. Tasks whose allowedPaths overlap never run together.
@@ -87,7 +101,33 @@ export interface PipelineConfig {
   harness: HarnessConfig
   lead: LeadConfig
   operate: OperateConfig
+  import: ImportConfig | null
 }
+
+// After deploy, the evaluator scores the live app against the brief. Below targetScore, its gap tasks are built,
+// QA runs, the app redeploys, and the evaluator scores again. maxCycles 0 means no cycle limit: the loop then ends
+// only at targetScore, when a cycle finds nothing to build, or at budget.runUsd.
+export interface EvolveConfig {
+  enabled: boolean
+  targetScore: number
+  maxCycles: number
+  // Caps the reported agent cost of one cycle, so one runaway cycle cannot spend the whole run budget.
+  cycleBudgetUsd: number
+}
+
+// Lessons learned from reviews, QA, evaluations, and incidents, shared by every project in the runs folder.
+export interface LearningConfig {
+  enabled: boolean
+  // How many lessons each role gets in its system prompt, highest weight first.
+  maxLessonsPerRole: number
+  // Solution memory: merged tasks from every project, searched for each new task (see src/memory.ts).
+  memory: boolean
+  // How many similar solutions a worker gets in its task prompt.
+  maxSimilarTasks: number
+}
+
+export const defaultEvolveConfig: EvolveConfig = { enabled: false, targetScore: 90, maxCycles: 0, cycleBudgetUsd: 25 }
+export const defaultLearningConfig: LearningConfig = { enabled: true, maxLessonsPerRole: 12, memory: true, maxSimilarTasks: 2 }
 
 export interface TemplatePin {
   name: string
@@ -129,13 +169,16 @@ export function loadConfig(path: string): PipelineConfig {
       formats: raw.marketing?.formats ?? Object.keys(marketingFormats),
     },
     deploy: { enabled: raw.deploy?.enabled ?? false },
-    qa: { enabled: raw.qa?.enabled ?? true, maxRounds: raw.qa?.maxRounds ?? 3 },
+    qa: { enabled: raw.qa?.enabled ?? true, maxRounds: raw.qa?.maxRounds ?? 3, resolveAll: raw.qa?.resolveAll ?? false },
+    evolve: { ...defaultEvolveConfig, ...raw.evolve },
+    learning: { ...defaultLearningConfig, ...raw.learning },
     publish: {
       github: {
         enabled: raw.publish?.github?.enabled ?? false,
         owner: raw.publish?.github?.owner ?? null,
         visibility: raw.publish?.github?.visibility ?? "private",
         name: raw.publish?.github?.name ?? null,
+        board: raw.publish?.github?.board ?? true,
       },
     },
     budget: { perTaskUsd: raw.budget?.perTaskUsd ?? 2, runUsd: raw.budget?.runUsd ?? defaultRunBudgetUsd },
@@ -166,6 +209,7 @@ export function loadConfig(path: string): PipelineConfig {
       chatBudgetUsd: raw.lead?.chatBudgetUsd ?? defaultLeadConfig.chatBudgetUsd,
     },
     operate: normalizeOperate(raw.operate),
+    import: raw.import ? { source: raw.import.source, urls: raw.import.urls ?? [], github: raw.import.github ?? "none" } : null,
   }
   validateConfig(config, dirname(path))
   return config
@@ -249,6 +293,7 @@ function normalizeBranding(raw: { enabled?: boolean; count?: number; mobile?: bo
 
 // Roles added after a project was created get a default, so older pipeline.yaml files keep working.
 export const defaultRoles: Partial<Record<Role, Candidate>> = {
+  importer: { runner: "claude", model: "opus" },
   illustrator: { runner: "codex", model: "gpt-6-astra" },
   // Codex both searches stock photos with curl and generates images.
   marketer: { runner: "codex", model: "gpt-6-astra" },
@@ -256,9 +301,11 @@ export const defaultRoles: Partial<Record<Role, Candidate>> = {
   doctor: { runner: "claude", model: "opus" },
   lead: { runner: "claude", model: "opus" },
   "design-reviewer": { runner: "claude", model: "opus" },
-  monitor: { runner: "claude", model: "sonnet" },
-  analyst: { runner: "claude", model: "sonnet" },
-  researcher: { runner: "claude", model: "sonnet" },
+  monitor: { runner: "claude", model: "claude-opus-5-5" },
+  analyst: { runner: "claude", model: "claude-opus-5-5" },
+  researcher: { runner: "claude", model: "claude-opus-5-5" },
+  evaluator: { runner: "claude", model: "claude-opus-5-5" },
+  curator: { runner: "claude", model: "claude-opus-5-5" },
 }
 
 function normalizeRoles(rawRoles: Record<string, any> | undefined): Record<Role, RoleConfig> {
@@ -272,8 +319,17 @@ function normalizeRoles(rawRoles: Record<string, any> | undefined): Record<Role,
   return normalized as Record<Role, RoleConfig>
 }
 
+function importProblems(config: ImportConfig | null): string[] {
+  if (!config) return []
+  const problems: string[] = []
+  if (typeof config.source !== "string" || !config.source) problems.push("import.source must be the git URL or folder the project came from")
+  if (!Array.isArray(config.urls) || !config.urls.every((url) => typeof url === "string" && /^https?:\/\//.test(url))) problems.push("import.urls must be a list of http(s) URLs")
+  if (!(importGitHubModes as readonly string[]).includes(config.github)) problems.push(`import.github must be ${importGitHubModes.join(", ")}`)
+  return problems
+}
+
 function validateConfig(config: PipelineConfig, projectDir: string): void {
-  const errors: string[] = [...templateProblems(config, projectDir), ...operateProblems(config.operate)]
+  const errors: string[] = [...templateProblems(config, projectDir), ...operateProblems(config.operate), ...importProblems(config.import)]
   if (!["none", "docker"].includes(config.harness.isolation)) errors.push("harness.isolation must be none or docker")
   if (!["private", "public"].includes(config.publish.github.visibility)) errors.push("publish.github.visibility must be private or public")
   if (config.branding.count < 2 || config.branding.count > 6) errors.push("branding.count must be between 2 and 6")
@@ -283,6 +339,15 @@ function validateConfig(config: PipelineConfig, projectDir: string): void {
     if (!(format in marketingFormats)) errors.push(`unknown marketing format "${format}"; use ${Object.keys(marketingFormats).join(", ")}`)
   }
   if (!Number.isInteger(config.qa.maxRounds) || config.qa.maxRounds < 1) errors.push("qa.maxRounds must be a whole number of 1 or more")
+  if (typeof config.qa.resolveAll !== "boolean") errors.push("qa.resolveAll must be true or false")
+  if (typeof config.evolve.enabled !== "boolean") errors.push("evolve.enabled must be true or false")
+  if (!(config.evolve.targetScore > 0 && config.evolve.targetScore <= 100)) errors.push("evolve.targetScore must be above 0 and at most 100")
+  if (!Number.isInteger(config.evolve.maxCycles) || config.evolve.maxCycles < 0) errors.push("evolve.maxCycles must be a whole number of 0 or more (0 = no limit)")
+  if (!(config.evolve.cycleBudgetUsd > 0)) errors.push("evolve.cycleBudgetUsd must be a number above 0")
+  if (typeof config.learning.enabled !== "boolean") errors.push("learning.enabled must be true or false")
+  if (typeof config.learning.memory !== "boolean") errors.push("learning.memory must be true or false")
+  if (!Number.isInteger(config.learning.maxSimilarTasks) || config.learning.maxSimilarTasks < 0) errors.push("learning.maxSimilarTasks must be a whole number of 0 or more")
+  if (!Number.isInteger(config.learning.maxLessonsPerRole) || config.learning.maxLessonsPerRole < 0) errors.push("learning.maxLessonsPerRole must be a whole number of 0 or more")
   if (!Number.isInteger(config.parallelTasks) || config.parallelTasks < 1) errors.push("parallelTasks must be a whole number of 1 or more")
   if (!(config.budget.runUsd > 0)) errors.push("budget.runUsd must be a number above 0")
   for (const field of ["actions", "autoApply"] as const) {

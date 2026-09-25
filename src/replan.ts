@@ -46,10 +46,12 @@ export const sharedFoundationPatterns = [
 const protectedPrefixes = ["docs/", "contracts/", "design/", "AGENTS.md", "CLAUDE.md"]
 
 // Accepts `BLOCKED: {"kind":...}` and the older free-text `BLOCKED: reason` (read as kind "spec").
+// The line may come after other text: workers often explain first, and a missed block wasted a doctor call.
 export function parseBlock(summary: string): Block | null {
-  const text = summary.trimStart()
-  if (!text.startsWith(blockedPrefix)) return null
-  const rest = text.slice(blockedPrefix.length).trim()
+  const start = summary.search(new RegExp(`^[ \\t>*_]*${blockedPrefix}`, "m"))
+  if (start === -1) return null
+  const text = summary.slice(start).replace(/^[ \t>*_]*/, "")
+  const rest = text.slice(blockedPrefix.length).replace(/^[*_]+/, "").trim()
   if (rest.startsWith("{") || rest.includes("```json")) {
     try {
       const parsed = extractJsonObject(rest) as any

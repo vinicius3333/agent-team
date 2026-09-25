@@ -46,6 +46,8 @@ Each task has these fields:
 4. Two feature tasks must not share any `allowedPaths` glob, unless one depends on the other.
 5. Keep feature tasks small: roughly under 300 lines of diff each.
 6. Each task's `allowedPaths` must include the tests for that task.
+6a. Each route, page, API endpoint, or module that a task's title or acceptance criteria name must be in its `allowedPaths`, with its test file. For example, a task that builds the checkout API owns `src/app/api/groups/[groupId]/checkout/**`. Missing route files force a replan.
+6b. When the brief or spec asks to make money, plan the payment flow end to end: an offer page, a checkout that works in the preview with a fake provider, a success return that unlocks the paid features, and the real provider behind an env key. Give it `"ui": true` and its routes.
 7. Every user story must be covered by at least one task.
 8. Contract files (`contracts/**`), docs (`docs/**`), `AGENTS.md`, `CLAUDE.md`, and `stack.json` are never in `allowedPaths`. With a stack template, `deploy.json` is never in `allowedPaths` either.
 9. `verify` must not need network access, secrets, or a running server started by hand. It runs in the worktree where dependencies are already installed, so it never runs `npm ci`, `npm install`, or `--offline` installs: a fresh scaffold has no npm cache, and those commands fail.

@@ -90,6 +90,7 @@ export function createGitHub(context: GitHubContext) {
   }
 
   function ensureProject(): { number: string; id: string } | null {
+    if (!settings.board) return null
     const number = store.meta("github.project.number")
     const id = store.meta("github.project.id")
     if (number && id) return { number, id }
@@ -143,6 +144,7 @@ export function createGitHub(context: GitHubContext) {
   }
 
   function ensureEpic(): number | null {
+    if (!settings.board) return null
     const cached = store.meta("github.epic")
     if (cached) return Number(cached)
     const brief = existsSync(join(projectDir, "input.md")) ? readFileSync(join(projectDir, "input.md"), "utf8") : ""

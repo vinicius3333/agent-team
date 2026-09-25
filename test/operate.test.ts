@@ -126,7 +126,7 @@ test("loadConfig reads the operate block and fills defaults", () => {
   )
   assert.deepEqual(config.operate.schedule, { monitoring: 24, analytics: 24, research: 0 })
   assert.deepEqual(config.operate.posthog, { host: "https://us.posthog.com", projectId: "12345", publicKey: "phc_x", apiKeyEnv: "POSTHOG_API_KEY" })
-  assert.equal(config.roles.monitor.model, "sonnet")
+  assert.equal(config.roles.monitor.model, "claude-opus-5-5")
   assert.equal(config.roles.researcher.runner, "claude")
   assert.throws(() => loadConfig(writePipeline("operate-bad", "operate:\n  healthPath: health\n  schedule: { monitoring: -1 }\n  competitors: [example.com]\n")), /healthPath[\s\S]*monitoring[\s\S]*competitors/)
 })

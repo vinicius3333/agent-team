@@ -13,6 +13,9 @@ import { pendingFeedback } from "../feedback.ts"
 import { customTemplate, findTemplate, listTemplates, readStack } from "../templates.ts"
 import { abandonChange, approveChangeMerge, approvePhase, approveTaskBudget, changePath, changeRoleModels, chooseTemplate, createProject, openChange, parseRoleModels, listProjects, ProjectError, raiseRunBudget, requestChanges, retryTask, runAlive, runLogPath, startRun as spawnRun, withProjectStore, type ProjectChoices } from "../project.ts"
 import { fileAtRef } from "../git.ts"
+import { readBaseline } from "../baseline.ts"
+import { dismissCleanupChange, importProject, startCleanupChange, type ImportOptions } from "../import.ts"
+import { importCleanupKey, importDoneKey } from "../project.ts"
 import { changeIdPattern } from "../tasks.ts"
 import { listIncidents, openIncident, readIncident } from "../incidents.ts"
 import { askLead, chatMessageMaxLength, chatUploadsDir } from "../lead.ts"
@@ -375,6 +378,7 @@ function readConfig(projectDir: string) {
       publish: { github: { enabled: Boolean(raw.publish?.github?.enabled) } },
       budget: { perTaskUsd: raw.budget?.perTaskUsd ?? 2, runUsd: raw.budget?.runUsd ?? defaultRunBudgetUsd },
       template: templateInfo(projectDir, raw.template),
+      import: raw.import ? { source: String(raw.import.source ?? ""), urls: Array.isArray(raw.import.urls) ? raw.import.urls.map(String) : [], github: String(raw.import.github ?? "none") } : null,
       lead: {
         actions: (raw.lead?.actions ?? defaultLeadConfig.actions) as LeadActionKind[],
         autoApply: (raw.lead?.autoApply ?? defaultLeadConfig.autoApply) as LeadActionKind[],
@@ -584,7 +588,8 @@ async function detail(runsDir: string, name: string) {
   const changes = changeRows(projectDir)
   const openChange = changes.find((change) => change.status === "open") ?? null
   const phaseStatus = (name: string) => state.phases.find((phase: any) => phase.name === name)?.status
-  const buildComplete = ["plan", "qa", "deploy"].every((name) => phaseStatus(name) === "approved") && state.tasks.length > 0 && state.tasks.every((task: any) => task.status === "merged")
+  const imported = meta[importDoneKey] === "1"
+  const buildComplete = ["plan", "qa", "deploy"].every((name) => phaseStatus(name) === "approved") && (state.tasks.length > 0 || imported) && state.tasks.every((task: any) => task.status === "merged")
   const [github, gitLog, worktrees, dockerPs, deploy, live] = await Promise.all([
     githubInfo(projectDir, meta, Boolean(config?.publish.github.enabled)),
     command(projectDir, "git", ["log", "--oneline", "-30"]),
@@ -634,6 +639,7 @@ async function detail(runsDir: string, name: string) {
         }
       : null,
     canRequestChange: !runActive && !openChange && buildComplete,
+    import: config?.import ? { ...config.import, done: imported, baseline: readBaseline(projectDir), cleanup: meta[importCleanupKey] ?? null } : null,
     reviewer: reviewerMetrics(reviews.map(parseReviewRow).filter((row: ReviewRow | null): row is ReviewRow => row !== null)),
   }
 }
@@ -754,6 +760,9 @@ function parseChoices(body: Record<string, unknown>): { name: string; brief: str
   for (const [field, value] of Object.entries({ github, deploy, branding })) {
     if (typeof value !== "boolean") throw new ProjectError(400, `The ${field} field must be true or false.`)
   }
+  for (const field of ["resolveAllQa", "evolve"]) {
+    if (body[field] !== undefined && typeof body[field] !== "boolean") throw new ProjectError(400, `The ${field} field must be true or false.`)
+  }
   if (template !== undefined && typeof template !== "string") throw new ProjectError(400, "The template field must be a template name.")
   chooseTemplate(template, target as ProjectChoices["target"])
   return {
@@ -767,7 +776,34 @@ function parseChoices(body: Record<string, unknown>): { name: string; brief: str
       github: github as boolean,
       deploy: deploy as boolean,
       branding: branding as boolean,
+      resolveAllQa: body.resolveAllQa as boolean | undefined,
+      evolve: body.evolve as boolean | undefined,
       template: template as string | undefined,
+    },
+  }
+}
+
+function parseImport(body: Record<string, unknown>): { name: string; options: ImportOptions } {
+  const { name, source, urls, github, target, deploy } = body
+  if (typeof name !== "string" || !newProjectNamePattern.test(name)) {
+    throw new ProjectError(400, "The name must be 2 to 41 characters: lowercase letters, digits, and dashes, starting with a letter or digit.")
+  }
+  if (typeof source !== "string") throw new ProjectError(400, "The source must be a git URL or a folder path.")
+  if (!Array.isArray(urls) || !urls.every((url) => typeof url === "string")) throw new ProjectError(400, "The urls field must be a list of URLs.")
+  if (typeof github !== "string") throw new ProjectError(400, "The github field must be source, new, or none.")
+  if (typeof target !== "string" || !targets.includes(target)) throw new ProjectError(400, "The target must be web, api, or web+api.")
+  if (typeof deploy !== "boolean") throw new ProjectError(400, "The deploy field must be true or false.")
+  if (!Array.isArray(body.gates) || !body.gates.every((gate) => typeof gate === "string")) throw new ProjectError(400, "The gates field must be a list of phase names.")
+  return {
+    name,
+    options: {
+      source,
+      urls: (urls as string[]).map((url) => url.trim()).filter(Boolean),
+      github: github as ImportOptions["github"],
+      target: target as ImportOptions["target"],
+      gates: [...new Set(body.gates as PlanningPhase[])],
+      deploy,
+      roles: body.roles === undefined ? undefined : parseRoleModels(body.roles),
     },
   }
 }
@@ -932,6 +968,13 @@ export function startUi(options: UiOptions) {
     }
     if (parts[0] !== "api" || parts[1] !== "projects") return send(response, 404, { error: "not found" })
 
+    if (parts.length === 3 && parts[2] === "import") {
+      const { name, options } = parseImport(body)
+      if (existsSync(join(runsDir, name))) return send(response, 409, { error: `A project named "${name}" already exists.` })
+      importProject(join(runsDir, name), options)
+      startRunIfIdle(name)
+      return send(response, 201, { name })
+    }
     if (parts.length === 2) {
       const { name, brief, choices } = parseChoices(body)
       if (existsSync(join(runsDir, name))) return send(response, 409, { error: `A project named "${name}" already exists.` })
@@ -966,6 +1009,18 @@ export function startUi(options: UiOptions) {
       }
       if (parts[5] === "dismiss") {
         withProjectStore(projectDir, (store) => dismissFinding(store, id))
+        return send(response, 200, { dismissed: true })
+      }
+      return send(response, 404, { error: "not found" })
+    }
+    if (parts[3] === "cleanup" && parts.length === 5) {
+      if (parts[4] === "start") {
+        if (runAlive(projectDir)) return send(response, 409, { error: "A run is already in progress." })
+        const change = withProjectStore(projectDir, (store) => startCleanupChange(projectDir, store))
+        return send(response, 201, { id: change.id, branch: change.branch, started: startRunIfIdle(name) })
+      }
+      if (parts[4] === "dismiss") {
+        withProjectStore(projectDir, (store) => dismissCleanupChange(store))
         return send(response, 200, { dismissed: true })
       }
       return send(response, 404, { error: "not found" })

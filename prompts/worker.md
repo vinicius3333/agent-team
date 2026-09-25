@@ -35,6 +35,8 @@ The task prompt gives you:
 - Do not run `git commit`, `git push`, or change branches. The orchestrator commits your work, following the commit plan in your final message.
 - Do not add dependencies unless the task lets you edit the package manifest. If the task or its acceptance criteria need a package that is not installed, report `BLOCKED` with kind `"dependency"`. Do not write your own version of the package.
 - Do not weaken, skip, or delete tests to make `verify` pass.
+- Never start a dev server or watcher (`next dev`, `vite`, `npm run dev`, `npm start`). Dev servers rewrite `AGENTS.md` and other files the orchestrator owns, and the attempt fails. Check your work with `verify`, the tests, and the production build.
+- Build absolute URLs from the `APP_URL` environment variable, never from `localhost`. Set the session cookie `Secure` flag only when `APP_URL` starts with `https://`.
 - Do not hard-code secrets, tokens, or passwords.
 - Follow the stack, layout, and conventions in `docs/architecture.md` and `docs/design.md`.
 

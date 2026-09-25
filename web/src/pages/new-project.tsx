@@ -1,5 +1,5 @@
 import { useMemo, useState, type FormEvent } from "react"
-import { useNavigate } from "react-router"
+import { Link, useNavigate } from "react-router"
 import { Atom, Boxes, ChevronDown, Cloud, Code2, Globe, Image, Layers, ListTodo, Megaphone, Loader2, Package, Palette, Play, Server, ShieldCheck, User, Users, Zap } from "lucide-react"
 import { toast } from "sonner"
 import { ApiError, api } from "@/api/client"
@@ -225,6 +225,8 @@ export function NewProjectPage() {
   const [github, setGithub] = useState(false)
   const [deploy, setDeploy] = useState(true)
   const [branding, setBranding] = useState(true)
+  const [resolveAllQa, setResolveAllQa] = useState(false)
+  const [evolve, setEvolve] = useState(true)
   const [errors, setErrors] = useState<FormErrors>({})
   const [touched, setTouched] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -268,6 +270,8 @@ export function NewProjectPage() {
         github,
         deploy,
         branding,
+        resolveAllQa,
+        evolve,
         ...(template === customStack ? {} : { template }),
       })
       toast.success(`Started ${created.name}`)
@@ -285,7 +289,15 @@ export function NewProjectPage() {
 
   return (
     <>
-      <PageHeader title="New project" description="Describe your idea. Your team will build it." />
+      <PageHeader
+        title="New project"
+        description="Describe your idea. Your team will build it."
+        actions={
+          <Button asChild variant="outline">
+            <Link to="/import">Import an existing app</Link>
+          </Button>
+        }
+      />
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <Card>
           <CardContent>
@@ -414,6 +426,20 @@ export function NewProjectPage() {
                     hint: "The illustrator draws a logo and desktop screens before the design step.",
                     checked: branding,
                     set: setBranding,
+                  },
+                  {
+                    id: "option-resolve-all",
+                    label: "Resolve every QA finding",
+                    hint: "QA passes only when it has no findings left. Minor ones get fix tasks too.",
+                    checked: resolveAllQa,
+                    set: setResolveAllQa,
+                  },
+                  {
+                    id: "option-evolve",
+                    label: "Keep improving",
+                    hint: "After deploy, an evaluator scores the app against the brief and builds what is missing, until it reaches the target score or the budget.",
+                    checked: evolve,
+                    set: setEvolve,
                   },
                 ].map((option) => (
                   <div key={option.id} className="flex items-start gap-3">

@@ -1,4 +1,4 @@
-import type { Defaults, Finding, FindingStatus, InsightAgent, OperateSnapshot, LeadActionState, LeadSettings, NotificationStatus, NotificationTestResult, RoleCandidate, Incident, IncidentDetail, NewProjectRequest, ProjectDetail, ProjectSummary, QaRound, StackTemplate } from "@/api/types"
+import type { Defaults, Finding, FindingStatus, InsightAgent, OperateSnapshot, LeadActionState, LeadSettings, NotificationStatus, NotificationTestResult, RoleCandidate, Incident, IncidentDetail, ImportProjectRequest, NewProjectRequest, ProjectDetail, ProjectSummary, QaRound, StackTemplate } from "@/api/types"
 
 export class ApiError extends Error {
   status: number
@@ -81,6 +81,9 @@ export const api = {
   findings: (name: string, status: FindingStatus | "all" = "open") => getJson<Finding[]>(`${projectPath(name)}/findings?status=${status}`),
 
   createProject: (body: NewProjectRequest) => post<{ name: string }>("/api/projects", body),
+  importProject: (body: ImportProjectRequest) => post<{ name: string }>("/api/projects/import", body),
+  startCleanup: (name: string) => post<{ id: string; branch: string; started: boolean }>(`${projectPath(name)}/cleanup/start`, {}),
+  dismissCleanup: (name: string) => post<{ dismissed: boolean }>(`${projectPath(name)}/cleanup/dismiss`, {}),
   run: (name: string) => post<{ started: boolean }>(`${projectPath(name)}/run`, {}),
   approve: (name: string, phase: string) => post<{ started: boolean }>(`${projectPath(name)}/approve`, { phase }),
   feedback: (name: string, phase: string, message: string) => post<{ started: boolean }>(`${projectPath(name)}/feedback`, { phase, message }),

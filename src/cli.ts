@@ -12,6 +12,7 @@ import { interruptPrefix } from "./notify/events.ts"
 import { sendTest } from "./notify/index.ts"
 import { compareResults, defaultEvalsDir, evalTiers, formatComparison, hasRegressions, listBriefs, readBaseYaml, runEval, type EvalResult, type EvalTier } from "./evals.ts"
 import { approvePhase, createProject, openChange, openProjectStore, retryTask, withProjectStore } from "./project.ts"
+import { importProject } from "./import.ts"
 import { runProject } from "./run.ts"
 import { generateSessionSecret, hashPassword, passwordMinLength } from "./ui/auth.ts"
 import { listTemplates, templateTargets, type TemplateTarget } from "./templates.ts"
@@ -19,6 +20,7 @@ import { startUi } from "./ui/server.ts"
 
 const usage = `Usage:
   agent-team init <projectDir> --brief <file> [--template <name>] [--target web|api|web+api]
+  agent-team import <projectDir> --from <git-url|folder> [--url <url>]... [--github source|new|none] [--target web|api|web+api] [--gate spec|architecture|design]...
   agent-team templates
   agent-team run <projectDir>
   agent-team change <projectDir> --request <file>
@@ -44,6 +46,22 @@ function init(projectDir: string, briefPath: string | undefined, template: strin
   const choices = { ...(template === undefined ? {} : { template }), ...(target === undefined ? {} : { target: target as TemplateTarget }) }
   createProject(projectDir, readFileSync(briefPath, "utf8"), Object.keys(choices).length ? choices : undefined)
   console.log(`Created ${projectDir}. Edit pipeline.yaml if needed, then: agent-team run ${projectDir}`)
+}
+
+function importCommand(projectDir: string, flags: { from?: string; url?: string[]; github?: string; target?: string; gate?: string[] }): void {
+  if (!flags.from) throw new Error("import needs --from <git-url|folder>")
+  const target = flags.target ?? "web"
+  if (!(templateTargets as readonly string[]).includes(target)) throw new Error("--target must be web, api, or web+api")
+  const source = /^(https?:\/\/|ssh:\/\/|git@)/.test(flags.from) ? flags.from : resolve(flags.from)
+  importProject(resolve(projectDir), {
+    source,
+    urls: flags.url ?? [],
+    github: (flags.github ?? "none") as "source" | "new" | "none",
+    target: target as TemplateTarget,
+    gates: (flags.gate ?? []) as ("spec" | "architecture" | "design")[],
+    deploy: false,
+  })
+  console.log(`Imported into ${projectDir}. Document it with: agent-team run ${projectDir}`)
 }
 
 function change(projectDir: string, requestPath: string | undefined): void {
@@ -81,7 +99,8 @@ function status(projectDir: string): void {
   const open = store.currentChange()
   if (open) console.log(`Change ${open.id} ${open.status} on ${open.branch}: ${open.request.split("\n")[0].slice(0, 100)}`)
   console.log("Phases")
-  for (const phase of [...planningPhases, "qa", "deploy"]) console.log(`  ${phase.padEnd(13)} ${phases.get(phase) ?? "pending"}`)
+  const phaseNames = loadConfig(join(projectDir, "pipeline.yaml")).import ? ["research", ...planningPhases, "baseline", "qa", "deploy"] : [...planningPhases, "qa", "deploy"]
+  for (const phase of phaseNames) console.log(`  ${phase.padEnd(13)} ${phases.get(phase) ?? "pending"}`)
   const tasks = store.tasks()
   if (tasks.length) {
     console.log("Tasks")
@@ -277,7 +296,7 @@ function findings(projectDir: string): void {
 
 async function main(): Promise<void> {
   if (process.argv[2] === "eval") return evalCommand()
-  const { positionals, values } = parseArgs({ allowPositionals: true, options: { brief: { type: "string" }, request: { type: "string" }, template: { type: "string" }, target: { type: "string" }, port: { type: "string" }, host: { type: "string" }, once: { type: "boolean" }, "insecure-no-auth": { type: "boolean" }, channel: { type: "string" }, agent: { type: "string" } } })
+  const { positionals, values } = parseArgs({ allowPositionals: true, options: { brief: { type: "string" }, request: { type: "string" }, template: { type: "string" }, target: { type: "string" }, port: { type: "string" }, host: { type: "string" }, once: { type: "boolean" }, "insecure-no-auth": { type: "boolean" }, channel: { type: "string" }, agent: { type: "string" }, from: { type: "string" }, url: { type: "string", multiple: true }, github: { type: "string" }, gate: { type: "string", multiple: true } } })
   const [command, target, extra] = positionals
   if (command === "hash-password") return printPasswordHash()
   if (command === "session-secret") return console.log(generateSessionSecret())
@@ -291,6 +310,8 @@ async function main(): Promise<void> {
   switch (command) {
     case "init":
       return init(projectDir, values.brief, values.template, values.target)
+    case "import":
+      return importCommand(projectDir, values)
     case "run":
       return run(projectDir)
     case "change":

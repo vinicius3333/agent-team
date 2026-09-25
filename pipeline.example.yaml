@@ -7,7 +7,7 @@ autonomy:
 
 budget:
   perTaskUsd: 2
-  runUsd: 30           # the run stops for approval when the project's reported agent cost reaches this; codex reports none
+  runUsd: 150          # the run stops for approval when the project's reported agent cost reaches this; codex reports none
 
 parallelTasks: 5       # tasks built at once; tasks whose allowedPaths overlap never run together
 
@@ -24,6 +24,19 @@ marketing:
 qa:
   enabled: true        # after the build: run the tests, screenshot every route, and compare them with the branding
   maxRounds: 3         # fix rounds before the run stops for a human
+  resolveAll: false    # true: a pass may not list findings, so every finding, minor ones included, gets a fix task
+
+evolve:                # after deploy, the evaluator scores the app against the brief and builds what is missing, again and again
+  enabled: true
+  targetScore: 90      # 0 to 100; the loop ends when the score reaches it
+  maxCycles: 0         # 0 = no limit: the loop also ends when a cycle finds nothing to build, or at budget.runUsd
+  cycleBudgetUsd: 25   # a cycle starts only when this much of budget.runUsd is left
+
+learning:              # lessons from reviews, QA, evaluations, and incidents, shared by every project in the runs folder
+  enabled: true        # the curator updates <runs folder>/.agent-team-lessons/lessons.json; set AGENT_TEAM_LESSONS to move it
+  maxLessonsPerRole: 12   # lessons added to each role's system prompt, strongest first; lessons tied to other stacks are skipped
+  memory: true         # every merged task goes to a shared search index (SQLite FTS5) next to the lessons
+  maxSimilarTasks: 2   # similar solutions from other projects shown to each worker
 
 deploy:
   enabled: true        # after the build, run the app in a container and expose it at a random https://*.trycloudflare.com URL
@@ -54,12 +67,12 @@ roles:
   pm:        { runner: claude, model: opus }
   architect: { runner: claude, model: opus }
   illustrator: { runner: codex, model: gpt-6-astra }   # image generation needs codex
-  designer:  { runner: claude, model: sonnet }
+  designer:  { runner: claude, model: claude-opus-5-5 }
   marketer:  { runner: codex, model: gpt-6-astra }   # searches stock photos and generates images
   planner:   { runner: claude, model: opus }
   worker:
     runner: claude
-    model: sonnet
+    model: claude-opus-5-5
     maxRetries: 3
     fallbacks: []        # tried in order when the primary hits a limit, auth error, or timeout
   reviewer:
@@ -69,9 +82,11 @@ roles:
   design-reviewer: { runner: claude, model: opus }   # approves branding, design, and UI task screenshots; read-only
   qa:        { runner: claude, model: opus }   # reads screenshots and branding images; read-only
   lead:      { runner: claude, model: opus }   # answers the project chat; read-only, suggests actions
-  monitor:   { runner: claude, model: sonnet } # Operate: reads health checks, logs, and incidents; writes findings
-  analyst:   { runner: claude, model: sonnet } # Operate: reads PostHog numbers; writes findings
-  researcher: { runner: claude, model: sonnet } # Operate: searches the web for competitors; writes findings
+  monitor:   { runner: claude, model: claude-opus-5-5 } # Operate: reads health checks, logs, and incidents; writes findings
+  analyst:   { runner: claude, model: claude-opus-5-5 } # Operate: reads PostHog numbers; writes findings
+  researcher: { runner: claude, model: claude-opus-5-5 } # Operate: searches the web for competitors; writes findings
+  evaluator: { runner: claude, model: claude-opus-5-5 } # evolve: scores the live app against the brief; writes gap tasks; read-only
+  curator:   { runner: claude, model: claude-opus-5-5 } # learning: turns failures into lessons for later tasks and projects; read-only
 
 allowSameVendorReview: true   # worker and reviewer both run on claude
 

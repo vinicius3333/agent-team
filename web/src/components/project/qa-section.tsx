@@ -121,6 +121,20 @@ function RoundView({ name, round, brandingImages }: { name: string; round: QaRou
           <p className="text-sm text-muted-foreground">{verdict ? "No findings." : "The QA agent has not answered yet."}</p>
         )}
       </section>
+      {verdict?.preexisting?.length ? (
+        <section className="flex flex-col gap-2">
+          <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Pre-existing ({verdict.preexisting.length})</h3>
+          <p className="text-sm text-muted-foreground">These failures were already there when the app was imported. They did not fail the round and have no fix tasks.</p>
+          <ul className="flex flex-col gap-2">
+            {verdict.preexisting.map((failure) => (
+              <li key={failure} className="flex items-start gap-2 rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
+                <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden="true" />
+                <span className="min-w-0 break-words">{failure}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
       <section className="flex flex-col gap-2">
         <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Tests</h3>
         {tests ? (

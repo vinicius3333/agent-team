@@ -1,26 +1,30 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
-import { basename, join } from "node:path"
+import { basename, dirname, join } from "node:path"
 import { ensureDemoAccess } from "./access.ts"
 import { loadConfig, type Candidate, type PipelineConfig, type PlanningPhase, type Role } from "./config.ts"
 import { groupPhaseFiles, parseCommitPlan, type PhaseCommit } from "./commits.ts"
 import { faviconDir, faviconFiles, generateFavicons, markPath, validateMark } from "./favicon.ts"
 import { copyPath, manifestPath, marketingDir, renderMarketing, validateMarketing } from "./marketing.ts"
-import { changedFiles, fileAtRef, isAncestor, restorePaths, stagedDiff, trackedFiles } from "./git.ts"
+import { baselinePath, cleanupRequest, createBaseline, gateFailures, nextBaselinePath, promoteNextBaseline, readBaseline, splitFailures, writeBaseline } from "./baseline.ts"
+import { changedFiles, commitOf, fileAtRef, isAncestor, restorePaths, stagedDiff, trackedFiles } from "./git.ts"
 import { createDockerExecutor, ensureImage } from "./harness/docker.ts"
 import { hostExecutor, type Executor } from "./harness/executor.ts"
 import { defaultAllowlist, ensureEgressProxy } from "./harness/network.ts"
 import type { Harness, HarnessOutcome } from "./harness/harness.ts"
 import { amendCommit, commitAndRebase, createWorkspace, fastForward, mergeInto, mergeIntoMain, removeWorkspace, type Workspace } from "./harness/workspace.ts"
-import { deployProject } from "./deploy.ts"
+import { appLimitsText, deployProject } from "./deploy.ts"
 import { archiveFeedback, readFeedback } from "./feedback.ts"
 import { changeTitle, type GitHub } from "./github.ts"
-import { changePath } from "./project.ts"
+import { changePath, importCleanupKey, importDoneKey } from "./project.ts"
 import { designSystemRoute, parseDesignScreens, parseLoginRoute, parseQaVerdict, runQaLoop, type QaRoundResult, type QaScreen } from "./qa.ts"
 import { extractJsonObject } from "./json.ts"
+import { learnLessons, runEvolution } from "./improve.ts"
+import { formatLessons, lessonsFor, lessonsPath, loadLessons, projectStacks } from "./lessons.ts"
+import { formatSolutions, memoryPath, recordSolution, searchSolutions, type Solution } from "./memory.ts"
 import { changeTaskConflict, decideReplan, formatBlock, normalizeFailure, parseBlock, parseReplanAction, type Block, type ReplanDecision } from "./replan.ts"
 import { budgetReachedPrefix, changeMergedPrefix, changeOpenedPrefix, changeWaitingText, gateReadyText, humanDecisionText } from "./notify/events.ts"
 import { diffFileHashes, flaggedFiles } from "./reviews.ts"
-import { captureScreenshots, loginFailures, mobileFailures, type VisualReport } from "./screenshots.ts"
+import { captureScreenshots, type VisualReport } from "./screenshots.ts"
 import { runUiSmoke, type SmokeCheck } from "./smoke.ts"
 import { taskBudgetKey, taskBudgetStopKey, type Change, type Store } from "./store.ts"
 import { filesOutsideScope, loadTasks, nextTaskId, orderTasks, parseTasks, pathsOverlap, validateTasks, type Task } from "./tasks.ts"
@@ -42,6 +46,7 @@ const maxListedFiles = 300
 const maxCodeMapLines = 200
 const maxSummaryLines = 3
 const progressPath = "docs/progress.md"
+const smokePassedKey = "smoke.passedOnce"
 // Written by the architect and the orchestrator; no worker may edit them, whatever its allowedPaths say.
 const orchestratorFiles = ["AGENTS.md", "CLAUDE.md", progressPath, stackFile]
 const lockfileNames = new Set(["package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb", "bun.lock", "Cargo.lock", "poetry.lock", "Gemfile.lock", "composer.lock", "go.sum"])
@@ -56,7 +61,12 @@ interface PhaseDefinition {
   commits?: PhaseCommit[]
   // The design reviewer approves the output before it lands; on a rejection the phase agent fixes it in place.
   reviewed?: boolean
+  // Replaces the planning tools, for a phase that also reads the web.
+  tools?: string[]
 }
+
+// research runs only while a project is imported; the others are the planning phases.
+type PhaseName = PlanningPhase | "research"
 
 // A phase agent run that writes part of the outputs. Phases without steps run their agent once.
 interface PhaseStep {
@@ -112,8 +122,8 @@ const phaseDefinitions: Record<PlanningPhase, PhaseDefinition> = {
     ],
     outputs: ["design/tokens.css", "design/logo.svg", "design/logo-mark.svg", "docs/design-system.md", "docs/design.md"],
     validate: (dir, config) => {
-      validateDesignSystem(dir)
-      for (const file of faviconFiles) requireFile(join(dir, faviconDir, file))
+      validateDesignSystem(dir, config)
+      if (!config.import) for (const file of faviconFiles) requireFile(join(dir, faviconDir, file))
       validateScreens(dir, config)
     },
     commits: [
@@ -147,7 +157,9 @@ const phaseDefinitions: Record<PlanningPhase, PhaseDefinition> = {
     role: "planner",
     inputs: ["docs/spec.md", "docs/architecture.md", "docs/design.md", "contracts/"],
     outputs: ["tasks.json", "docs/analytics.md (only when the stack template has a track() helper)"],
-    validate: (dir) => void loadTasks(join(dir, "tasks.json"), readStack(dir)?.sharedPaths),
+    validate: (dir) => {
+      if (!loadTasks(join(dir, "tasks.json"), readStack(dir)?.sharedPaths).length) throw new Error("tasks.json must list at least one task")
+    },
   },
 }
 
@@ -264,6 +276,69 @@ function changeSteps(phase: PlanningPhase, definition: PhaseDefinition, change: 
   ]
 }
 
+export const researchPath = "docs/import/research.md"
+const researchHeadings = ["## Product", "## Users", "## Stack", "## Routes", "## Commands", "## Sources", "## Open questions"]
+export const importPhases = ["research", "spec", "architecture", "design"] as const satisfies readonly PhaseName[]
+const importMode = "Import mode: this app already exists, and the team did not build it. Describe it exactly as it is today. Do not change app code and do not plan new features."
+
+export function importing(context: Pick<PipelineContext, "config" | "store">): boolean {
+  return Boolean(context.config.import) && context.store.meta(importDoneKey) !== "1"
+}
+
+// While a project is imported, the agents document the app as it is instead of designing a new one.
+function importPhaseDefinition(phase: PhaseName): PhaseDefinition {
+  const repository = "the repository code"
+  switch (phase) {
+    case "research":
+      return {
+        role: "importer",
+        inputs: ["input.md", repository],
+        outputs: [researchPath],
+        validate: (dir) => requireHeadings(join(dir, researchPath), researchHeadings),
+        tools: [...planningTools, "web_fetch", "web_search"],
+      }
+    case "spec":
+      return { ...phaseDefinitions.spec, inputs: ["input.md", researchPath, repository] }
+    case "architecture": {
+      const base = phaseDefinitions.architecture
+      return {
+        ...base,
+        inputs: [researchPath, "docs/spec.md", repository],
+        outputs: [...base.outputs, "deploy.json ({ install, start, port } that run the app in production mode)"],
+        validate: (dir, config) => {
+          base.validate(dir, config)
+          requireFile(join(dir, "deploy.json"))
+        },
+      }
+    }
+    case "design": {
+      const base = phaseDefinitions.design
+      return {
+        ...base,
+        inputs: [researchPath, "docs/spec.md", "docs/architecture.md", "the app's existing styles, templates, and components"],
+        outputs: ["design/tokens.css", "docs/design-system.md", "docs/design.md"],
+        commits: base.commits?.filter((commit) => !commit.matches.some((match) => match.startsWith("design/logo") || match.startsWith(faviconDir))),
+        reviewed: false,
+      }
+    }
+    default:
+      return phaseDefinitions[phase]
+  }
+}
+
+const importInstructions: Partial<Record<PhaseName, string>> = {
+  research: `${importMode} Study the repository and the URLs in input.md.`,
+  spec: `${importMode} User stories describe what users can do today. Put what you could not tell from the code under ## Open questions.`,
+  architecture: `${importMode} Record the stack, structure, and commands the repository really uses. ## Commands holds install and test commands that work in this repository; leave test out when it has no tests. Write deploy.json so the orchestrator can start the app.`,
+  design: [
+    importMode,
+    "Extract design/tokens.css from the app's existing styles: colors, fonts, spacing, and radius, with --primary as the main brand color.",
+    "Describe the existing components in docs/design-system.md.",
+    "In docs/design.md, write one section per existing page with a `Route: /path` line. Mark pages that need a login with `Access: signed in`, and add a `Login: /path` line when the app has a login page.",
+    "Do not write logos or a /design-system page.",
+  ].join("\n"),
+}
+
 function validateSpecDelta(dir: string, id: string): void {
   const deltaPath = join(dir, changePath(id, "spec.md"))
   requireHeadings(deltaPath, specDeltaHeadings)
@@ -313,11 +388,14 @@ export function validateChangePlan(dir: string, id: string, mergedIds: ReadonlyS
   return tasks
 }
 
-function validateDesignSystem(dir: string): void {
+// An imported app keeps its own logo, so its design system has no logo files to check.
+function validateDesignSystem(dir: string, config?: PipelineConfig): void {
   const tokens = readFileSync(requireFile(join(dir, "design/tokens.css")), "utf8")
   if (!tokens.includes("--primary:")) throw new Error("design/tokens.css has no --primary variable")
-  for (const logo of ["design/logo.svg", markPath]) requireSvg(join(dir, logo))
-  validateMark(dir)
+  if (!config?.import) {
+    for (const logo of ["design/logo.svg", markPath]) requireSvg(join(dir, logo))
+    validateMark(dir)
+  }
   requireHeadings(join(dir, "docs/design-system.md"), designSystemHeadings)
 }
 
@@ -407,6 +485,12 @@ function noteStop(context: PipelineContext, reason: string): void {
   if (!state.budgetExceeded) state.stopReason = reason
 }
 
+function markBudgetStop(context: PipelineContext, reason: string): void {
+  const state = runState(context)
+  state.budgetExceeded = true
+  state.stopReason = reason
+}
+
 // Keeps the lines that explain a command failure (npm error lines and the like), else the last lines.
 export function keyFailureLines(output: string, maxLines = 15): string {
   const lines = output.split("\n").map((line) => line.trimEnd()).filter((line) => line.trim())
@@ -446,6 +530,7 @@ export async function runPipeline(context: PipelineContext): Promise<RunOutcome>
   store.setMeta(runStopKey, "")
   let outcome = await runStages(context)
   if (state.budgetExceeded && outcome === "paused") outcome = "awaiting_approval"
+  if (!state.budgetExceeded && !context.signal.aborted) await learnLessons(context, { force: outcome === "completed" })
   if (outcome !== "completed") {
     const lastEvent = store.lastEvent()
     const reason = state.stopReason ?? lastEvent?.message ?? "no reason recorded"
@@ -461,12 +546,116 @@ export function landingBranch(context: Pick<PipelineContext, "store">): string {
 }
 
 async function runStages(context: PipelineContext): Promise<RunOutcome> {
+  if (importing(context)) return runImport(context)
   for (const phase of Object.keys(phaseDefinitions) as PlanningPhase[]) {
     const outcome = await runPlanningPhase(context, phase)
     if (outcome !== "completed") return outcome
     if (phase === "architecture") requestChangeDesign(context)
   }
   return runTasks(context)
+}
+
+// The first run of an imported project: document the app, record how it stands, then wait for change requests.
+async function runImport(context: PipelineContext): Promise<RunOutcome> {
+  const { store } = context
+  for (const phase of importPhases) {
+    const outcome = await runPlanningPhase(context, phase)
+    if (outcome !== "completed") return outcome
+  }
+  const baseline = await runBaselinePhase(context)
+  if (baseline !== "completed") return baseline
+  // Nothing is built at import, and the app deploys with the first change.
+  for (const phase of ["branding", "marketing", "plan", "qa", "deploy"]) store.setPhase(phase, "approved")
+  store.setMeta(importDoneKey, "1")
+  store.log("import", "import complete: the app is documented; request a change to work on it")
+  return "completed"
+}
+
+// Runs the tests and screenshots every route of main once. The screenshots land in design/branding/ as the
+// reference QA compares with, and the failures become the baseline that later QA rounds judge regressions against.
+async function runBaselinePhase(context: PipelineContext): Promise<RunOutcome> {
+  const { projectDir, config, store } = context
+  if (store.phaseStatus("baseline") === "approved") return "completed"
+  store.setPhase("baseline", "running")
+  const outDir = join(projectDir, dirname(baselinePath), "screenshots")
+  rmSync(outDir, { recursive: true, force: true })
+  mkdirSync(outDir, { recursive: true })
+  const name = "import-baseline"
+  const workspace = createWorkspace(projectDir, name, "main")
+  let executor: Executor | null = null
+  try {
+    executor = await createExecutor(context, workspace.path, name)
+    const tests = await runTestGate(context, executor, workspace.path, name)
+    // A repository without a lockfile gets one from the install; kept, so no task trips over it later. Other install output goes.
+    const installOutput = changedFiles(workspace.path)
+    restorePaths(workspace.path, installOutput.filter((file) => !lockfileNames.has(basename(file))))
+    let visual: VisualReport | null = null
+    let copied = 0
+    if (config.target !== "api") {
+      const design = readFileSync(join(workspace.path, "docs/design.md"), "utf8")
+      const screens = parseDesignScreens(design).filter((screen) => screen.route !== designSystemRoute)
+      visual = await captureScreenshots({ projectDir, outDir, screens, signal: context.signal, login: { route: parseLoginRoute(design), access: ensureDemoAccess(store) }, ref: "main" })
+      copied = copyBaselineScreenshots(visual, outDir, workspace.path)
+    }
+    const lockfiles = changedFiles(workspace.path).filter((file) => lockfileNames.has(basename(file)))
+    if (copied || lockfiles.length) {
+      const title = copied ? "design(branding): add screenshots of the imported app" : "chore: add the lockfile the install created"
+      commitAndRebase(workspace, title, [{ message: "chore: add the lockfile the install created", files: lockfiles }])
+      context.github.land({ workspace, title, body: `The import baseline captured ${copied} screenshots${lockfiles.length ? ` and added ${lockfiles.join(", ")}` : ""}.` })
+    }
+    const baseline = createBaseline({ commit: commitOf(projectDir, "main"), tests, visual, summary: tests.passed ? "" : keyFailureLines(tests.output) })
+    writeBaseline(projectDir, baseline)
+    const cleanup = cleanupRequest(baseline)
+    if (cleanup) store.setMeta(importCleanupKey, cleanup)
+    store.log("import", baseline.failures.length ? `baseline: ${baseline.failures.length} ${baseline.failures.length === 1 ? "problem" : "problems"} found in the imported app: ${baseline.failures.map((failure) => failure.message).join("; ").slice(0, 1000)}` : "baseline: tests pass and every route loads")
+    store.setPhase("baseline", "approved")
+    return "completed"
+  } catch (error) {
+    store.setPhase("baseline", "pending")
+    noteStop(context, `baseline paused: ${(error as Error).message}`)
+    store.log("import", `baseline paused: ${(error as Error).message.slice(0, 300)}`)
+    return "paused"
+  } finally {
+    await executor?.dispose()
+    removeWorkspace(projectDir, workspace)
+  }
+}
+
+// Copies each route's screenshots to design/branding/<slug>.png and <slug>.mobile.png, and lists them in the README.
+function copyBaselineScreenshots(visual: VisualReport, outDir: string, dir: string): number {
+  const brandingDir = join(dir, "design/branding")
+  mkdirSync(brandingDir, { recursive: true })
+  const lines = ["# Branding", "", "Screenshots of the imported app, taken by the import baseline. QA compares later changes with them.", ""]
+  let copied = 0
+  for (const route of visual.routes) {
+    if (!route.file) continue
+    cpSync(join(outDir, route.file), join(brandingDir, `${route.slug}.png`))
+    lines.push(`- \`${route.slug}.png\`: ${route.route}`)
+    copied += 1
+    if (!route.mobile?.file) continue
+    cpSync(join(outDir, route.mobile.file), join(brandingDir, `${route.slug}.mobile.png`))
+    copied += 1
+  }
+  if (copied) writeFileSync(join(brandingDir, "README.md"), `${lines.join("\n")}\n`)
+  return copied
+}
+
+// An imported app has no /design-system page, and its reference image for a route is the baseline screenshot.
+function importedScreens(screens: QaScreen[], dir: string): QaScreen[] {
+  return screens
+    .filter((screen) => screen.route !== designSystemRoute)
+    .map((screen) => ({ ...screen, branding: screen.branding ?? (existsSync(join(dir, "design/branding", `${screen.slug}.png`)) ? `${screen.slug}.png` : null) }))
+}
+
+// After a change merges, the QA result it passed with becomes the baseline, and the cleanup suggestion follows it.
+function advanceBaseline(context: PipelineContext): void {
+  const { projectDir, store } = context
+  if (!promoteNextBaseline(projectDir)) return
+  store.log("import", "baseline updated from the change's QA pass")
+  if (!store.meta(importCleanupKey)) return
+  const cleanup = cleanupRequest(readBaseline(projectDir)!)
+  if (cleanup) store.setMeta(importCleanupKey, cleanup)
+  else store.deleteMeta(importCleanupKey)
 }
 
 // Runs once per change, after its architecture is approved (by the run or at a gate).
@@ -483,7 +672,7 @@ function requestChangeDesign(context: PipelineContext): void {
   store.log("phase", `${change.id}: the architecture delta says Design: needed, so the design phase runs again`)
 }
 
-async function runPlanningPhase(context: PipelineContext, phase: PlanningPhase): Promise<RunOutcome> {
+async function runPlanningPhase(context: PipelineContext, phase: PhaseName): Promise<RunOutcome> {
   const { projectDir, config, store } = context
   const status = store.phaseStatus(phase)
   if (status === "approved") return "completed"
@@ -510,7 +699,7 @@ async function runPlanningPhase(context: PipelineContext, phase: PlanningPhase):
   }
 
   const change = store.currentChange()
-  const definition = change ? changePhaseDefinition(context, phase, change) : phaseDefinitions[phase]
+  const definition = importing(context) ? importPhaseDefinition(phase) : change ? changePhaseDefinition(context, phase as PlanningPhase, change) : phaseDefinitions[phase as PlanningPhase]
   store.setPhase(phase, "running")
   if (definition.role === "architect") logTemplateHintConflicts(context)
   let previousError: string | null = null
@@ -529,7 +718,7 @@ async function runPlanningPhase(context: PipelineContext, phase: PlanningPhase):
       continue
     }
     archiveFeedback(projectDir, phase)
-    if (config.autonomy.gates.includes(phase)) {
+    if (config.autonomy.gates.includes(phase as PlanningPhase)) {
       store.setPhase(phase, "awaiting_approval")
       store.log("gate", `phase "${phase}" ${gateReadyText}: agent-team approve ${projectDir} ${phase}`)
       return "awaiting_approval"
@@ -544,7 +733,7 @@ async function runPlanningPhase(context: PipelineContext, phase: PlanningPhase):
 
 // Planning agents also work in a throwaway worktree, so they never see the orchestrator state or write to main's .git.
 // The phase runs its steps in order, then the design reviewer (for reviewed phases), and lands as one commit per group.
-async function attemptPhase(context: PipelineContext, phase: PlanningPhase, definition: PhaseDefinition, attempt: number, previousError: string | null): Promise<AttemptResult> {
+async function attemptPhase(context: PipelineContext, phase: PhaseName, definition: PhaseDefinition, attempt: number, previousError: string | null): Promise<AttemptResult> {
   const { projectDir, config, store } = context
   const name = `phase-${phase}-${attempt}`
   const workspace = createWorkspace(projectDir, name, landingBranch(context))
@@ -552,7 +741,7 @@ async function attemptPhase(context: PipelineContext, phase: PlanningPhase, defi
   const change = store.currentChange()
   const changeNotes = change && (definition.role === "architect" || definition.role === "planner") ? [["## Code map (git ls-files, without lockfiles and assets)", "", "```", ...codeMap(trackedFiles(workspace.path)), "```"].join("\n")] : []
   const runPhaseAgent = async (subject: string, notes: string[]): Promise<AttemptResult | null> => {
-    const outcome = await runAgent(context, executor, definition.role, subject, planningTools, phasePrompt(context, phase, previousError, [...notes, ...changeNotes], definition, change))
+    const outcome = await runAgent(context, executor, definition.role, subject, definition.tools ?? planningTools, phasePrompt(context, phase, previousError, [...notes, ...changeNotes], definition, change))
     if (isInfrastructureFailure(outcome)) return { kind: "infrastructure", reason: `${outcome.failureClass}: ${outcome.result.summary}` }
     if (outcome.result.status !== "done") return { kind: "failed", reason: `agent ${outcome.result.status}: ${outcome.result.summary}` }
     return null
@@ -575,7 +764,9 @@ async function attemptPhase(context: PipelineContext, phase: PlanningPhase, defi
       return { kind: "infrastructure", reason: `${phase} ${step.name}: ${(error as Error).message}` }
     }
   }
-  const steps: PhaseStep[] = change ? changeSteps(phase, definition, change) : phase === "design" ? designSteps : phase === "marketing" ? marketingSteps : [{ name: phase, instructions: "", validate: definition.validate }]
+  const steps: PhaseStep[] = importing(context)
+    ? [{ name: phase, instructions: importInstructions[phase] ?? importMode, validate: definition.validate }]
+    : change ? changeSteps(phase as PlanningPhase, definition, change) : phase === "design" ? designSteps : phase === "marketing" ? marketingSteps : [{ name: phase, instructions: "", validate: definition.validate }]
   // A fix may change the logo mark, so the favicon set is rendered again.
   const rerunOrchestratorSteps = async (): Promise<AttemptResult | null> => {
     for (const step of steps) {
@@ -595,7 +786,7 @@ async function attemptPhase(context: PipelineContext, phase: PlanningPhase, defi
 
     if (definition.reviewed) {
       for (let round = 1; ; round++) {
-        const review = await reviewPhase(context, executor, workspace.path, phase, `${name}-review-${round}`)
+        const review = await reviewPhase(context, executor, workspace.path, phase as PlanningPhase, `${name}-review-${round}`)
         if (review.kind !== "verdict") return review.result
         const { verdict } = review
         store.log("review", `${phase}: design review ${round}: ${verdict.verdict}${verdict.reasons.length ? `: ${verdict.reasons.join("; ").slice(0, 500)}` : ""}`)
@@ -612,7 +803,7 @@ async function attemptPhase(context: PipelineContext, phase: PlanningPhase, defi
     }
 
     if (phase === "architecture") ensureClaudeMemoryFile(context, workspace.path)
-    const title = change ? `docs(${phase}): update ${phase} for ${change.id}` : `docs(${phase}): add ${phase} artifacts`
+    const title = change ? `docs(${phase}): update ${phase} for ${change.id}` : importing(context) ? `docs(${phase}): document the imported app` : `docs(${phase}): add ${phase} artifacts`
     commitAndRebase(workspace, title, groupPhaseFiles(changedFiles(workspace.path), definition.commits ?? []))
     context.github.land({
       workspace,
@@ -719,10 +910,10 @@ function ensureClaudeMemoryFile(context: PipelineContext, dir: string): void {
 
 export function phasePrompt(
   context: Pick<PipelineContext, "projectDir" | "config">,
-  phase: PlanningPhase,
+  phase: PhaseName,
   previousError: string | null,
   notes: string[] = [],
-  definition = phaseDefinitions[phase],
+  definition = phaseDefinitions[phase as PlanningPhase],
   change: Change | null = null,
 ): string {
   const { config, projectDir } = context
@@ -776,6 +967,7 @@ async function runTasks(context: PipelineContext): Promise<RunOutcome> {
     if (change) {
       const merged = await mergeChange(context, change)
       if (merged !== "completed") return merged
+      advanceBaseline(context)
     }
     const result = await runDeployPhase(context)
     deployUrl = result.url
@@ -783,6 +975,18 @@ async function runTasks(context: PipelineContext): Promise<RunOutcome> {
   }
   const outcome = await runQaPhase(context, deploy)
   if (outcome !== "completed") return outcome
+  // The evaluator judges the live app, so evolving needs deploy.
+  if (!change && context.config.evolve.enabled && context.config.deploy.enabled) {
+    const ship = async (): Promise<RunOutcome> => {
+      const rebuilt = await buildTasks(context)
+      return rebuilt === "completed" ? runQaPhase(context, deploy) : rebuilt
+    }
+    const evolved = await runEvolution(context, ship, (reason, kind) => {
+      if (kind === "budget") markBudgetStop(context, reason)
+      else noteStop(context, reason)
+    })
+    if (evolved !== "completed") return evolved
+  }
   const access = ensureDemoAccess(store)
   if (deployUrl) store.log("deploy", `live at ${deployUrl}; log in as ${access.email} (the password is on the dashboard)`)
   if (change) context.github.changeFinished(change, deployUrl ? `The change is merged and live at ${deployUrl}.` : "The change is merged into main.")
@@ -1142,7 +1346,7 @@ async function attemptTask(context: PipelineContext, task: Task, attempt: number
     const files = trackedFiles(workspace.path)
     const hasProgress = existsSync(join(workspace.path, progressPath))
     const dependencyFiles = dependencyChanges(store, task)
-    const prompt = workerPrompt({ task, previous, codeMap: codeMap(files), dependencyFiles, hasProgress })
+    const prompt = workerPrompt({ task, previous, codeMap: codeMap(files), dependencyFiles, hasProgress, similar: similarSolutions(context, task) })
     const budgetUsd = workerBudget(context, task.id)
     const worker = await runAgent(context, executor, "worker", `${task.id}-worker-${attempt}`, workerTools(task), prompt, { writablePaths: task.allowedPaths, budgetUsd })
     if (isInfrastructureFailure(worker)) return { kind: "infrastructure", reason: `worker ${worker.failureClass}: ${worker.result.summary}` }
@@ -1168,8 +1372,15 @@ async function attemptTask(context: PipelineContext, task: Task, attempt: number
     if (task.ui) {
       const access = ensureDemoAccess(store)
       const smoke = await serializeSmoke(() => (context.smokeCheck ?? runUiSmoke)({ projectDir, worktree: workspace.path, task, attempt, signal: context.signal, access }))
+      // Before the app first boots, a start failure is expected and skipped. After that it is a regression: twelve tasks
+      // once merged unchecked because the app stopped starting.
+      if (smoke.kind === "skipped" && store.meta(smokePassedKey) && /app did not start/.test(smoke.reason)) {
+        store.log("smoke", `${task.id} attempt ${attempt}: the app started before this task and does not start now`)
+        return rejected(`the app no longer starts after this change (it started before). Fix the start:\n${smoke.reason}`)
+      }
       if (smoke.kind === "skipped") store.log("smoke", `${task.id} attempt ${attempt}: UI smoke check skipped: ${smoke.reason.slice(0, 500)}`)
       else if (smoke.kind === "passed") {
+        store.setMeta(smokePassedKey, "1")
         store.log("smoke", `${task.id} attempt ${attempt}: UI smoke check passed on ${smoke.routes} routes, desktop and mobile`)
         screenshotsDir = smoke.outDir ?? null
       } else {
@@ -1233,6 +1444,7 @@ async function attemptTask(context: PipelineContext, task: Task, attempt: number
       return { kind: "failed", reason: `merge failed: ${(error as Error).message}` }
     }
     store.setTaskFiles(task.id, changed)
+    rememberSolution(context, task, changed, worker.result.summary, diff)
     store.log("progress", `${task.id}: appended to ${progressPath} (${changed.length} files)`)
     return { kind: "passed" }
   } catch (error) {
@@ -1423,7 +1635,7 @@ async function runQaRound(context: PipelineContext, round: number): Promise<QaRo
     } else {
       const designPath = join(workspace.path, "docs/design.md")
       const design = existsSync(designPath) ? readFileSync(designPath, "utf8") : ""
-      screens = parseDesignScreens(design)
+      screens = config.import ? importedScreens(parseDesignScreens(design), workspace.path) : parseDesignScreens(design)
       visual = await captureScreenshots({ projectDir, outDir, screens, signal: context.signal, login: { route: parseLoginRoute(design), access: ensureDemoAccess(store) }, ref: landingBranch(context) })
       const broken = visual.routes.filter((route) => route.error || (route.status ?? 0) >= 400).length
       store.log("qa", visual.startError ? `round ${round}: app did not start: ${visual.startError.slice(0, 300)}` : `round ${round}: ${visual.routes.length} screenshots, ${broken} broken routes`)
@@ -1432,11 +1644,14 @@ async function runQaRound(context: PipelineContext, round: number): Promise<QaRo
     }
 
     const existing = loadTasks(join(workspace.path, "tasks.json"))
-    const hardFailures = qaHardFailures(tests, visual)
+    const baseline = config.import ? readBaseline(projectDir) : null
+    const { regressions, preexisting } = splitFailures(gateFailures(tests, visual), tests.output, baseline)
+    const hardFailures = regressions.map((failure) => failure.message)
+    if (preexisting.length) store.log("qa", `round ${round}: ${preexisting.length} failures were already in the import baseline and do not fail the round`)
     const changeScope = change ? { id: change.id, routes: [...new Set(existing.filter((task) => task.change === change.id).flatMap((task) => task.routes ?? []))] } : null
     let previousError: string | null = null
     for (let attempt = 1; attempt <= phaseAttempts; attempt++) {
-      const prompt = qaPrompt({ round, roundPath, target: config.target, tests, visual, screens, brandingImages: listBrandingImages(workspace.path), existing, hardFailures, previousError, change: changeScope })
+      const prompt = qaPrompt({ round, roundPath, target: config.target, resolveAll: config.qa.resolveAll, appLimits: appLimitsText, agentLimits: config.harness.isolation === "docker" ? `${config.harness.docker.memory} memory, ${config.harness.docker.cpus} CPUs` : "the host, no container limits", tests, visual, screens, brandingImages: listBrandingImages(workspace.path), existing, hardFailures, preexisting: preexisting.map((failure) => failure.message), imported: Boolean(config.import), previousError, change: changeScope })
       const outcome = await runAgent(context, executor, "qa", `qa-${round}-review-${attempt}`, qaTools, prompt)
       if (isInfrastructureFailure(outcome)) return { kind: "infrastructure", reason: `qa ${outcome.failureClass}: ${outcome.result.summary}` }
       if (outcome.result.status !== "done") {
@@ -1446,7 +1661,9 @@ async function runQaRound(context: PipelineContext, round: number): Promise<QaRo
       try {
         const verdict = parseQaVerdict(outcome.result.summary, round, existing)
         if (verdict.verdict === "pass" && hardFailures.length) throw new Error(`the verdict cannot be pass while these gates fail: ${hardFailures.join("; ")}`)
-        writeJson(join(outDir, "verdict.json"), { round, ...verdict })
+        if (verdict.verdict === "pass" && config.qa.resolveAll && verdict.findings.length) throw new Error("qa.resolveAll is on, so a pass may not list findings: return fail with a fix task that covers every finding, minor ones included")
+        writeJson(join(outDir, "verdict.json"), { round, ...verdict, preexisting: preexisting.map((failure) => failure.message) })
+        if (verdict.verdict === "pass" && baseline) writeBaseline(projectDir, createBaseline({ commit: commitOf(projectDir, landingBranch(context)), tests, visual, summary: tests.passed ? "" : keyFailureLines(tests.output) }), nextBaselinePath)
         return verdict.verdict === "pass" ? { kind: "pass", findings: verdict.findings } : { kind: "fail", findings: verdict.findings, tasks: verdict.tasks }
       } catch (error) {
         previousError = (error as Error).message
@@ -1475,15 +1692,7 @@ async function runTestGate(context: PipelineContext, executor: Executor, dir: st
 }
 
 export function qaHardFailures(tests: TestGateResult, visual: VisualReport | null): string[] {
-  const failures: string[] = []
-  if (!tests.passed) failures.push(`tests failed (${tests.command})`)
-  if (visual?.startError) failures.push("the app did not start")
-  for (const route of visual?.routes ?? []) {
-    if (route.error) failures.push(`${route.route} did not load: ${route.error}`)
-    else if ((route.status ?? 0) >= 400) failures.push(`${route.route} answered HTTP ${route.status}`)
-  }
-  if (visual) failures.push(...loginFailures(visual), ...mobileFailures(visual))
-  return failures
+  return gateFailures(tests, visual).map((failure) => failure.message)
 }
 
 function listBrandingImages(dir: string): string[] {
@@ -1495,6 +1704,9 @@ function listBrandingImages(dir: string): string[] {
 }
 
 function qaPrompt(input: {
+  resolveAll: boolean
+  appLimits: string
+  agentLimits: string
   round: number
   roundPath: string
   target: PipelineConfig["target"]
@@ -1504,6 +1716,9 @@ function qaPrompt(input: {
   brandingImages: string[]
   existing: Task[]
   hardFailures: string[]
+  // Failures the import baseline already had; they never fail a round.
+  preexisting?: string[]
+  imported?: boolean
   previousError: string | null
   change?: { id: string; routes: string[] } | null
 }): string {
@@ -1544,11 +1759,15 @@ function qaPrompt(input: {
   }
   lines.push("", "## References", "")
   lines.push(`Branding images: ${input.brandingImages.join(", ") || "none"}.`)
+  if (input.imported) lines.push("This app was imported. Its branding images are screenshots of the app at import, not a target design: a route may differ from them only where the change asks for it.")
   lines.push("Read docs/spec.md, docs/design.md, docs/design-system.md, and design/tokens.css.")
   lines.push("", "## Tasks", "")
   lines.push(`Existing task ids (all merged): ${input.existing.map((task) => task.id).join(", ")}.`)
   lines.push(`Name fix tasks Q${round}01, Q${round}02, and so on.`)
+  lines.push("", "## Environment", "", `The test gate runs in the agent container (${input.agentLimits}). The app runs in its own container: ${input.appLimits}. Blame a crash or out-of-memory error on the app only when these limits do not explain it.`)
+  if (input.resolveAll) lines.push("", "Resolve all is on: every finding, minor ones included, needs a fix task. A pass must have an empty findings list.")
   if (input.hardFailures.length) lines.push("", "These gates failed, so the verdict must be fail with a fix task for each:", ...input.hardFailures.map((failure) => `- ${failure}`))
+  if (input.preexisting?.length) lines.push("", "These failures were already there when the app was imported. Do not fail the round or add fix tasks for them, and do not list them as findings:", ...input.preexisting.map((failure) => `- ${failure}`))
   if (input.previousError) lines.push("", `Your previous answer was rejected. Fix this: ${input.previousError}`)
   return lines.join("\n")
 }
@@ -1649,7 +1868,7 @@ async function attemptDeployFix(context: PipelineContext, attempt: number, failu
     const prompt = [
       "The finished app failed to start in production. Make it deployable without changing its features.",
       "",
-      "The platform runs `<install> && <start>` from deploy.json in a node:22 container with PORT=3000, HOST=0.0.0.0, and NODE_ENV=production, then probes http://127.0.0.1:$PORT.",
+      "The platform runs `<install> && <start>` from deploy.json in a node:24 container with PORT=3000, HOST=0.0.0.0, and NODE_ENV=production, then probes http://127.0.0.1:$PORT.",
       "Without deploy.json it falls back to `npm start`, then to serving a static index.html.",
       "",
       "Write or fix deploy.json at the repository root ({ \"install\": ..., \"start\": ..., \"port\": 3000 }) and the start script so the app serves on 0.0.0.0:$PORT. Keep the tests passing. Do not edit docs/ or contracts/.",
@@ -1707,7 +1926,7 @@ function pullRequestBody(context: PipelineContext, task: Task, attempt: number, 
 }
 
 // A spent budget is not infrastructure: pausing would let the doctor resume and spend again. Workers ask a person instead.
-function isInfrastructureFailure(outcome: HarnessOutcome): boolean {
+export function isInfrastructureFailure(outcome: HarnessOutcome): boolean {
   return outcome.failureClass !== null && outcome.failureClass !== "agent_failure" && outcome.failureClass !== "budget"
 }
 
@@ -1767,6 +1986,31 @@ export interface WorkerPromptInput {
   // Files merged by each task in dependsOn.
   dependencyFiles?: { taskId: string; files: string[] }[]
   hasProgress?: boolean
+  similar?: Solution[]
+}
+
+// Memory must never break a task, so errors mean no similar solutions.
+function similarSolutions(context: PipelineContext, task: Task): Solution[] {
+  const { learning } = context.config
+  if (!learning?.enabled || !learning.memory || !learning.maxSimilarTasks) return []
+  try {
+    const text = [task.title, ...task.acceptance, ...task.allowedPaths].join(" ")
+    return searchSolutions(memoryPath(context.projectDir), { text, excludeProject: basename(context.projectDir), stacks: projectStacks(context.projectDir), limit: learning.maxSimilarTasks })
+  } catch (error) {
+    context.store.log("learning", `${task.id}: solution search failed: ${(error as Error).message.slice(0, 200)}`)
+    return []
+  }
+}
+
+function rememberSolution(context: PipelineContext, task: Task, files: string[], workerSummary: string, diff: string): void {
+  const { learning } = context.config
+  if (!learning?.enabled || !learning.memory) return
+  try {
+    const summary = workerSummary.replace(/```json[\s\S]*?```\s*$/, "").trim()
+    recordSolution(memoryPath(context.projectDir), { project: basename(context.projectDir), taskId: task.id, title: task.title, acceptance: task.acceptance, files, summary, diff, stacks: projectStacks(context.projectDir) })
+  } catch (error) {
+    context.store.log("learning", `${task.id}: could not record the solution: ${(error as Error).message.slice(0, 200)}`)
+  }
 }
 
 // The worker and reviewer read the progress log whenever it exists, and a change task's request.
@@ -1788,6 +2032,8 @@ export function workerPrompt(input: WorkerPromptInput): string {
   if (input.hasProgress) sections.push(`Read ${progressPath} first: it lists what earlier tasks built.`)
   const dependencies = dependencySection(input.dependencyFiles)
   if (dependencies) sections.push(dependencies)
+  const similar = formatSolutions(input.similar ?? [])
+  if (similar) sections.push(similar)
   if (input.codeMap?.length) sections.push(["## Code map (git ls-files, without lockfiles and assets)", "", "```", ...input.codeMap, "```"].join("\n"))
   if (previous) {
     sections.push(
@@ -1921,7 +2167,7 @@ export async function runAgent(context: PipelineContext, executor: Executor, rol
     {
       role,
       subject,
-      systemPrompt: fillPrompt(loadPrompt(options.promptName ?? role), options.promptVariables ?? {}),
+      systemPrompt: withLessons(context, role, fillPrompt(loadPrompt(options.promptName ?? role), options.promptVariables ?? {})),
       taskPrompt,
       allowedTools,
       writablePaths: options.writablePaths,
@@ -1930,6 +2176,18 @@ export async function runAgent(context: PipelineContext, executor: Executor, rol
     },
     executor,
   )
+}
+
+// Appends the strongest lessons for the role; learning must never break an agent call, so errors drop the lessons.
+function withLessons(context: PipelineContext, role: Role, systemPrompt: string): string {
+  const { learning } = context.config
+  if (!learning?.enabled || !learning.maxLessonsPerRole) return systemPrompt
+  try {
+    const lessons = formatLessons(lessonsFor(loadLessons(lessonsPath(context.projectDir)), role, learning.maxLessonsPerRole, projectStacks(context.projectDir)))
+    return lessons ? `${systemPrompt.trimEnd()}\n\n${lessons}\n` : systemPrompt
+  } catch {
+    return systemPrompt
+  }
 }
 
 function transcriptPath(context: PipelineContext, fileName: string): string {

@@ -219,8 +219,11 @@ After every task is merged and before deploy, QA checks the build. Configure it 
 ```yaml
 qa:
   enabled: true
-  maxRounds: 3   # failed rounds before the run stops for a human
+  maxRounds: 3       # failed rounds before the run stops for a human
+  resolveAll: false  # true: QA passes only with no findings left; minor ones get fix tasks too
 ```
+
+Each finding has a severity: `blocker`, `major`, or `minor`. Without `resolveAll`, QA may pass with minor notes. With it, the orchestrator rejects a pass that still lists findings, so every finding becomes a fix task. `maxRounds` still caps the rounds.
 
 Each round:
 
@@ -232,11 +235,20 @@ On pass, deploy runs. On fail, the fix tasks are added to `tasks.json`, built by
 
 The dashboard's QA tab shows each round: verdict, findings, test output, and every screenshot next to its branding image.
 
+## Evolve and learning
+
+A deployed app keeps improving on its own, and every project makes the next one better. See [docs/evolve.md](docs/evolve.md).
+
+- **Evolve** (`evolve.enabled`). After deploy, the `evaluator` role scores the live app from 0 to 100 against the brief, the chat requests, and the Operate findings. Below `evolve.targetScore`, it writes gap tasks (`E<cycle><nn>`). They are built, QA runs, the app redeploys, and the evaluator scores again. The loop ends at the target score, when a cycle finds nothing to build, at `evolve.maxCycles` (0 = no limit), or when less than `evolve.cycleBudgetUsd` of the budget is left. In that last case the run waits for **Raise budget and resume**.
+- **Learning** (`learning.enabled`). After each run and each evolve cycle, the `curator` role reads the new rejection reasons, QA findings, evaluation gaps, and incident diagnoses. It turns them into lessons in `<runs folder>/.agent-team-lessons/lessons.json`. Every agent call gets the strongest lessons for its role in its system prompt. A lesson that comes back gains weight, an unused one fades (30-day half-life), and a harmful one is retired. Lessons tied to a stack (for example `next`) reach only projects that use it.
+- **Solution memory** (`learning.memory`). Every merged task goes into a shared search index (SQLite FTS5). Each worker gets the closest solutions from other projects, with their summary and diff.
+
 ## Live preview
 
 With `deploy.enabled: true`, the orchestrator runs the finished app from `main` in a container and exposes it through a Cloudflare quick tunnel. You get a random public URL such as `https://welding-apps-symphony-registrar.trycloudflare.com`, with no account, domain, or open port.
 
 - How to start the app: `deploy.json` from the architect (`install`, `start`, `port`), else `npm start`, else a static `index.html`.
+- The app runs in `node:24-bookworm` (it can build native modules) with 2 GB of memory and 2 CPUs. It gets its public URL in `APP_URL`, `PUBLIC_URL`, `BASE_URL`, `NEXT_PUBLIC_APP_URL`, `NEXTAUTH_URL`, and `ORIGIN`, so the links it builds are not localhost.
 - The URL goes to the logs, `status`, the dashboard, the GitHub epic, and the repository homepage.
 - `agent-team deploy <projectDir>` redeploys; `agent-team undeploy <projectDir>` stops it.
 - Quick tunnels have no uptime guarantee, and the URL changes if the tunnel container restarts. For a stable address, use a named Cloudflare tunnel with your own domain.
@@ -259,6 +271,31 @@ Only one change is open at a time. Gates work as for the first build, and the ga
 When a change needs no code, its docs merge without a build, QA, or a redeploy. When `main` moved during the change (a doctor hotfix), the run merges `main` into the change branch first; on a conflict it stops and names the files. **Abandon** in the change history puts the phases back, removes the change's tasks, and closes its GitHub issue and pull requests. The branch stays for reference.
 
 The change history lists each change with its status, branch, pull request, dates, and cost. Data migrations on a live app are out of scope.
+
+## Import an existing project
+
+agent-team can take over an app it did not build. Click **Import project** on the Projects page, or run `agent-team import <projectDir> --from <git-url|folder> [--url <url>]... [--github source|new|none]`, then `agent-team run <projectDir>`.
+
+| Field | What it does |
+| --- | --- |
+| Source | A git URL (cloned) or a local folder (cloned with its history, or copied without `node_modules` and build output). The original never changes. |
+| Extra URLs | Optional. The live site, the docs, or other pages. The importer reads each one. |
+| GitHub destination | `source`: issues and pull requests on the imported GitHub repository (needs push access and a `main` default branch; no project board). `new`: a new repository, as for a new project. `none`: local git only. |
+| Approval gates | Any of spec, architecture, design. |
+
+The import run documents the app as it is. It changes no app code.
+
+| Phase | Role | Output |
+| --- | --- | --- |
+| research | Importer (reads the code, fetches the URLs) | `docs/import/research.md` |
+| spec | PM | `docs/spec.md` |
+| architecture | Architect | `docs/architecture.md`, `AGENTS.md`, `deploy.json` |
+| design | Designer | `design/tokens.css`, `docs/design-system.md`, `docs/design.md` from the existing styles |
+| baseline | none | runs install and tests, screenshots every route into `design/branding/<route>.png`, writes `.agent-team/import/baseline.json` |
+
+Branding, marketing, plan, and build do not run. When the import ends, the project page shows **Request a change**, and all later work goes through [change requests](#change-requests).
+
+The baseline never blocks the import. QA on later changes fails a round only on a **regression**: a test that passed, a route that loaded, or an app that started at import. Failures that were already there show as **Pre-existing** on the QA tab and create no fix tasks. After a change merges with a QA pass, its result becomes the new baseline. When the baseline has failures, the project page suggests a cleanup change; it starts only when you click **Start cleanup change**.
 
 ## Operate
 

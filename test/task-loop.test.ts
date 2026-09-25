@@ -51,6 +51,9 @@ test("parseBlock reads the structured form and the old free text", () => {
   assert.deepEqual(parseBlock('BLOCKED: {"kind":"scope","needPaths":["src/router.ts"],"reason":"route registry"}'), { kind: "scope", needPaths: ["src/router.ts"], reason: "route registry" })
   assert.deepEqual(parseBlock("  BLOCKED: the contract has no /users endpoint"), { kind: "spec", needPaths: [], reason: "the contract has no /users endpoint" })
   assert.equal(parseBlock("Done. BLOCKED: nothing"), null)
+  const late = parseBlock('I could not wire the tab.\n\nBLOCKED: {"kind":"scope","needPaths":["src/nav.tsx"],"reason":"nav is outside scope"}')
+  assert.deepEqual(late, { kind: "scope", needPaths: ["src/nav.tsx"], reason: "nav is outside scope" })
+  assert.deepEqual(parseBlock("**BLOCKED:** the spec contradicts itself"), { kind: "spec", needPaths: [], reason: "the spec contradicts itself" })
 })
 
 test("decideReplan applies safe changes and sends risky ones to a human", () => {

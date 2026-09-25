@@ -39,6 +39,8 @@ Write these files:
 - The app must work well on mobile browsers (360px wide and up) when the target includes web.
 - The landing page at `/` is public and server-rendered or static, so it loads fast and needs no login.
 - If the app has accounts, it seeds a demo user at startup from the `DEMO_EMAIL` and `DEMO_PASSWORD` environment variables: create it when both are set and no user has that email, and never log the password. The orchestrator sets them in every run of the app (smoke checks, QA, deploy) and shows them to the human, so they can log in to the live app. Describe this in `docs/architecture.md` under `## Auth`.
+- The deployed app gets its public base URL in `APP_URL` (also `PUBLIC_URL`, `BASE_URL`, `NEXT_PUBLIC_APP_URL`, `NEXTAUTH_URL`, and `ORIGIN`). Every absolute link (invites, shares, emails, payment returns) uses it. The session cookie is `Secure` only when `APP_URL` starts with `https://`, so logins also work over plain http in smoke checks and QA.
+- Prefer packages without native builds (for example the built-in `node:sqlite`, or a pure-JS driver instead of `better-sqlite3`). The app runs in `node:24-bookworm` with 2 GB of memory. Keep the production build within that limit.
 - Every endpoint must trace to a user story. Name the story (`US-03`) in the endpoint description.
 - The test command must run offline, without network access, and exit non-zero on failure. Pick a test runner that works out of the box with the stack.
 - Keep the directory layout modular: one folder per feature where possible. This lets workers change files in parallel without conflicts.

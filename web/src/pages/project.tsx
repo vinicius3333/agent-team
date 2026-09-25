@@ -27,6 +27,7 @@ import { GatePanel } from "@/components/project/gate-panel"
 import { MarketingPieces } from "@/components/project/marketing-tab"
 import { LeadTab } from "@/components/project/lead-tab"
 import { GithubCard } from "@/components/project/github-card"
+import { ImportCard } from "@/components/project/import-card"
 import { IncidentBanner } from "@/components/project/incident-banner"
 import { LiveAgentsCard } from "@/components/project/live-agents"
 import { ProjectBranding } from "@/components/project/branding"
@@ -121,6 +122,7 @@ function ProjectViewContent({ phase, view, detail, stream, document, selectDocum
       return (
         <>
           <PipelineStepper />
+          <ImportCard />
           <ChangeRequestCard />
           <LiveAgentsCard />
           <BudgetCard />

@@ -241,6 +241,6 @@ test("the dashboard uploads images, applies a lead task on the server, auto-appl
   const detail = await (await fetch(base)).json()
   assert.deepEqual(detail.spend, { byRole: [], byTask: [], chatUsd: 0, chatCalls: 0 })
   assert.equal((await post("raise-budget", { runUsd: 1 })).status, 400)
-  assert.deepEqual(await (await post("raise-budget", { runUsd: 100 })).json(), { runUsd: 100, started: true })
+  assert.deepEqual(await (await post("raise-budget", { runUsd: 200 })).json(), { runUsd: 200, started: true })
   assert.ok(existsSync(join(projectDir, "tasks.json")))
 })

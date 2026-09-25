@@ -79,6 +79,9 @@ export interface ProjectChoices {
   github: boolean
   deploy: boolean
   branding: boolean
+  // Optional so older clients keep working; undefined keeps the value in pipeline.example.yaml.
+  resolveAllQa?: boolean
+  evolve?: boolean
   // A stack template name; undefined or "custom" lets the architect choose the stack.
   template?: string
 }
@@ -120,13 +123,13 @@ export function createProject(projectDir: string, brief: string, choices?: Parti
 }
 
 // Keeps the scaffold's own ignore lines and adds the ones every project needs.
-function writeGitignore(projectDir: string): void {
+export function writeGitignore(projectDir: string): void {
   const path = join(projectDir, ".gitignore")
   const existing = existsSync(path) ? readFileSync(path, "utf8").split("\n").filter(Boolean) : []
   writeFileSync(path, `${[...new Set([...baseIgnores, ...existing])].join("\n")}\n`)
 }
 
-function applyChoices(pipelineYaml: string, choices: Partial<ProjectChoices>, template: StackTemplate | null): string {
+export function applyChoices(pipelineYaml: string, choices: Partial<ProjectChoices>, template: StackTemplate | null): string {
   const document = parseDocument(pipelineYaml)
   if (choices.target !== undefined) document.set("target", choices.target)
   if (template) {
@@ -142,6 +145,8 @@ function applyChoices(pipelineYaml: string, choices: Partial<ProjectChoices>, te
   if (choices.github !== undefined) document.setIn(["publish", "github", "enabled"], choices.github)
   if (choices.deploy !== undefined) document.setIn(["deploy", "enabled"], choices.deploy)
   if (choices.branding !== undefined) document.setIn(["branding", "enabled"], choices.branding)
+  if (choices.resolveAllQa !== undefined) document.setIn(["qa", "resolveAll"], choices.resolveAllQa)
+  if (choices.evolve !== undefined) document.setIn(["evolve", "enabled"], choices.evolve)
   const workerModels: RoleModels = choices.workerRunner === "codex" ? { worker: { runner: "codex", model: "gpt-5.5" } } : {}
   applyRoleModels(document, { ...workerModels, ...choices.roles })
   return document.toString()
@@ -247,6 +252,10 @@ export function raiseRunBudget(projectDir: string, store: Store, runUsd?: number
   return raised
 }
 
+// Kept here, not in pipeline.ts, so the dashboard reads it without loading the pipeline.
+export const importDoneKey = "import.done"
+export const importCleanupKey = "import.cleanup"
+
 export const changeRequestMaxLength = 4000
 // The phases a change reruns; design joins them when the architecture delta asks for it.
 export const changePhases = ["spec", "architecture", "plan", "qa", "deploy"]
@@ -256,10 +265,11 @@ export function changePath(id: string, file: string): string {
 }
 
 // Done means the last run got through QA and deploy (deploy counts as approved when it is off) with every task merged.
+// An imported project counts as done with no tasks, once its import finished.
 export function buildComplete(store: Store): boolean {
   if (!["plan", "qa", "deploy"].every((phase) => store.phaseStatus(phase) === "approved")) return false
   const tasks = store.tasks()
-  return tasks.length > 0 && tasks.every((task) => task.status === "merged")
+  return (tasks.length > 0 || store.meta(importDoneKey) === "1") && tasks.every((task) => task.status === "merged")
 }
 
 function changeSlug(request: string): string {

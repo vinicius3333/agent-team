@@ -14,10 +14,14 @@ export interface QaScreen {
   signedIn: boolean
 }
 
+export const findingSeverities = ["blocker", "major", "minor"] as const
+export type FindingSeverity = (typeof findingSeverities)[number]
+
 export interface QaFinding {
   title: string
   detail: string
   screen: string
+  severity: FindingSeverity
 }
 
 export type QaVerdict = { verdict: "pass"; findings: QaFinding[]; tasks: [] } | { verdict: "fail"; findings: QaFinding[]; tasks: Task[] }
@@ -131,6 +135,7 @@ export function parseQaVerdict(text: string, round: number, existing: Task[]): Q
     title: String(finding?.title ?? ""),
     detail: String(finding?.detail ?? ""),
     screen: String(finding?.screen ?? ""),
+    severity: (findingSeverities as readonly string[]).includes(finding?.severity) ? finding.severity : "major",
   }))
   if (parsed.verdict === "pass") return { verdict: "pass", findings, tasks: [] }
   if (!findings.length) throw new Error("a fail verdict needs at least one finding")
@@ -138,9 +143,10 @@ export function parseQaVerdict(text: string, round: number, existing: Task[]): Q
 }
 
 // The harness numbers fix tasks itself, so a missing or odd id from the reviewer cannot fail the round.
-export function validateFixTasks(value: unknown, round: number, existing: Task[]): Task[] {
+// prefix "Q" is a QA round, "E" an evolve cycle.
+export function validateFixTasks(value: unknown, round: number, existing: Task[], prefix = "Q"): Task[] {
   if (!Array.isArray(value) || value.length === 0) throw new Error("a fail verdict needs at least one fix task")
-  const tasks = value.map((task, index) => ({ ...(task ?? {}), id: `Q${round}${String(index + 1).padStart(2, "0")}` }))
+  const tasks = value.map((task, index) => ({ ...(task ?? {}), id: `${prefix}${round}${String(index + 1).padStart(2, "0")}` }))
   const existingIds = new Set(existing.map((task) => task.id))
   const errors: string[] = []
   for (const task of tasks) {
@@ -157,7 +163,7 @@ export function validateFixTasks(value: unknown, round: number, existing: Task[]
 }
 
 export function formatFindings(findings: QaFinding[]): string {
-  return findings.map((finding) => `${finding.screen ? `[${finding.screen}] ` : ""}${finding.title}: ${finding.detail}`).join("\n")
+  return findings.map((finding) => `[${finding.severity}]${finding.screen ? ` [${finding.screen}]` : ""} ${finding.title}: ${finding.detail}`).join("\n")
 }
 
 export interface QaLoopSteps {

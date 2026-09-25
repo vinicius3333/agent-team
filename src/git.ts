@@ -8,6 +8,11 @@ function git(dir: string, args: string[]): string {
 
 export function initRepository(dir: string): void {
   git(dir, ["init", "-q", "-b", "main"])
+  ensureIdentity(dir)
+}
+
+// Commits need a name and email; a machine without a global git identity gets a local one.
+export function ensureIdentity(dir: string): void {
   const hasIdentity = (() => {
     try {
       return Boolean(git(dir, ["config", "user.email"]).trim())
