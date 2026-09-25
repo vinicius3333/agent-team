@@ -6,7 +6,8 @@ import { commitPaths, fileAtRef } from "./git.ts"
 import { commitAndRebase, createWorkspace, fastForward, removeWorkspace } from "./harness/workspace.ts"
 import { approvePhase, ProjectError, raiseRunBudget, requestChanges, retryTask } from "./project.ts"
 import type { LeadAction, Store, TaskChanges, TaskDraft } from "./store.ts"
-import { orderTasks, validateTasks, type Task } from "./tasks.ts"
+import { suggestedPaths } from "./replan.ts"
+import { orderTasks, pathsOverlap, validateTasks, type Task } from "./tasks.ts"
 
 // Applies a lead action on the server, so auto-apply and the dashboard button share one path.
 // Returns whether the action wants the run started when it is idle.
@@ -117,6 +118,39 @@ export function editTask(projectDir: string, store: Store, taskId: string, chang
   writeTasks(projectDir, store, tasks, `chore(plan): change ${taskId} from the project lead`)
   if (status === "blocked") store.resetTask(taskId)
   store.log("task", `${taskId} changed by the project lead: ${Object.keys(changes).join(", ")}`)
+}
+
+// Approves the scope a blocked task asked for: adds the files to allowedPaths, makes the task wait for any
+// unmerged task that owns one of them (so the two never run at once), and resets it for a retry.
+export function approveTaskSuggestion(projectDir: string, store: Store, taskId: string): string[] {
+  const row = store.task(taskId)
+  if (row?.status !== "blocked" || !row.humanReason) throw new ProjectError(409, `${taskId} is not waiting for a decision.`)
+  const paths = suggestedPaths(row.humanReason)
+  if (!paths.length) throw new ProjectError(409, `${taskId} has no suggested files. Edit tasks.json, then retry it.`)
+  const tasks = readTasks(projectDir, store)
+  const index = tasks.findIndex((entry) => entry.id === taskId)
+  if (index === -1) throw new ProjectError(404, `unknown task "${taskId}"`)
+  const task = tasks[index]
+  const owners = tasks.filter((other) => other.id !== taskId && store.task(other.id)?.status !== "merged" && pathsOverlap(other.allowedPaths, paths)).map((other) => other.id)
+  tasks[index] = { ...task, allowedPaths: [...new Set([...task.allowedPaths, ...paths])], dependsOn: [...new Set([...task.dependsOn, ...owners])] }
+  writeTasks(projectDir, store, tasks, `chore(plan): widen ${taskId} as approved`)
+  store.resetTask(taskId)
+  store.log("task", `${taskId}: scope approved (${paths.join(", ")})${owners.length ? `; it now waits for ${owners.join(", ")}` : ""}`)
+  return paths
+}
+
+// Drops a task that waits for a decision. A task other tasks depend on stays, because removing it would strand them.
+export function dropTask(projectDir: string, store: Store, taskId: string): void {
+  const row = store.task(taskId)
+  if (row?.status === "merged") throw new ProjectError(409, `${taskId} is already merged.`)
+  if (row?.status === "running") throw new ProjectError(409, `${taskId} is running. Drop it after the attempt ends.`)
+  const tasks = readTasks(projectDir, store)
+  if (!tasks.some((entry) => entry.id === taskId)) throw new ProjectError(404, `unknown task "${taskId}"`)
+  const dependents = tasks.filter((entry) => entry.dependsOn.includes(taskId)).map((entry) => entry.id)
+  if (dependents.length) throw new ProjectError(409, `${dependents.join(", ")} ${dependents.length === 1 ? "depends" : "depend"} on ${taskId}. Drop or change ${dependents.length === 1 ? "it" : "them"} first.`)
+  writeTasks(projectDir, store, tasks.filter((entry) => entry.id !== taskId), `chore(plan): drop ${taskId} by request`)
+  store.removeTask(taskId)
+  store.log("task", `${taskId} dropped by request`)
 }
 
 export function parseLeadSettings(value: unknown): LeadConfig {

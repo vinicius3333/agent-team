@@ -19,6 +19,7 @@ import { BudgetCard } from "@/components/project/budget-card"
 import { ChangeMergeCard, ChangeRequestCard } from "@/components/project/changes-card"
 import { ConfigTab } from "@/components/project/config-tab"
 import { panelKinds, ProjectViewContext, type Panel, type ProjectView, type TranscriptRequest } from "@/components/project/context"
+import { DecisionCard } from "@/components/project/decision-card"
 import { DeployCard } from "@/components/project/deploy-card"
 import { DetailsSheet } from "@/components/project/details-sheet"
 import { DocsTab } from "@/components/project/docs-tab"
@@ -36,7 +37,7 @@ import { StatCards } from "@/components/project/stat-cards"
 import { StopBanner } from "@/components/project/stop-banner"
 import { PipelineStepper } from "@/components/project/stepper"
 import { runnerCooldown, SystemTab } from "@/components/project/system-tab"
-import { TaskAction, TasksCard } from "@/components/project/tasks-card"
+import { TasksCard } from "@/components/project/tasks-card"
 import { TranscriptSheet } from "@/components/project/transcript-sheet"
 import { StatusBadge } from "@/components/status-badge"
 import { Button } from "@/components/ui/button"
@@ -76,20 +77,7 @@ function Brief({ name }: { name: string }) {
 function HumanNeededBanner({ detail }: { detail: ProjectDetail }) {
   const task = detail.tasks.find((entry) => entry.status === "blocked" && entry.needsHuman)
   if (!task) return null
-  return (
-    <Card role="alert" className="flex-col items-start gap-3 border-warning/40 px-4 py-3 sm:flex-row sm:items-center">
-      <div className="min-w-0 flex-1">
-        <p className="font-medium">
-          {task.id} needs your decision
-        </p>
-        <p className="text-sm whitespace-pre-wrap break-words text-muted-foreground">{task.needsHuman}</p>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {task.budgetStopUsd ? "Approve more budget to let the worker continue from its saved work." : "Edit tasks.json if you agree with the change, then retry the task."}
-        </p>
-      </div>
-      <TaskAction task={task} size="default" />
-    </Card>
-  )
+  return <DecisionCard task={task} />
 }
 
 function ProblemBanner({ detail }: { detail: ProjectDetail }) {

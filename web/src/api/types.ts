@@ -70,6 +70,8 @@ export interface Task {
   needsHuman: string | null
   // The budget in USD the worker ran out of; the task waits until a person approves more.
   budgetStopUsd: number | null
+  // Files the blocked task asked for; approving adds them to its scope and retries it.
+  suggestedPaths?: string[]
   issueNumber: number | null
   phase: string | null
   story: string | null

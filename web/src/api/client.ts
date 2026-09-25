@@ -92,6 +92,8 @@ export const api = {
   feedback: (name: string, phase: string, message: string) => post<{ started: boolean }>(`${projectPath(name)}/feedback`, { phase, message }),
   approveTaskBudget: (name: string, taskId: string) => post<{ budgetUsd: number; started: boolean }>(`${projectPath(name)}/approve-task-budget`, { taskId }),
   retry: (name: string, taskId: string) => post<{ started: boolean }>(`${projectPath(name)}/retry`, { taskId }),
+  approveSuggestion: (name: string, taskId: string) => post<{ paths: string[]; started: boolean }>(`${projectPath(name)}/approve-suggestion`, { taskId }),
+  dropTask: (name: string, taskId: string) => post<{ started: boolean }>(`${projectPath(name)}/drop-task`, { taskId }),
   saveRoles: (name: string, roles: Record<string, RoleCandidate>) => post<{ saved: boolean }>(`${projectPath(name)}/roles`, { roles }),
   chat: (name: string, message: string, attachments: string[] = []) => post<{ accepted: boolean }>(`${projectPath(name)}/chat`, { message, attachments }),
   chatSession: (name: string, session?: number) => post<{ session: number }>(`${projectPath(name)}/chat-session`, session === undefined ? {} : { session }),

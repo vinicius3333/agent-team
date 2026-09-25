@@ -68,6 +68,44 @@ export function parseBlock(summary: string): Block | null {
   return { kind: "spec", needPaths: [], reason: rest || "no reason given" }
 }
 
+// The files a human-decision reason asks for: the "(needs a, b)" that formatBlock writes, or the needPaths of a
+// BLOCKED line quoted in the reason. The dashboard offers them as a one-click scope change.
+// The strings of the first "needPaths": [...] array, read with a small scanner so "]" inside a quoted path
+// (src/app/[id]/route.ts) does not end the array.
+function quotedNeedPaths(text: string): string[] {
+  const start = /"needPaths"\s*:\s*\[/.exec(text)
+  if (!start) return []
+  const paths: string[] = []
+  let index = start.index + start[0].length
+  while (index < text.length) {
+    const character = text[index]
+    if (character === "]") break
+    if (character !== '"') {
+      index += 1
+      continue
+    }
+    let value = ""
+    index += 1
+    while (index < text.length && text[index] !== '"') {
+      if (text[index] === "\\" && index + 1 < text.length) index += 1
+      value += text[index]
+      index += 1
+    }
+    paths.push(value)
+    index += 1
+  }
+  return paths
+}
+
+export function suggestedPaths(reason: string): string[] {
+  const listed = /\(needs ([^)]+)\)/.exec(reason)?.[1]
+  // needPaths is read straight from the text: a worker summary can hold a ```json commit plan that a JSON
+  // extractor would pick instead of the BLOCKED object.
+  const quoted = quotedNeedPaths(reason)
+  const paths = listed ? listed.split(",").map((path) => path.trim()) : quoted.length ? quoted : (parseBlock(reason)?.needPaths ?? [])
+  return [...new Set(paths.map((path) => path.replace(/\\([[\]])/g, "$1")).filter(Boolean))]
+}
+
 export function formatBlock(block: Block): string {
   const paths = block.needPaths.length ? ` (needs ${block.needPaths.join(", ")})` : ""
   return `${blockedPrefix} ${block.kind}${paths}: ${block.reason}`

@@ -21,7 +21,8 @@ import { changeIdPattern } from "../tasks.ts"
 import { listIncidents, openIncident, readIncident } from "../incidents.ts"
 import { askLead, chatMessageMaxLength, chatUploadsDir } from "../lead.ts"
 import { applyGitIdentity, parseGitIdentity, readGitIdentity, saveGitIdentity } from "../git-identity.ts"
-import { applyLeadAction, parseLeadSettings, saveLeadSettings } from "../lead-actions.ts"
+import { applyLeadAction, approveTaskSuggestion, dropTask, parseLeadSettings, saveLeadSettings } from "../lead-actions.ts"
+import { suggestedPaths } from "../replan.ts"
 import { trackedFiles } from "../git.ts"
 import { insightAgents, type InsightAgent } from "../config.ts"
 import { insightRunActive, runInsightAgent } from "../operate/agents.ts"
@@ -598,7 +599,7 @@ async function detail(runsDir: string, name: string) {
   const tasks = state.tasks.map((task: any) => {
     const definition = taskDefinitions.get(task.id) ?? {}
     const budgetStopUsd = Number(state.meta[taskBudgetStopKey(task.id)]) || null
-    return { issueNumber: null, needsHuman: null, ...task, ...definitionFields(definition), title: definition.title ?? task.id, budgetStopUsd }
+    return { issueNumber: null, needsHuman: null, ...task, ...definitionFields(definition), title: definition.title ?? task.id, budgetStopUsd, suggestedPaths: task.needsHuman ? suggestedPaths(task.needsHuman) : [] }
   })
   for (const [id, definition] of taskDefinitions) {
     if (!tasks.some((task: any) => task.id === id)) tasks.push({ id, status: "pending", attempts: 0, lastFailure: null, issueNumber: null, needsHuman: null, budgetStopUsd: null, ...definitionFields(definition) })
@@ -1091,6 +1092,13 @@ export function startUi(options: UiOptions) {
       }
       case "retry":
         withProjectStore(projectDir, (store) => retryTask(store, requireString(body, "taskId")))
+        return send(response, 200, { started: startRunIfIdle(name) })
+      case "approve-suggestion": {
+        const paths = withProjectStore(projectDir, (store) => approveTaskSuggestion(projectDir, store, requireString(body, "taskId")))
+        return send(response, 200, { paths, started: startRunIfIdle(name) })
+      }
+      case "drop-task":
+        withProjectStore(projectDir, (store) => dropTask(projectDir, store, requireString(body, "taskId")))
         return send(response, 200, { started: startRunIfIdle(name) })
       case "approve-task-budget": {
         const budgetUsd = withProjectStore(projectDir, (store) => approveTaskBudget(store, requireString(body, "taskId")))
