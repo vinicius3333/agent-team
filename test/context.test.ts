@@ -488,6 +488,51 @@ test("the design phase runs in two steps, renders the favicon, fixes a rejection
   assert.match(showMain(projectDir, "design/logo-mark.svg"), /#115e59/)
 })
 
+test("a design retry gets the rejections from every earlier review round, oldest first", async () => {
+  const { store, run } = setupProject("design-retry", [task("T001")])
+  store.setPhase("design", "pending")
+  store.setPhase("plan", "pending")
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" fill="#0f766e"/></svg>\n'
+  const headings = ["## Principles", "## Color", "## Typography", "## Spacing and radius", "## Components", "## Icons", "## Logo"].join("\n\n")
+  const system = (_job: unknown, workdir: string) => {
+    writeFile(workdir, "design/tokens.css", ":root { --primary: #0f766e; }\n")
+    writeFile(workdir, "design/logo.svg", svg)
+    writeFile(workdir, "design/logo-mark.svg", svg)
+    writeFile(workdir, "docs/design-system.md", `# Design system\n\n${headings}\n`)
+    return "system done"
+  }
+  const screens = (_job: unknown, workdir: string) => {
+    writeFile(workdir, "docs/design.md", "## Screens\n\n### Items\nRoute: /items\n")
+    return "screens done"
+  }
+  const fail = (reason: string, fix: string) => `\`\`\`json\n${JSON.stringify({ verdict: "fail", reasons: [reason], fixes: [fix] })}\n\`\`\``
+  const { harness, jobs } = stubHarness({
+    designer: [system, screens, "fixed", system, screens],
+    "design-reviewer": [fail("hero sits below the button", "Put the hero above the headline"), fail("hero too narrow", "Make the hero full width"), pass],
+    planner: [
+      (_job, workdir) => {
+        writeFile(workdir, "tasks.json", JSON.stringify([task("T001")]))
+        return "planned"
+      },
+    ],
+    worker: [
+      (_job, workdir) => {
+        writeFile(workdir, "src/t001/a.ts")
+        return "done"
+      },
+    ],
+    reviewer: [pass],
+  })
+  const renderFavicons: PipelineContext["renderFavicons"] = async ({ dir }) => {
+    for (const file of faviconFiles) writeFile(dir, `design/favicon/${file}`, "icon")
+  }
+  assert.equal(await run(harness, undefined, renderFavicons), "completed")
+  const retry = jobs.filter((job) => job.role === "designer")[3].taskPrompt
+  assert.match(retry, /Keep those fixes in place:\n1\. [\s\S]*Put the hero above the headline/)
+  assert.match(retry, /Your previous output was rejected\. Fix this: [\s\S]*Make the hero full width/)
+  assert.ok(retry.indexOf("Put the hero above the headline") < retry.indexOf("Make the hero full width"))
+})
+
 test("a logo mark that uses theme variables is rejected before the favicon render", async () => {
   const { store, run } = setupProject("design-mark", [task("T001")])
   store.setPhase("design", "pending")
