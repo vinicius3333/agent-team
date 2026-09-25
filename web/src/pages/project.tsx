@@ -25,7 +25,7 @@ import { DocsTab } from "@/components/project/docs-tab"
 import { EventsCard } from "@/components/project/events"
 import { GatePanel } from "@/components/project/gate-panel"
 import { MarketingPieces } from "@/components/project/marketing-tab"
-import { LeadTab } from "@/components/project/lead-tab"
+import { ChatTab } from "@/components/project/chat-tab"
 import { GithubCard } from "@/components/project/github-card"
 import { ImportCard } from "@/components/project/import-card"
 import { IncidentBanner } from "@/components/project/incident-banner"
@@ -130,8 +130,8 @@ function ProjectViewContent({ phase, view, detail, stream, document, selectDocum
           <EventsCard stream={stream} />
         </>
       )
-    case "build/lead":
-      return <LeadTab />
+    case "build/chat":
+      return <ChatTab />
     case "build/office":
       return <OfficeTab />
     case "build/docs":
@@ -319,6 +319,7 @@ export function ProjectPage() {
     return <Navigate replace to={`${projectPath(name, targetPhase, targetView)}${query ? `?${query}` : ""}`} />
   }
   if (phase !== undefined && !isPhase(phase)) return <Navigate replace to={projectPath(name)} />
+  if (phase === "build" && view === "lead") return <Navigate replace to={`${projectPath(name, "build", "chat")}${searchParams.size ? `?${searchParams}` : ""}`} />
   if (isPhase(phase) && !findView(phase, view)) return <Navigate replace to={`${projectPath(name, phase)}${searchParams.size ? `?${searchParams}` : ""}`} />
 
   if (missing) {

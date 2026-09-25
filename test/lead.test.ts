@@ -71,6 +71,30 @@ test("askLead stores both messages and keeps lead cost out of the run budget", a
   })
 })
 
+test("chat sessions keep their own history and reuse an empty session", async () => {
+  const projectDir = join(scratch, "sessions")
+  createProject(projectDir, "brief")
+  let prompt = ""
+  const runLead = async (request: { taskPrompt: string }) => {
+    prompt = request.taskPrompt
+    return { status: "done" as const, summary: reply({ reply: "ok" }), costUsd: 0, durationMs: 1, exitCode: 0, diagnostics: "" }
+  }
+  await askLead({ projectDir, message: "First topic", runLead })
+  const second = withProjectStore(projectDir, (store) => store.startChatSession())
+  assert.equal(second, 2)
+  assert.equal(withProjectStore(projectDir, (store) => store.startChatSession()), 2)
+  await askLead({ projectDir, message: "Second topic", runLead })
+  assert.doesNotMatch(prompt, /First topic/)
+  withProjectStore(projectDir, (store) => {
+    assert.deepEqual(store.chatMessages(10).map((message) => message.body), ["Second topic", "ok"])
+    assert.deepEqual(store.chatSessions().map((session) => session.title), ["Second topic", "First topic"])
+    assert.ok(store.openChatSession(1))
+    assert.equal(store.chatMessages(10)[0].body, "First topic")
+    assert.equal(store.openChatSession(9), false)
+    assert.equal(store.chatMessages(10, "all").length, 4)
+  })
+})
+
 test("askLead records a failed call as a lead message", async () => {
   const projectDir = join(scratch, "fail")
   createProject(projectDir, "brief")

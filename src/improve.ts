@@ -97,7 +97,7 @@ function evaluatorPrompt(input: { context: PipelineContext; cycle: number; exist
   const { store } = context
   const liveUrl = store.meta("deploy.url")
   const previous = cycle > 1 ? readPreviousEvaluation(context.projectDir, cycle - 1) : null
-  const userMessages = store.chatMessages(maxChatMessages).filter((message) => message.author === "human")
+  const userMessages = store.chatMessages(maxChatMessages, "all").filter((message) => message.author === "human")
   const findings = store.listFindings({ status: "open" })
   const lines = [
     `Evolve cycle ${cycle}. Target score: ${context.config.evolve.targetScore}/100. Project target: ${context.config.target}.`,

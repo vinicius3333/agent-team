@@ -33,7 +33,7 @@ import { liveAgentPrefix, type LiveAgent } from "../harness/harness.ts"
 import { reviewerMetrics, type ReviewRow } from "../reviews.ts"
 import { authenticate, clientAddress, createLoginLimiter, fromTrustedProxy, loadAuthConfig, passwordUser, sessionCookieName, signSession, verifyPassword, type AuthConfig } from "./auth.ts"
 import { notificationStatus, sendTest, startNotificationLoop, UnknownChannelError, type NotifyDeps } from "../notify/index.ts"
-import { taskBudgetStopKey } from "../store.ts"
+import { chatSessionMetaKey, taskBudgetStopKey } from "../store.ts"
 
 const execFileAsync = promisify(execFile)
 const builtWebDir = fileURLToPath(new URL("../../web/dist/", import.meta.url))
@@ -497,18 +497,30 @@ const emptyDetails = { attachments: [], filesRead: [], followUps: [] }
 const insightBusy = new Set<string>()
 const findingIdPattern = /^\d{1,9}$/
 
-function chatMessages(projectDir: string) {
+function chatView(projectDir: string) {
   return withDatabase(
     projectDir,
     (db) => {
-      // Older state files lack the details column until a run or chat opens the store.
-      const hasDetails = all(db, "PRAGMA table_info(chat_messages)").some((column) => column.name === "details")
+      const columns = all(db, "PRAGMA table_info(chat_messages)").map((column) => column.name)
+      // Older state files lack these columns until a run or chat opens the store.
+      const hasDetails = columns.includes("details")
+      const hasSession = columns.includes("session")
+      const session = Number(all(db, "SELECT value FROM meta WHERE key = ?", chatSessionMetaKey)[0]?.value ?? 1)
       // all() returns no rows when an older state file has no chat_messages table.
-      return all(db, `SELECT id, at, author, body, actions${hasDetails ? ", details" : ""} FROM chat_messages ORDER BY id DESC LIMIT 200`)
+      const messages = all(db, `SELECT id, at, author, body, actions${hasDetails ? ", details" : ""} FROM chat_messages ${hasSession ? "WHERE session = ?" : ""} ORDER BY id DESC LIMIT 200`, ...(hasSession ? [session] : []))
         .reverse()
         .map((row) => ({ ...row, actions: JSON.parse(String(row.actions)), details: { ...emptyDetails, ...JSON.parse(String(row.details ?? "{}")) } }))
+      const sessions = hasSession
+        ? all(
+            db,
+            `SELECT session AS id, MIN(at) AS startedAt, MAX(at) AS updatedAt, COUNT(*) AS messages,
+               (SELECT body FROM chat_messages first WHERE first.session = chat_messages.session AND first.author = 'human' ORDER BY first.id LIMIT 1) AS title
+             FROM chat_messages GROUP BY session ORDER BY session DESC`,
+          ).map((row) => ({ ...row, title: String(row.title ?? "").split("\n")[0].slice(0, 80) }))
+        : []
+      return { session, sessions, messages }
     },
-    [] as Record<string, unknown>[],
+    { session: 1, sessions: [] as Record<string, unknown>[], messages: [] as Record<string, unknown>[] },
   )
 }
 
@@ -637,7 +649,7 @@ async function detail(runsDir: string, name: string) {
     feedback: pendingFeedback(projectDir),
     budget: { runUsd: config?.budget.runUsd ?? defaultRunBudgetUsd, spentUsd: spend.usd, spentTokens: spend.tokens, unreportedCalls: spend.unreportedCalls },
     spend: spendBreakdown(projectDir),
-    chat: { messages: chatMessages(projectDir), thinking: leadCalls.has(name), activity: leadActivity(name) },
+    chat: { ...chatView(projectDir), thinking: leadCalls.has(name), activity: leadActivity(name) },
     changes: changes.map((change) => ({ ...change, title: change.request.trim().split("\n")[0], costUsd: changeCosts[change.id] ?? 0 })).reverse(),
     change: openChange
       ? {
@@ -942,7 +954,7 @@ export function startUi(options: UiOptions) {
   const autoApply = (name: string, messageId: number) => {
     const projectDir = join(runsDir, name)
     const autoKinds = readConfig(projectDir)?.lead.autoApply ?? []
-    const actions = withProjectStore(projectDir, (store) => store.chatMessages(200).find((message) => message.id === messageId)?.actions ?? [])
+    const actions = withProjectStore(projectDir, (store) => store.chatMessages(200, "all").find((message) => message.id === messageId)?.actions ?? [])
     actions.forEach((action, index) => {
       if (!autoKinds.includes(action.kind)) return
       try {
@@ -1105,6 +1117,12 @@ export function startUi(options: UiOptions) {
           .catch((error) => console.error(`[lead] ${name}: ${(error as Error).message}`))
           .finally(() => leadCalls.delete(name))
         return send(response, 202, { accepted: true })
+      }
+      case "chat-session": {
+        if (leadCalls.has(name)) return send(response, 409, { error: "Wait for the lead to finish answering." })
+        if (body.session !== undefined && !Number.isInteger(body.session)) return send(response, 400, { error: "session must be a whole number." })
+        const session = withProjectStore(projectDir, (store) => (body.session === undefined ? store.startChatSession() : store.openChatSession(body.session as number) ? (body.session as number) : null))
+        return session === null ? send(response, 404, { error: "unknown session" }) : send(response, 200, { session })
       }
       case "chat-stop": {
         const call = leadCalls.get(name)

@@ -219,7 +219,7 @@ export function LeadComposer({ busy, onSend, onStop }: { busy: boolean; onSend: 
   }
 
   return (
-    <div className="relative border-t p-3" onDragOver={(event) => event.preventDefault()} onDrop={onDrop}>
+    <div className="relative border-t p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:p-3" onDragOver={(event) => event.preventDefault()} onDrop={onDrop}>
       {mention && matches.length > 0 && (
         <ul role="listbox" aria-label="Mentions" className="absolute bottom-full left-3 z-10 mb-1 max-h-64 w-[min(28rem,calc(100%-1.5rem))] overflow-y-auto rounded-md border bg-popover p-1 text-sm shadow-md">
           {matches.map((candidate, index) => (
@@ -261,7 +261,7 @@ export function LeadComposer({ busy, onSend, onStop }: { busy: boolean; onSend: 
           ))}
         </div>
       )}
-      <div className="flex items-end gap-2">
+      <div className="flex items-end gap-1 sm:gap-2">
         <input
           ref={fileRef}
           type="file"
@@ -286,7 +286,7 @@ export function LeadComposer({ busy, onSend, onStop }: { busy: boolean; onSend: 
           rows={2}
           value={text}
           maxLength={messageMaxLength}
-          placeholder={listening ? "Listening… speak now" : "Ask the lead, or type @ to mention a task, phase, or file"}
+          placeholder={listening ? "Listening… speak now" : "Ask anything, or type @ to mention a task, phase, or file"}
           aria-label="Message to the project lead"
           onChange={(event) => {
             setText(event.target.value)
@@ -296,15 +296,15 @@ export function LeadComposer({ busy, onSend, onStop }: { busy: boolean; onSend: 
           onBlur={() => setMention(null)}
           onKeyDown={onKeyDown}
           onPaste={onPaste}
-          className="max-h-40 min-h-10 flex-1 resize-none rounded-md border border-input bg-transparent px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-input/30"
+          className="max-h-40 min-h-10 min-w-0 flex-1 resize-none rounded-md border border-input bg-transparent px-3 py-2 text-base sm:text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-input/30"
         />
         {busy ? (
-          <Button type="button" variant="outline" onClick={onStop}>
-            <Square /> Stop
+          <Button type="button" variant="outline" onClick={onStop} aria-label="Stop">
+            <Square /> <span className="hidden sm:inline">Stop</span>
           </Button>
         ) : (
-          <Button type="button" onClick={() => void send()} disabled={!canSend}>
-            <SendHorizontal /> Send
+          <Button type="button" onClick={() => void send()} disabled={!canSend} aria-label="Send">
+            <SendHorizontal /> <span className="hidden sm:inline">Send</span>
           </Button>
         )}
       </div>

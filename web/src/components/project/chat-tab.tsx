@@ -8,7 +8,7 @@ import {
   type AppendMessage,
   type ThreadMessageLike,
 } from "@assistant-ui/react"
-import { Bot, FileText, Loader2, Sparkles } from "lucide-react"
+import { Bot, Check, FileText, History, Loader2, Plus, Sparkles } from "lucide-react"
 import { toast } from "sonner"
 import { api, urls } from "@/api/client"
 import type { ChatDetails, ChatMessage, LeadAction, LiveActivity, ProjectDetail } from "@/api/types"
@@ -18,8 +18,9 @@ import { ActionCard } from "@/components/project/lead-action-card"
 import { LeadComposer } from "@/components/project/lead-composer"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { describeCandidate, projectStatus, projectStatusLabels, taskCounts } from "@/lib/pipeline"
-import { formatCost } from "@/lib/format"
+import { formatCost, formatRelative } from "@/lib/format"
 import { TokenCount } from "@/components/token-count"
 
 interface MessageMetadata {
@@ -75,7 +76,7 @@ function Attachments({ files }: { files: string[] }) {
   return (
     <div className="flex flex-wrap justify-end gap-2">
       {files.map((file) => (
-        <a key={file} href={urls.chatUpload(name, file)} target="_blank" rel="noreferrer" className="block size-24 overflow-hidden rounded-lg border">
+        <a key={file} href={urls.chatUpload(name, file)} target="_blank" rel="noreferrer" className="block size-20 sm:size-24 overflow-hidden rounded-lg border">
           <img src={urls.chatUpload(name, file)} alt="Attached image" className="size-full object-cover" />
         </a>
       ))}
@@ -88,7 +89,7 @@ function UserMessage() {
   return (
     <MessagePrimitive.Root className="flex flex-col items-end gap-2">
       <Attachments files={metadata?.details?.attachments ?? []} />
-      <div className="max-w-[80%] rounded-2xl bg-primary px-4 py-2 text-sm whitespace-pre-wrap text-primary-foreground">
+      <div className="max-w-[90%] rounded-2xl bg-primary sm:max-w-[80%] px-4 py-2 text-sm whitespace-pre-wrap text-primary-foreground">
         <MessagePrimitive.Parts />
       </div>
     </MessagePrimitive.Root>
@@ -144,9 +145,9 @@ function AssistantMessage() {
   const metadata = useMetadata()
   const details = metadata?.details ?? noDetails
   return (
-    <MessagePrimitive.Root className="flex gap-3">
+    <MessagePrimitive.Root className="flex gap-2 sm:gap-3">
       <LeadAvatar />
-      <div className="flex min-w-0 max-w-[85%] flex-col gap-2">
+      <div className="flex min-w-0 max-w-[calc(100%-2.5rem)] flex-col gap-2 sm:max-w-[85%]">
         <div className="rounded-2xl border bg-card px-4 py-2 text-sm">
           <MessagePrimitive.Parts>{({ part }) => (part.type === "text" ? <Markdown text={part.text} project={name} /> : null)}</MessagePrimitive.Parts>
         </div>
@@ -172,9 +173,9 @@ const activityVerbs: Record<LiveActivity["kind"], string> = {
 function Thinking({ activity }: { activity: LiveActivity[] }) {
   const steps = activity.slice(-maxActivityLines)
   return (
-    <div className="flex gap-3" role="status" aria-live="polite">
+    <div className="flex gap-2 sm:gap-3" role="status" aria-live="polite">
       <LeadAvatar />
-      <div className="flex min-w-0 max-w-[85%] flex-col gap-1 rounded-2xl border bg-card px-4 py-2 text-sm">
+      <div className="flex min-w-0 max-w-[calc(100%-2.5rem)] sm:max-w-[85%] flex-col gap-1 rounded-2xl border bg-card px-4 py-2 text-sm">
         <span className="inline-flex items-center gap-2 text-muted-foreground">
           <Loader2 className="size-4 animate-spin" /> Project lead is {steps.length ? "working" : "thinking"}…
         </span>
@@ -191,22 +192,76 @@ function Thinking({ activity }: { activity: LiveActivity[] }) {
   )
 }
 
+function SessionMenu({ busy }: { busy: boolean }) {
+  const { name, detail } = useProjectView()
+  const [switching, setSwitching] = useState(false)
+  const current = detail.chat?.session ?? 1
+  const sessions = detail.chat?.sessions ?? []
+  const empty = !detail.chat?.messages.length
+
+  const open = async (session?: number) => {
+    setSwitching(true)
+    try {
+      await api.chatSession(name, session)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not switch the chat.")
+    } finally {
+      setSwitching(false)
+    }
+  }
+
+  return (
+    <div className="ml-auto flex shrink-0 items-center gap-1">
+      {sessions.length > 0 && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" disabled={busy || switching} aria-label="Earlier chats">
+              <History />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="max-h-80 w-72 overflow-y-auto">
+            <DropdownMenuLabel>Chats</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {sessions.map((session) => (
+              <DropdownMenuItem key={session.id} onSelect={() => session.id !== current && void open(session.id)} className="items-start">
+                <Check className={session.id === current ? "mt-0.5" : "invisible mt-0.5"} />
+                <span className="flex min-w-0 flex-col">
+                  <span className="truncate">{session.title || "Untitled chat"}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {formatRelative(session.updatedAt)} · {session.messages} {session.messages === 1 ? "message" : "messages"}
+                  </span>
+                </span>
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+      <Button variant="outline" size="sm" disabled={busy || switching || empty} onClick={() => void open()} aria-label="Start a new chat">
+        {switching ? <Loader2 className="animate-spin" /> : <Plus />}
+        <span className="hidden sm:inline">New chat</span>
+      </Button>
+    </div>
+  )
+}
+
 function Thread({ busy, onSend, onStop }: { busy: boolean; onSend: (text: string, attachments: string[]) => Promise<boolean>; onStop: () => void }) {
   const { detail } = useProjectView()
   const settings = detail.config?.lead
   const autoApply = settings?.autoApply.length ? ` Applies ${settings.autoApply.join(", ").replace(/_/g, " ")} on its own.` : ""
+  const title = detail.chat?.sessions?.find((session) => session.id === detail.chat?.session)?.title
   return (
-    <ThreadPrimitive.Root className="flex h-[min(75vh,760px)] flex-col">
-      <div className="flex items-center gap-3 border-b px-4 py-3">
+    <ThreadPrimitive.Root className="flex h-[calc(100dvh-11rem)] min-h-[24rem] flex-col sm:h-[min(75vh,760px)]">
+      <div className="flex items-center gap-3 border-b px-3 py-2 sm:px-4 sm:py-3">
         <LeadAvatar />
-        <div>
-          <p className="font-medium">Project lead</p>
-          <p className="text-xs text-muted-foreground">
-            {describeCandidate(detail.config?.roles.lead)}. Reads the project and suggests actions; changes to code go through tasks.{autoApply}
+        <div className="min-w-0">
+          <p className="truncate font-medium">{title || "New chat"}</p>
+          <p className="hidden text-xs text-muted-foreground sm:block">
+            Project lead, {describeCandidate(detail.config?.roles.lead)}. Reads the project and suggests actions; changes to code go through tasks.{autoApply}
           </p>
         </div>
+        <SessionMenu busy={busy} />
       </div>
-      <ThreadPrimitive.Viewport className="flex flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
+      <ThreadPrimitive.Viewport className="flex flex-1 flex-col gap-4 overflow-y-auto px-3 py-4 sm:px-4">
         <ThreadPrimitive.Empty>
           <div className="m-auto flex max-w-md flex-col items-center gap-3 text-center">
             <p className="text-sm text-muted-foreground">Ask about the plan or a failure, ask for a change, or attach a screenshot. You can also dictate.</p>
@@ -241,7 +296,7 @@ function ContextCard() {
   ]
   return (
     <Card className="gap-3 p-4">
-      <p className="font-medium">What the lead sees</p>
+      <p className="font-medium">What the chat sees</p>
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
         {rows.map(([label, value]) => (
           <div key={label} className="contents">
@@ -258,7 +313,13 @@ function ContextCard() {
   )
 }
 
-export function LeadTab() {
+export function ChatTab() {
+  const { detail } = useProjectView()
+  // A fresh runtime per session, so a pending message or scroll position never leaks into another chat.
+  return <ChatSessionView key={detail.chat?.session ?? 1} />
+}
+
+function ChatSessionView() {
   const { name, detail } = useProjectView()
   const stored = useMemo(() => detail.chat?.messages ?? [], [detail.chat?.messages])
   // Shown until the stream delivers the stored copy, so the message does not vanish for up to two seconds.
@@ -323,7 +384,7 @@ export function LeadTab() {
           </AssistantRuntimeProvider>
         </SendContext.Provider>
       </Card>
-      <div>
+      <div className="hidden sm:block">
         <ContextCard />
       </div>
     </div>

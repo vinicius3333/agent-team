@@ -229,6 +229,14 @@ export interface DeployInfo {
   tunnel: string
 }
 
+export interface ChatSession {
+  id: number
+  title: string
+  startedAt: string
+  updatedAt: string
+  messages: number
+}
+
 export type LeadActionState = "proposed" | "applied" | "dismissed"
 
 export type LeadAction = { state: LeadActionState; reason: string } & (
@@ -315,7 +323,7 @@ export interface ProjectDetail extends Omit<ProjectSummary, "live" | "liveUrl"> 
   budget?: RunBudget
   reviewer?: ReviewerMetrics
   spend?: SpendBreakdown
-  chat?: { messages: ChatMessage[]; thinking: boolean; activity?: LiveActivity[] }
+  chat?: { messages: ChatMessage[]; thinking: boolean; activity?: LiveActivity[]; session?: number; sessions?: ChatSession[] }
   // Absent on servers from before change requests. Newest first.
   changes?: ChangeSummary[]
   change?: OpenChange | null

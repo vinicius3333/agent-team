@@ -64,9 +64,9 @@ export const api = {
   session: () => getJson<AuthSession>("/api/auth/session"),
   login: (password: string) => post<void>("/api/auth/login", { password }),
   logout: () => post<void>("/api/auth/logout", {}),
+
   gitIdentity: () => getJson<GitIdentity | null>("/api/git-identity"),
   saveGitIdentity: (identity: GitIdentity) => post<GitIdentity>("/api/git-identity", identity),
-
   defaults: () => getJson<Defaults>("/api/defaults"),
   templates: () => getJson<StackTemplate[]>("/api/templates"),
   projects: () => getJson<ProjectSummary[]>("/api/projects"),
@@ -94,6 +94,7 @@ export const api = {
   retry: (name: string, taskId: string) => post<{ started: boolean }>(`${projectPath(name)}/retry`, { taskId }),
   saveRoles: (name: string, roles: Record<string, RoleCandidate>) => post<{ saved: boolean }>(`${projectPath(name)}/roles`, { roles }),
   chat: (name: string, message: string, attachments: string[] = []) => post<{ accepted: boolean }>(`${projectPath(name)}/chat`, { message, attachments }),
+  chatSession: (name: string, session?: number) => post<{ session: number }>(`${projectPath(name)}/chat-session`, session === undefined ? {} : { session }),
   chatStop: (name: string) => post<{ stopped: boolean }>(`${projectPath(name)}/chat-stop`, {}),
   chatAction: (name: string, messageId: number, index: number, state: Exclude<LeadActionState, "proposed">) =>
     post<{ saved: boolean; note?: string; started?: boolean }>(`${projectPath(name)}/chat-action`, { messageId, index, state }),
