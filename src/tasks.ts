@@ -19,7 +19,20 @@ export interface Task {
   // Files the orchestrator copies into the worktree before the worker starts, for example a generated illustration
   // from design/illustrations/ into public/. Workers cannot copy them: their permissions only cover allowedPaths.
   copy?: TaskCopy[]
+  // Illustrations the orchestrator has the illustrator (image generation) draw before the worker starts, when the
+  // file is not in the repo yet. They land with the task, so QA and the evaluator can ask for new art on a live app.
+  illustrations?: TaskIllustration[]
 }
+
+export interface TaskIllustration {
+  // design/illustrations/<name>.png
+  to: string
+  prompt: string
+  // A repo image the illustrator attaches as the style reference, usually a branding screen.
+  reference?: string
+}
+
+export const illustrationTargetPattern = /^design\/illustrations\/[a-z0-9][a-z0-9-]*\.png$/
 
 export interface TaskCopy {
   from: string
@@ -77,6 +90,12 @@ export function validateTasks(value: unknown, sharedPaths: string[] = []): Task[
     }
     if (task?.change !== undefined && (typeof task.change !== "string" || !changeIdPattern.test(task.change))) errors.push(`${label}: change must be a change id like C001`)
     if (task?.ui !== undefined && typeof task.ui !== "boolean") errors.push(`${label}: ui must be true or false`)
+    if (task?.illustrations !== undefined) {
+      const entries = Array.isArray(task.illustrations) ? task.illustrations : null
+      if (!entries || !entries.every((entry: any) => typeof entry?.to === "string" && illustrationTargetPattern.test(entry.to) && typeof entry?.prompt === "string" && entry.prompt.trim().length >= 40 && (entry.reference === undefined || (typeof entry.reference === "string" && safeRelativePath(entry.reference))))) {
+        errors.push(`${label}: illustrations must be an array of { to: "design/illustrations/<name>.png", prompt: a full image prompt, reference?: a repo image path }`)
+      }
+    }
     if (task?.copy !== undefined) {
       const entries = Array.isArray(task.copy) ? task.copy : null
       if (!entries || !entries.every((entry: any) => typeof entry?.from === "string" && typeof entry?.to === "string" && safeRelativePath(entry.from) && safeRelativePath(entry.to))) {

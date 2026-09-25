@@ -297,6 +297,41 @@ function changePhaseDefinition(context: PipelineContext, phase: PlanningPhase, c
   }
 }
 
+function promptFileOf(image: string): string {
+  return image.replace(/\.png$/, ".prompt.txt")
+}
+
+// Draws each illustration the task asks for that the repo does not have yet. Drawn files are cached in
+// .agent-team/illustrations/<task>/, so a retry reuses them instead of paying for new images.
+async function drawTaskIllustrations(context: PipelineContext, executor: Executor, dir: string, task: Task): Promise<AttemptResult | null> {
+  const cacheDir = join(context.projectDir, ".agent-team", "illustrations", task.id)
+  for (const entry of task.illustrations ?? []) {
+    const target = join(dir, entry.to)
+    const cached = join(cacheDir, basename(entry.to))
+    if (existsSync(target)) continue
+    mkdirSync(join(target, ".."), { recursive: true })
+    if (existsSync(cached)) {
+      cpSync(cached, target)
+      if (existsSync(promptFileOf(cached))) cpSync(promptFileOf(cached), join(dir, promptFileOf(entry.to)))
+      continue
+    }
+    writeFileSync(join(dir, promptFileOf(entry.to)), `${entry.prompt.trim()}\n`)
+    const prompt = [
+      `Draw one illustration for task ${task.id}. Follow the prompt in ${promptFileOf(entry.to)} exactly and save the image to ${entry.to}.`,
+      entry.reference ? `Attach ${entry.reference} to the image generation as the brand and style reference.` : "Attach design/branding/02-landing.png as the brand and style reference when it exists.",
+      "Draw the illustration alone: no UI, no text, no logo, plain background matching the app's page color, generous margin. Do not change any other file.",
+    ].join("\n")
+    context.store.log("illustration", `${task.id}: drawing ${entry.to}`)
+    const outcome = await runAgent(context, executor, "illustrator", `${task.id}-illustration-${basename(entry.to, ".png")}`, planningTools, prompt, { writablePaths: [entry.to, promptFileOf(entry.to)] })
+    if (isInfrastructureFailure(outcome)) return { kind: "infrastructure", reason: `illustrator ${outcome.failureClass}: ${outcome.result.summary}` }
+    if (!existsSync(target)) return { kind: "failed", reason: `the illustrator did not draw ${entry.to}: ${outcome.result.summary.slice(0, 500)}` }
+    mkdirSync(cacheDir, { recursive: true })
+    cpSync(target, cached)
+    cpSync(join(dir, promptFileOf(entry.to)), promptFileOf(cached))
+  }
+  return null
+}
+
 // A missing source fails the attempt with a clear reason instead of letting the worker guess.
 function copyTaskFiles(dir: string, task: Task): void {
   for (const entry of task.copy ?? []) {
@@ -1534,6 +1569,8 @@ async function attemptTask(context: PipelineContext, task: Task, attempt: number
       if (!setup.passed) return { kind: "infrastructure", reason: `workspace setup failed (${setupCommand}):\n${setup.output}` }
     }
 
+    const drawn = await drawTaskIllustrations(context, executor, workspace.path, task)
+    if (drawn) return drawn
     copyTaskFiles(workspace.path, task)
     const files = trackedFiles(workspace.path)
     const hasProgress = existsSync(join(workspace.path, progressPath))
@@ -1554,7 +1591,7 @@ async function attemptTask(context: PipelineContext, task: Task, attempt: number
       store.log("task", `${task.id} attempt ${attempt}: restored files that only the orchestrator writes: ${forbidden.join(", ")}`)
     }
     const changed = changedFiles(workspace.path)
-    const outside = filesOutsideScope(changed, task.allowedPaths)
+    const outside = filesOutsideScope(changed, [...task.allowedPaths, ...(task.illustrations ?? []).flatMap((entry) => [entry.to, promptFileOf(entry.to)])])
     if (outside.length) return rejected(`edited files outside allowedPaths: ${outside.join(", ")}`)
 
     const verification = await runCheck(context, executor, task.verify, `${task.id}-${attempt}-verify`, `${task.id} verify`)

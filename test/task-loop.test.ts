@@ -328,3 +328,36 @@ test("pathsOverlap flags patterns that can match the same file", () => {
   assert.equal(pathsOverlap(["package.json"], ["package.json"]), true)
   assert.equal(pathsOverlap(["src/*.ts"], ["src/**/*.css"]), true)
 })
+
+test("an illustration the task asks for is drawn once before the worker, cached, and lands with the task", async () => {
+  const illustration = { to: "design/illustrations/benefit-draw.png", prompt: "A flat illustration of a family drawing secret-santa names from a bowl, cream background.", reference: "design/branding/02-landing.png" }
+  const { projectDir, store, run } = setupProject("illustrations", [
+    task("T001", { allowedPaths: ["src/t001/**", "public/illustrations/**"], illustrations: [illustration], copy: [{ from: illustration.to, to: "public/illustrations/benefit-draw.png" }] }),
+  ])
+  let copiedBeforeWorker = false
+  const { harness, jobs } = stubHarness({
+    illustrator: [
+      (_job, workdir) => {
+        writeFile(workdir, illustration.to, "png")
+        return "drawn"
+      },
+    ],
+    worker: [
+      (_job, workdir) => {
+        copiedBeforeWorker = existsSync(join(workdir, "public/illustrations/benefit-draw.png"))
+        writeFile(workdir, "src/t001/index.ts")
+        return "done"
+      },
+    ],
+    reviewer: [pass],
+  })
+  assert.equal(await run(harness), "completed")
+  assert.equal(store.task("T001").status, "merged")
+  assert.ok(copiedBeforeWorker, "the copy ran after the illustrator drew the file")
+  const illustrator = jobs.find((job) => job.role === "illustrator")!
+  assert.deepEqual(illustrator.writablePaths, [illustration.to, "design/illustrations/benefit-draw.prompt.txt"])
+  assert.match(illustrator.taskPrompt, /Attach design\/branding\/02-landing\.png/)
+  assert.ok(existsSync(join(projectDir, ".agent-team/illustrations/T001/benefit-draw.png")), "the drawing is cached for retries")
+  assert.equal(readFileSync(join(projectDir, illustration.to), "utf8"), "png")
+  assert.match(readFileSync(join(projectDir, "design/illustrations/benefit-draw.prompt.txt"), "utf8"), /secret-santa names/)
+})
