@@ -54,6 +54,7 @@ test("parseBlock reads the structured form and the old free text", () => {
   const late = parseBlock('I could not wire the tab.\n\nBLOCKED: {"kind":"scope","needPaths":["src/nav.tsx"],"reason":"nav is outside scope"}')
   assert.deepEqual(late, { kind: "scope", needPaths: ["src/nav.tsx"], reason: "nav is outside scope" })
   assert.deepEqual(parseBlock("**BLOCKED:** the spec contradicts itself"), { kind: "spec", needPaths: [], reason: "the spec contradicts itself" })
+  assert.deepEqual(parseBlock('BLOCKED: spec: {"kind":"scope","needPaths":["src/a.test.ts"],"reason":"breaks a test"}'), { kind: "scope", needPaths: ["src/a.test.ts"], reason: "breaks a test" })
 })
 
 test("decideReplan applies safe changes and sends risky ones to a human", () => {

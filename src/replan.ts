@@ -51,7 +51,8 @@ export function parseBlock(summary: string): Block | null {
   const start = summary.search(new RegExp(`^[ \\t>*_]*${blockedPrefix}`, "m"))
   if (start === -1) return null
   const text = summary.slice(start).replace(/^[ \t>*_]*/, "")
-  const rest = text.slice(blockedPrefix.length).replace(/^[*_]+/, "").trim()
+  // Workers sometimes name the kind before the JSON ("BLOCKED: spec: {...}"); the JSON's own kind wins.
+  const rest = text.slice(blockedPrefix.length).replace(/^[*_]+/, "").trim().replace(/^(?:scope|dependency|spec)\s*:\s*(?=\{)/i, "")
   if (rest.startsWith("{") || rest.includes("```json")) {
     try {
       const parsed = extractJsonObject(rest) as any
