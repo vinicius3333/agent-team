@@ -127,7 +127,7 @@ export interface LearningConfig {
 }
 
 export const defaultEvolveConfig: EvolveConfig = { enabled: false, targetScore: 90, maxCycles: 0, cycleBudgetUsd: 25 }
-export const defaultLearningConfig: LearningConfig = { enabled: true, maxLessonsPerRole: 12, memory: true, maxSimilarTasks: 2 }
+export const defaultLearningConfig: LearningConfig = { enabled: true, maxLessonsPerRole: 20, memory: true, maxSimilarTasks: 2 }
 
 export interface TemplatePin {
   name: string

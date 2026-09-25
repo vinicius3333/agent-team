@@ -49,6 +49,30 @@ learning:
 - **Use.** `runAgent` adds the `maxLessonsPerRole` strongest lessons for the role to the end of its system prompt. The weight is `hits × 0.5^(days since last seen / 30)`.
 - **Safety.** Learning never stops a run. Errors are logged under the `learning` event kind, and the agent call goes ahead without lessons.
 
+### Standard knowledge
+
+`knowledge/seed-lessons.json` holds about 50 lessons paraphrased from public standards:
+
+| Area | Sources |
+| --- | --- |
+| Security | OWASP Cheat Sheets, OWASP Top 10 |
+| Accessibility | WCAG 2.2 |
+| Performance | web.dev Core Web Vitals |
+| Operations | The Twelve-Factor App |
+| Frameworks | Next.js docs, react.dev |
+| Testing | Testing Library, Martin Fowler |
+| Payments | Stripe docs |
+| UX | Nielsen Norman Group, plainlanguage.gov |
+| Brazil | MDN `Intl` (BRL and dates), LGPD |
+
+Each entry has a stable id (`K-<slug>`), roles, stack tags, the source URL, the license, and `checkedAt`.
+
+- **Loading.** Every lesson store gets the standard lessons it does not have yet, so a lesson added to the file reaches existing runs folders. A lesson the curator retires is recorded in `retired.json` and does not come back.
+- **Ranking.** Standard lessons start at weight 1. Lessons learned from real failures start at 2 or more, so they rank first when a role has more lessons than `maxLessonsPerRole`.
+- **Licenses.** Rules are paraphrased in one sentence and link their source. Never paste text from the sources. OWASP and MDN are CC BY-SA, and Stripe and NN/g are copyrighted.
+- **Upkeep.** Run `node scripts/check-knowledge.ts --write` about once a month. It checks that each source still answers and sets `checkedAt`. A failing source needs a person to check the lesson.
+- **Next.js.** The `K-next-bundled-docs` lesson points agents to the docs that ship with the installed version (`node_modules/next/dist/docs/`), as Next.js recommends. It does not copy API rules that go stale.
+
 ### Stack tags
 
 Each lesson has `stacks`. These are npm package names such as `next` or `better-sqlite3`, or a language tag such as `python`, `go`, or `rust`. An empty list means the lesson holds on any stack.
@@ -66,6 +90,7 @@ learning:
 - **Record.** Every merged task goes into `<runs folder>/.agent-team-lessons/memory.db`, a SQLite file with an FTS5 search index. Each entry holds the project, the task, its acceptance criteria, the changed files, the worker's summary, the diff (capped at 12 KB), and the stack tags.
 - **Search.** Before each worker attempt, the orchestrator searches the memory with the task's title, acceptance criteria, and paths. It uses BM25, where title matches weigh most. Tasks from the same project are left out, because the worker already sees that code. Solutions that share a stack tag besides `node` come first.
 - **Use.** The worker's task prompt gets a "Similar tasks from earlier projects" section. It holds the `maxSimilarTasks` best matches, each with its summary and up to 4 KB of diff.
+- **Backfill.** `node scripts/backfill-memory.ts <runsDir>` indexes projects built before the memory existed. It reads `docs/progress.md`, the acceptance criteria in `tasks.json`, and the diff of each task's pull request merge (or its `feat(<id>)` commits). It is safe to run again: each task replaces its earlier entry.
 - **Why keywords, not vectors.** Keyword search needs no embedding provider, no extra key, and no new domain in the proxy allowlist. If it misses relevant matches, only `searchSolutions` in `src/memory.ts` changes.
 
 You can edit the lessons file by hand, for example to delete a bad lesson. Write it while no curator is running.

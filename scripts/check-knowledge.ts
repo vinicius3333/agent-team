@@ -22,7 +22,7 @@ await Promise.all(
 // Node's fetch rejects servers with an incomplete certificate chain (planalto.gov.br) that curl accepts.
 function curlStatus(url: string): string | null {
   try {
-    const code = execFileSync("curl", ["-sS", "-L", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "30", url], { encoding: "utf8" }).trim()
+    const code = execFileSync("curl", ["-sS", "-L", "-A", "Mozilla/5.0", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "30", url], { encoding: "utf8" }).trim()
     return code.startsWith("2") ? "ok" : `HTTP ${code}`
   } catch {
     return null

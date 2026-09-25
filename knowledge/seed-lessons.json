@@ -10,7 +10,7 @@
     "source": "https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html",
     "sourceTitle": "OWASP Cheat Sheets",
     "license": "CC BY-SA 4.0",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-sec-session-rotation",
@@ -23,7 +23,7 @@
     "source": "https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html",
     "sourceTitle": "OWASP Cheat Sheets",
     "license": "CC BY-SA 4.0",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-sec-password-hashing",
@@ -36,7 +36,7 @@
     "source": "https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html",
     "sourceTitle": "OWASP Cheat Sheets",
     "license": "CC BY-SA 4.0",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-sec-generic-auth-errors",
@@ -49,7 +49,7 @@
     "source": "https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html",
     "sourceTitle": "OWASP Cheat Sheets",
     "license": "CC BY-SA 4.0",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-sec-rate-limit-auth",
@@ -63,7 +63,7 @@
     "source": "https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html",
     "sourceTitle": "OWASP Cheat Sheets",
     "license": "CC BY-SA 4.0",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-sec-server-authorization",
@@ -76,7 +76,7 @@
     "source": "https://owasp.org/Top10/A01_2021-Broken_Access_Control/",
     "sourceTitle": "OWASP Top 10 2021",
     "license": "CC BY-SA 4.0",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-sec-server-validation",
@@ -89,7 +89,7 @@
     "source": "https://cheatsheetseries.owasp.org/cheatsheets/Input_Validation_Cheat_Sheet.html",
     "sourceTitle": "OWASP Cheat Sheets",
     "license": "CC BY-SA 4.0",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-sec-parameterized-sql",
@@ -102,7 +102,7 @@
     "source": "https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html",
     "sourceTitle": "OWASP Cheat Sheets",
     "license": "CC BY-SA 4.0",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-sec-csrf",
@@ -115,7 +115,7 @@
     "source": "https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html",
     "sourceTitle": "OWASP Cheat Sheets",
     "license": "CC BY-SA 4.0",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-sec-secrets",
@@ -129,7 +129,7 @@
     "source": "https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html",
     "sourceTitle": "OWASP Cheat Sheets",
     "license": "CC BY-SA 4.0",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-sec-log-redaction",
@@ -142,7 +142,7 @@
     "source": "https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html",
     "sourceTitle": "OWASP Cheat Sheets",
     "license": "CC BY-SA 4.0",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-sec-xss",
@@ -155,7 +155,7 @@
     "source": "https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html",
     "sourceTitle": "OWASP Cheat Sheets",
     "license": "CC BY-SA 4.0",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-a11y-contrast",
@@ -169,7 +169,7 @@
     "source": "https://www.w3.org/WAI/WCAG22/quickref/#contrast-minimum",
     "sourceTitle": "WCAG 2.2",
     "license": "W3C Document License",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-a11y-focus-visible",
@@ -184,7 +184,7 @@
     "source": "https://www.w3.org/WAI/WCAG22/quickref/#focus-visible",
     "sourceTitle": "WCAG 2.2",
     "license": "W3C Document License",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-a11y-keyboard",
@@ -197,7 +197,7 @@
     "source": "https://www.w3.org/WAI/WCAG22/quickref/#keyboard",
     "sourceTitle": "WCAG 2.2",
     "license": "W3C Document License",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-a11y-labels",
@@ -211,7 +211,7 @@
     "source": "https://www.w3.org/WAI/WCAG22/quickref/#labels-or-instructions",
     "sourceTitle": "WCAG 2.2",
     "license": "W3C Document License",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-a11y-target-size",
@@ -225,7 +225,7 @@
     "source": "https://www.w3.org/WAI/WCAG22/quickref/#target-size-minimum",
     "sourceTitle": "WCAG 2.2",
     "license": "W3C Document License",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-a11y-alt-text",
@@ -239,7 +239,7 @@
     "source": "https://www.w3.org/WAI/WCAG22/quickref/#non-text-content",
     "sourceTitle": "WCAG 2.2",
     "license": "W3C Document License",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-a11y-error-messages",
@@ -253,7 +253,7 @@
     "source": "https://www.w3.org/WAI/WCAG22/quickref/#error-identification",
     "sourceTitle": "WCAG 2.2",
     "license": "W3C Document License",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-a11y-lang-title",
@@ -266,7 +266,7 @@
     "source": "https://www.w3.org/WAI/WCAG22/quickref/#language-of-page",
     "sourceTitle": "WCAG 2.2",
     "license": "W3C Document License",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-perf-core-web-vitals",
@@ -280,7 +280,7 @@
     "source": "https://web.dev/articles/vitals",
     "sourceTitle": "web.dev",
     "license": "CC BY 4.0",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-perf-no-layout-shift",
@@ -293,7 +293,7 @@
     "source": "https://web.dev/articles/optimize-cls",
     "sourceTitle": "web.dev",
     "license": "CC BY 4.0",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-perf-lcp-image",
@@ -305,7 +305,7 @@
     "source": "https://web.dev/articles/optimize-lcp",
     "sourceTitle": "web.dev",
     "license": "CC BY 4.0",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-perf-short-tasks",
@@ -318,7 +318,7 @@
     "source": "https://web.dev/articles/optimize-inp",
     "sourceTitle": "web.dev",
     "license": "CC BY 4.0",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-ops-config-env",
@@ -331,7 +331,7 @@
     "source": "https://12factor.net/config",
     "sourceTitle": "The Twelve-Factor App",
     "license": "MIT",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-ops-logs-stdout",
@@ -344,7 +344,7 @@
     "source": "https://12factor.net/logs",
     "sourceTitle": "The Twelve-Factor App",
     "license": "MIT",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-ops-port-binding",
@@ -357,7 +357,7 @@
     "source": "https://12factor.net/port-binding",
     "sourceTitle": "The Twelve-Factor App",
     "license": "MIT",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-ops-stateless",
@@ -370,7 +370,7 @@
     "source": "https://12factor.net/processes",
     "sourceTitle": "The Twelve-Factor App",
     "license": "MIT",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-next-bundled-docs",
@@ -386,7 +386,7 @@
     "source": "https://nextjs.org/docs/app/guides/ai-agents",
     "sourceTitle": "Next.js docs",
     "license": "MIT (code), docs terms",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-next-server-components",
@@ -401,7 +401,7 @@
     "source": "https://nextjs.org/docs/app/getting-started/server-and-client-components",
     "sourceTitle": "Next.js docs",
     "license": "docs terms",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-next-public-env",
@@ -416,7 +416,7 @@
     "source": "https://nextjs.org/docs/app/guides/environment-variables",
     "sourceTitle": "Next.js docs",
     "license": "docs terms",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-next-action-auth",
@@ -431,7 +431,7 @@
     "source": "https://nextjs.org/docs/app/guides/data-security",
     "sourceTitle": "Next.js docs",
     "license": "docs terms",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-next-image",
@@ -445,7 +445,7 @@
     "source": "https://nextjs.org/docs/app/api-reference/components/image",
     "sourceTitle": "Next.js docs",
     "license": "docs terms",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-next-metadata",
@@ -459,7 +459,7 @@
     "source": "https://nextjs.org/docs/app/getting-started/metadata-and-og-images",
     "sourceTitle": "Next.js docs",
     "license": "docs terms",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-react-no-derived-effects",
@@ -474,7 +474,7 @@
     "source": "https://react.dev/learn/you-might-not-need-an-effect",
     "sourceTitle": "react.dev",
     "license": "CC BY 4.0",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-react-stable-keys",
@@ -489,7 +489,7 @@
     "source": "https://react.dev/learn/rendering-lists",
     "sourceTitle": "react.dev",
     "license": "CC BY 4.0",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-test-user-behavior",
@@ -503,7 +503,7 @@
     "source": "https://testing-library.com/docs/guiding-principles",
     "sourceTitle": "Testing Library",
     "license": "MIT",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-test-deterministic",
@@ -517,7 +517,7 @@
     "source": "https://martinfowler.com/articles/nonDeterminism.html",
     "sourceTitle": "Martin Fowler",
     "license": "paraphrase only",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-pay-server-prices",
@@ -531,7 +531,7 @@
     "source": "https://docs.stripe.com/payments/checkout",
     "sourceTitle": "Stripe docs",
     "license": "paraphrase only",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-pay-idempotency",
@@ -544,7 +544,7 @@
     "source": "https://docs.stripe.com/api/idempotent_requests",
     "sourceTitle": "Stripe docs",
     "license": "paraphrase only",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-pay-webhook-signature",
@@ -557,7 +557,7 @@
     "source": "https://docs.stripe.com/webhooks",
     "sourceTitle": "Stripe docs",
     "license": "paraphrase only",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-pay-fulfill-webhook",
@@ -570,7 +570,7 @@
     "source": "https://docs.stripe.com/checkout/fulfillment",
     "sourceTitle": "Stripe docs",
     "license": "paraphrase only",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-ux-system-status",
@@ -584,7 +584,7 @@
     "source": "https://www.nngroup.com/articles/ten-usability-heuristics/",
     "sourceTitle": "Nielsen Norman Group",
     "license": "paraphrase only",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-ux-error-prevention",
@@ -598,7 +598,7 @@
     "source": "https://www.nngroup.com/articles/ten-usability-heuristics/",
     "sourceTitle": "Nielsen Norman Group",
     "license": "paraphrase only",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-ux-plain-language",
@@ -612,7 +612,7 @@
     "source": "https://www.plainlanguage.gov/guidelines/",
     "sourceTitle": "plainlanguage.gov",
     "license": "public domain",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-i18n-brl-money",
@@ -625,7 +625,7 @@
     "source": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Intl/NumberFormat",
     "sourceTitle": "MDN",
     "license": "CC BY-SA 2.5",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-i18n-dates",
@@ -637,7 +637,7 @@
     "source": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Intl/DateTimeFormat",
     "sourceTitle": "MDN",
     "license": "CC BY-SA 2.5",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-lgpd-minimize",
@@ -650,7 +650,7 @@
     "source": "https://www.planalto.gov.br/ccivil_03/_ato2015-2018/2018/lei/l13709.htm",
     "sourceTitle": "LGPD, Lei 13.709/2018",
     "license": "public law",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   },
   {
     "id": "K-lgpd-rights",
@@ -664,6 +664,6 @@
     "source": "https://www.planalto.gov.br/ccivil_03/_ato2015-2018/2018/lei/l13709.htm",
     "sourceTitle": "LGPD, Lei 13.709/2018",
     "license": "public law",
-    "checkedAt": null
+    "checkedAt": "2026-09-25"
   }
 ]

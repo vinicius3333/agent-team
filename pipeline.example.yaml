@@ -34,7 +34,7 @@ evolve:                # after deploy, the evaluator scores the app against the 
 
 learning:              # lessons from reviews, QA, evaluations, and incidents, shared by every project in the runs folder
   enabled: true        # the curator updates <runs folder>/.agent-team-lessons/lessons.json; set AGENT_TEAM_LESSONS to move it
-  maxLessonsPerRole: 12   # lessons added to each role's system prompt, strongest first; lessons tied to other stacks are skipped
+  maxLessonsPerRole: 20   # lessons added to each role's system prompt, strongest first; lessons tied to other stacks are skipped
   memory: true         # every merged task goes to a shared search index (SQLite FTS5) next to the lessons
   maxSimilarTasks: 2   # similar solutions from other projects shown to each worker
 

@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { after, test } from "node:test"
-import { applyCuratorResult, collectSignals, formatLessons, lessonsFor, lessonsPath, loadLessons, parseCuratorResult, projectStacks, saveLessons, type Lesson } from "../src/lessons.ts"
+import { applyCuratorResult, collectSignals, formatLessons, knowledgeLessons, recordRetired, lessonsFor, lessonsPath, loadLessons, parseCuratorResult, projectStacks, saveLessons, type Lesson } from "../src/lessons.ts"
 
 const scratch = mkdtempSync(join(tmpdir(), "agent-team-lessons-"))
 after(() => rmSync(scratch, { recursive: true, force: true }))
@@ -18,6 +18,20 @@ test("a new runs folder starts with the seed lessons, next to the projects", () 
   const seeds = loadLessons(path)
   assert.ok(seeds.length > 5)
   assert.ok(lessonsFor(seeds, "worker", 20).some((entry) => /dev server/.test(entry.rule)))
+})
+
+test("standard knowledge joins an existing store, keeps its source, and stays out once retired", () => {
+  const knowledge = knowledgeLessons()
+  assert.ok(knowledge.length >= 40)
+  assert.ok(knowledge.every((entry) => entry.id.startsWith("K-") && entry.sourceUrl?.startsWith("https://")))
+  const path = join(scratch, "merge", "lessons.json")
+  saveLessons(path, [lesson("L1")])
+  assert.equal(loadLessons(path).length, 1 + knowledge.length)
+  recordRetired(path, ["K-sec-csrf"])
+  const ids = loadLessons(path).map((entry) => entry.id)
+  assert.ok(ids.includes("K-sec-xss"))
+  assert.ok(!ids.includes("K-sec-csrf"))
+  assert.ok(lessonsFor(loadLessons(path), "worker", 50, ["node", "react"]).every((entry) => !entry.stacks.includes("next")))
 })
 
 test("lessonsFor ranks by hits, fades old lessons, and keeps each role's own", () => {
@@ -71,7 +85,7 @@ test("parseCuratorResult rejects unknown ids, roles, and sources", () => {
 test("saveLessons round-trips, and collectSignals reads only files newer than the last curation", () => {
   const path = join(scratch, "store", "lessons.json")
   saveLessons(path, [lesson("L1")])
-  assert.deepEqual(loadLessons(path).map((entry) => entry.id), ["L1"])
+  assert.deepEqual(loadLessons(path).filter((entry) => !entry.id.startsWith("K-")).map((entry) => entry.id), ["L1"])
 
   const project = join(scratch, "project")
   const base = join(project, ".agent-team")
