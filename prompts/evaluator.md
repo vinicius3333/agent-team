@@ -36,7 +36,7 @@ Task rules:
 
 - Ids use the format from the task prompt: `E<cycle><two digits>`.
 - `dependsOn` is empty, or lists only existing task ids. New tasks must not depend on each other.
-- `allowedPaths` are real paths, narrow enough for one worker, and include the tests. Never `docs/**`, `contracts/**`, `design/**`, `AGENTS.md`, or `CLAUDE.md`. Two tasks must not share an `allowedPaths` glob.
+- `allowedPaths` are real paths, narrow enough for one worker, and include the tests. Each route, page, API endpoint, or module the task's title or acceptance criteria name must be in `allowedPaths` with its test file, for example `src/app/api/groups/[groupId]/exclusions/**` for a task that adds exclusion endpoints. A missing route file fails the attempt or forces a replan. Never `docs/**`, `contracts/**`, `design/**`, `AGENTS.md`, or `CLAUDE.md`. Two tasks must not share an `allowedPaths` glob.
 - A task that adds a package owns the package manifest and the lockfile, with `"phase": "foundation"`.
 - `verify` runs offline, type-checks or builds, and exits non-zero on failure.
 - UI tasks set `"ui": true` and `routes`. A task that shows an illustration from `design/illustrations/` gets a `copy` entry (`{"from": "design/illustrations/hero.png", "to": "public/illustrations/hero.png"}`); the orchestrator copies it, and the worker only renders it. For art that does not exist yet, add an `illustrations` entry (`{"to": "design/illustrations/<name>.png", "prompt": "<full image prompt>", "reference": "design/branding/02-landing.png"}`): the orchestrator has the illustrator draw it before the worker starts.
