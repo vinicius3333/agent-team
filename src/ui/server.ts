@@ -11,6 +11,7 @@ import { defaultLeadConfig, defaultRoles as laterRoleDefaults, defaultRunBudgetU
 import { demoAccessMetaKey, readDemoAccess } from "../access.ts"
 import { pendingFeedback } from "../feedback.ts"
 import { customTemplate, findTemplate, listTemplates, readStack } from "../templates.ts"
+import { conceptChoiceKey, conceptIds, conceptsDir } from "../concepts.ts"
 import { abandonChange, approveChangeMerge, approvePhase, approveTaskBudget, changePath, changeRoleModels, chooseTemplate, createProject, openChange, parseRoleModels, listProjects, ProjectError, raiseRunBudget, requestChanges, retryTask, runAlive, runLogPath, startRun as spawnRun, withProjectStore, type ProjectChoices } from "../project.ts"
 import { fileAtRef } from "../git.ts"
 import { readBaseline } from "../baseline.ts"
@@ -290,6 +291,14 @@ async function command(cwd: string, file: string, args: string[]): Promise<strin
   try {
     const { stdout } = await execFileAsync(file, args, { cwd, timeout: 5000, maxBuffer: 4 * 1024 * 1024 })
     return stdout
+  } catch {
+    return ""
+  }
+}
+
+function readTextFile(path: string): string {
+  try {
+    return readFileSync(path, "utf8").slice(0, 20_000)
   } catch {
     return ""
   }
@@ -1048,7 +1057,7 @@ export function startUi(options: UiOptions) {
         if (!startRunIfIdle(name)) return send(response, 409, { error: "A run is already in progress." })
         return send(response, 202, { started: true })
       case "approve":
-        withProjectStore(projectDir, (store) => approvePhase(projectDir, store, requireString(body, "phase")))
+        withProjectStore(projectDir, (store) => approvePhase(projectDir, store, requireString(body, "phase"), typeof body.choice === "string" ? body.choice : undefined))
         return send(response, 200, { started: startRunIfIdle(name) })
       case "feedback": {
         const phase = requireString(body, "phase")
@@ -1203,6 +1212,23 @@ export function startUi(options: UiOptions) {
           const path = dir ? projectFile(projectDir, join(dir, parts[4])) : null
           if (!path || statSync(path).size > imageMaxBytes) return send(response, 404, { error: "not found" })
           const extension = parts[4].split(".").pop()!.toLowerCase()
+          response.writeHead(200, { ...securityHeaders, "content-type": `image/${extension === "jpg" ? "jpeg" : extension}`, "cache-control": "no-store" })
+          return response.end(readFileSync(path))
+        }
+        if (parts[3] === "concepts" && parts.length === 4) {
+          const concepts = conceptIds(projectDir).map((id) => ({
+            id,
+            style: readTextFile(join(projectDir, conceptsDir, id, "style.md")),
+            images: readdirSync(join(projectDir, conceptsDir, id)).filter((file) => brandingImagePattern.test(file)).sort(),
+          }))
+          return send(response, 200, { concepts, readme: readTextFile(join(projectDir, conceptsDir, "README.md")), choice: metaValue(projectDir, conceptChoiceKey) })
+        }
+        if (parts[3] === "concepts" && parts.length === 6) {
+          const [id, file] = [parts[4], parts[5]]
+          if (!conceptIds(projectDir).includes(id) || !brandingImagePattern.test(file)) return send(response, 400, { error: "bad file name" })
+          const path = projectFile(projectDir, join(conceptsDir, id, file))
+          if (!path || statSync(path).size > imageMaxBytes) return send(response, 404, { error: "not found" })
+          const extension = file.split(".").pop()!.toLowerCase()
           response.writeHead(200, { ...securityHeaders, "content-type": `image/${extension === "jpg" ? "jpeg" : extension}`, "cache-control": "no-store" })
           return response.end(readFileSync(path))
         }

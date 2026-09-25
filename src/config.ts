@@ -4,7 +4,7 @@ import { parse } from "yaml"
 import { findingSources, type FindingSource } from "./store.ts"
 import { customTemplate, findTemplate, readStack, type StackManifest } from "./templates.ts"
 
-export const planningPhases = ["spec", "architecture", "branding", "design", "marketing", "plan"] as const
+export const planningPhases = ["spec", "architecture", "concepts", "branding", "design", "marketing", "plan"] as const
 export type PlanningPhase = (typeof planningPhases)[number]
 
 // Phase names used by older projects, mapped to their current name.
@@ -81,7 +81,9 @@ export interface PipelineConfig {
   // changeMerge "manual" stops a change before its final merge into main until a person approves it.
   autonomy: { gates: PlanningPhase[]; changeMerge: "auto" | "manual" }
   // mobile: the illustrator also draws a phone version of every desktop screen.
-  branding: { enabled: boolean; count: number; mobile: boolean }
+  // variations: how many logo-and-style directions the concepts phase draws before branding (under 2 skips it).
+  // dark: the illustrator also redraws the landing in a dark theme, and the designer takes the .dark tokens from it.
+  branding: { enabled: boolean; count: number; mobile: boolean; variations: number; dark: boolean }
   marketing: { enabled: boolean; pieces: number; formats: MarketingFormat[] }
   publish: PublishConfig
   deploy: { enabled: boolean }
@@ -287,8 +289,8 @@ function normalizeGates(rawGates: unknown): PlanningPhase[] {
   return [...new Set(rawGates.map((gate) => normalizePhaseName(String(gate))))] as PlanningPhase[]
 }
 
-function normalizeBranding(raw: { enabled?: boolean; count?: number; mobile?: boolean } | undefined): PipelineConfig["branding"] {
-  return { enabled: raw?.enabled ?? true, count: raw?.count ?? 4, mobile: raw?.mobile ?? true }
+function normalizeBranding(raw: { enabled?: boolean; count?: number; mobile?: boolean; variations?: number; dark?: boolean } | undefined): PipelineConfig["branding"] {
+  return { enabled: raw?.enabled ?? true, count: raw?.count ?? 4, mobile: raw?.mobile ?? true, variations: raw?.variations ?? 3, dark: raw?.dark ?? true }
 }
 
 // Roles added after a project was created get a default, so older pipeline.yaml files keep working.
@@ -333,6 +335,8 @@ function validateConfig(config: PipelineConfig, projectDir: string): void {
   if (!["none", "docker"].includes(config.harness.isolation)) errors.push("harness.isolation must be none or docker")
   if (!["private", "public"].includes(config.publish.github.visibility)) errors.push("publish.github.visibility must be private or public")
   if (config.branding.count < 2 || config.branding.count > 6) errors.push("branding.count must be between 2 and 6")
+  if (!Number.isInteger(config.branding.variations) || config.branding.variations < 0 || config.branding.variations > 4) errors.push("branding.variations must be a whole number from 0 to 4 (under 2 skips the concepts phase)")
+  if (typeof config.branding.dark !== "boolean") errors.push("branding.dark must be true or false")
   if (!Number.isInteger(config.marketing.pieces) || config.marketing.pieces < 1 || config.marketing.pieces > 6) errors.push("marketing.pieces must be a whole number between 1 and 6")
   if (!Array.isArray(config.marketing.formats) || !config.marketing.formats.length) errors.push("marketing.formats needs at least one format")
   for (const format of config.marketing.formats ?? []) {

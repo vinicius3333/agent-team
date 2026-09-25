@@ -25,7 +25,7 @@ const usage = `Usage:
   agent-team run <projectDir>
   agent-team change <projectDir> --request <file>
   agent-team status <projectDir>
-  agent-team approve <projectDir> <phase>
+  agent-team approve <projectDir> <phase> [--choice a]   (concepts needs the chosen direction)
   agent-team retry <projectDir> <taskId>
   agent-team reset-cooldowns <projectDir>
   agent-team deploy <projectDir>
@@ -123,8 +123,8 @@ function status(projectDir: string): void {
   }
 }
 
-function approve(projectDir: string, phase: string | undefined): void {
-  withProjectStore(projectDir, (store) => approvePhase(projectDir, store, phase))
+function approve(projectDir: string, phase: string | undefined, choice: string | undefined): void {
+  withProjectStore(projectDir, (store) => approvePhase(projectDir, store, phase, choice))
 }
 
 function retry(projectDir: string, taskId: string | undefined): void {
@@ -296,7 +296,7 @@ function findings(projectDir: string): void {
 
 async function main(): Promise<void> {
   if (process.argv[2] === "eval") return evalCommand()
-  const { positionals, values } = parseArgs({ allowPositionals: true, options: { brief: { type: "string" }, request: { type: "string" }, template: { type: "string" }, target: { type: "string" }, port: { type: "string" }, host: { type: "string" }, once: { type: "boolean" }, "insecure-no-auth": { type: "boolean" }, channel: { type: "string" }, agent: { type: "string" }, from: { type: "string" }, url: { type: "string", multiple: true }, github: { type: "string" }, gate: { type: "string", multiple: true } } })
+  const { positionals, values } = parseArgs({ allowPositionals: true, options: { brief: { type: "string" }, request: { type: "string" }, template: { type: "string" }, target: { type: "string" }, port: { type: "string" }, host: { type: "string" }, once: { type: "boolean" }, "insecure-no-auth": { type: "boolean" }, channel: { type: "string" }, agent: { type: "string" }, from: { type: "string" }, url: { type: "string", multiple: true }, github: { type: "string" }, gate: { type: "string", multiple: true }, choice: { type: "string" } } })
   const [command, target, extra] = positionals
   if (command === "hash-password") return printPasswordHash()
   if (command === "session-secret") return console.log(generateSessionSecret())
@@ -319,7 +319,7 @@ async function main(): Promise<void> {
     case "status":
       return status(projectDir)
     case "approve":
-      return approve(projectDir, extra)
+      return approve(projectDir, extra, values.choice)
     case "retry":
       return retry(projectDir, extra)
     case "reset-cooldowns":

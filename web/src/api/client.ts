@@ -1,4 +1,4 @@
-import type { Defaults, Finding, FindingStatus, InsightAgent, OperateSnapshot, LeadActionState, LeadSettings, NotificationStatus, NotificationTestResult, RoleCandidate, Incident, IncidentDetail, ImportProjectRequest, NewProjectRequest, ProjectDetail, ProjectSummary, QaRound, StackTemplate } from "@/api/types"
+import type { Defaults, Finding, FindingStatus, InsightAgent, OperateSnapshot, LeadActionState, LeadSettings, NotificationStatus, NotificationTestResult, RoleCandidate, Incident, IncidentDetail, ImportProjectRequest, ConceptsView, NewProjectRequest, ProjectDetail, ProjectSummary, QaRound, StackTemplate } from "@/api/types"
 
 export class ApiError extends Error {
   status: number
@@ -71,6 +71,7 @@ export const api = {
   project: (name: string) => getJson<ProjectDetail>(projectPath(name)),
   markdownFiles: (name: string) => getJson<string[]>(`${projectPath(name)}/markdown`),
   branding: (name: string) => getJson<string[]>(`${projectPath(name)}/branding`),
+  concepts: (name: string) => getJson<ConceptsView>(`${projectPath(name)}/concepts`),
   qa: (name: string) => getJson<QaRound[]>(`${projectPath(name)}/qa`),
   file: (name: string, path: string) => getText(`${projectPath(name)}/file?path=${encodeURIComponent(path)}`),
   incidents: () => getJson<Incident[]>("/api/incidents"),
@@ -85,7 +86,7 @@ export const api = {
   startCleanup: (name: string) => post<{ id: string; branch: string; started: boolean }>(`${projectPath(name)}/cleanup/start`, {}),
   dismissCleanup: (name: string) => post<{ dismissed: boolean }>(`${projectPath(name)}/cleanup/dismiss`, {}),
   run: (name: string) => post<{ started: boolean }>(`${projectPath(name)}/run`, {}),
-  approve: (name: string, phase: string) => post<{ started: boolean }>(`${projectPath(name)}/approve`, { phase }),
+  approve: (name: string, phase: string, choice?: string) => post<{ started: boolean }>(`${projectPath(name)}/approve`, choice ? { phase, choice } : { phase }),
   feedback: (name: string, phase: string, message: string) => post<{ started: boolean }>(`${projectPath(name)}/feedback`, { phase, message }),
   approveTaskBudget: (name: string, taskId: string) => post<{ budgetUsd: number; started: boolean }>(`${projectPath(name)}/approve-task-budget`, { taskId }),
   retry: (name: string, taskId: string) => post<{ started: boolean }>(`${projectPath(name)}/retry`, { taskId }),
@@ -115,6 +116,7 @@ export const api = {
 export const urls = {
   stream: (name: string) => `/api/stream/${encodeURIComponent(name)}`,
   brandingImage: (name: string, file: string) => `${projectPath(name)}/branding/${encodeURIComponent(file)}`,
+  conceptImage: (name: string, id: string, file: string) => `${projectPath(name)}/concepts/${encodeURIComponent(id)}/${encodeURIComponent(file)}`,
   qaFile: (name: string, round: number, file: string) => `${projectPath(name)}/qa/${round}/${encodeURIComponent(file)}`,
   raw: (name: string, path: string) => `${projectPath(name)}/raw?path=${encodeURIComponent(path)}`,
   file: (name: string, path: string) => `${projectPath(name)}/file?path=${encodeURIComponent(path)}`,

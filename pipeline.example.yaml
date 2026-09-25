@@ -2,7 +2,7 @@ target: web            # web | api | web+api
 template: custom       # custom (the architect chooses the stack) or a stack template from `agent-team templates`
 
 autonomy:
-  gates: [spec, architecture]   # any of: spec, architecture, branding, design, plan. [] = fully autonomous
+  gates: [spec, architecture, concepts]   # any of: spec, architecture, concepts, branding, design, marketing, plan. [] = fully autonomous
   changeMerge: auto             # auto | manual: manual waits for Approve before a change request merges into main
 
 budget:
@@ -15,6 +15,8 @@ branding:
   enabled: true        # the illustrator draws the logo and desktop screens before the design phase
   count: 4             # total images, logo included (2 to 6). The old key "mockups:" still works
   mobile: true         # also draw a phone version of every desktop screen
+  variations: 3        # concepts phase: logo and style directions to choose from before branding (0 or 1 skips it)
+  dark: true           # also redraw the landing in a dark theme; the designer takes the dark tokens from it
 
 marketing:
   enabled: true        # after the design phase: launch images with copy, stock or generated art, rendered with the brand

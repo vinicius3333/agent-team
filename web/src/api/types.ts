@@ -1,4 +1,4 @@
-export const planningPhases = ["spec", "architecture", "branding", "design", "marketing", "plan"] as const
+export const planningPhases = ["spec", "architecture", "concepts", "branding", "design", "marketing", "plan"] as const
 export type PlanningPhase = (typeof planningPhases)[number]
 
 // research and baseline run only while a project is imported.
@@ -347,6 +347,18 @@ export interface QaRound {
   // preexisting: failures the import baseline already had, which did not fail the round.
   verdict: { verdict: "pass" | "fail" | "invalid"; reason?: string | null; findings: QaFinding[]; tasks: { id: string; title: string }[]; preexisting?: string[] } | null
   images: string[]
+}
+
+export interface Concept {
+  id: string
+  style: string
+  images: string[]
+}
+
+export interface ConceptsView {
+  concepts: Concept[]
+  readme: string
+  choice: string | null
 }
 
 export interface NewProjectRequest {

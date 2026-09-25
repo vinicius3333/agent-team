@@ -175,6 +175,7 @@ Templates live in `templates/<name>/`: `template.json` (the manifest), `architec
 | --- | --- | --- |
 | spec | PM | `docs/spec.md` |
 | architecture | Architect | `docs/architecture.md`, `docs/adr/*`, `contracts/openapi.yaml` |
+| concepts | Illustrator, then Design reviewer; a person (or the Design reviewer) picks one | `design/concepts/<a, b, c>/`: `logo.png`, `landing.png`, `style.md`, their prompts, and `design/concepts/README.md` |
 | branding | Illustrator, then Design reviewer | `design/branding/01-logo.png`, desktop screens `02-<screen>.png` and later, mobile screens `02-<screen>.mobile.png`, `design/branding/README.md` |
 | design | Designer, then Design reviewer | step 1: `design/tokens.css`, `design/logo.svg`, `design/logo-mark.svg`, `docs/design-system.md`; the orchestrator renders `design/favicon/`; step 2: `docs/design.md` |
 | marketing | Marketer, then Design reviewer | `marketing/copy.json`, `marketing/art/*`; the orchestrator renders `marketing/<piece>-<format>.png` and `marketing/manifest.json` |
@@ -182,6 +183,14 @@ Templates live in `templates/<name>/`: `template.json` (the manifest), `architec
 | build | Worker, then Reviewer; Design reviewer for UI tasks | code and tests, one or more atomic commits per task |
 | qa | QA | `.agent-team/qa/round-<n>/`: test output, screenshots, `report.json`, verdict; fix tasks `Q<round><n>` in `tasks.json` |
 | deploy | none | live preview URL |
+
+### Concepts, branding, and the design process
+
+The phases copy the process that designed agent-team's own dashboard: choose between real alternatives, fix the style, then draw every screen from a finished screen.
+
+1. **Concepts.** The illustrator draws `branding.variations` (default 3) distinct directions. Each has a logo, a landing page at 1440×900, and a style block: hex values per color role, a font pair, Lucide icons, and a radius. With `concepts` in `autonomy.gates` (the default), the gate shows the directions side by side. Pick one and click **Approve direction B**, or run `agent-team approve <dir> concepts --choice b`. **Request changes** redraws the directions with your notes. Without the gate, the design reviewer picks one (`prompts/concept-picker.md`) and logs why. Set `branding.variations` to 0 or 1 to skip the phase. Projects whose branding already exists skip it too.
+2. **Branding.** The illustrator starts from the chosen logo and landing, and repeats the style block in every screen prompt. Each screen is drawn with the landing attached as the style reference, with the layout in pixels, NOT rules, and every visible string written out. Each prompt is saved as `<image>.prompt.txt`, and the README ends with a `## Style` section. With `branding.dark` (default `true`), the landing is also redrawn as `02-landing.dark.png` by style transfer. The designer takes the `.dark` tokens from it.
+3. **Change requests.** When a change's architecture delta says `Design: needed`, the illustrator draws only the new screens before the designer runs. It uses the saved prompts, the Style section, and screenshots of the running app from the last QA round as the style reference. The screenshots go in `.reference/` for the agent and are removed before the commit.
 
 `branding.count` (default 4, 2 to 6) sets the number of branding images, logo included. `branding.mobile` (default `true`) adds a phone version of every desktop screen. Set `branding.enabled: false` to skip the phase. Older `pipeline.yaml` files with a `mockups:` key, and `mockups` in `autonomy.gates`, still work.
 

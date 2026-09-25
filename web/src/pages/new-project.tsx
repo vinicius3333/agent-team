@@ -55,6 +55,7 @@ const targets: {
 const gateHints: Record<PlanningPhase, string> = {
   spec: "Review the product spec before the architecture.",
   architecture: "Review the technical plan before design.",
+  concepts: "Choose one of 3 logo and style directions. The branding follows your pick.",
   branding: "Review the logo and screen images before design.",
   design: "Review the UI design before the build.",
   marketing: "Review the launch images and copy before the plan.",
@@ -221,7 +222,7 @@ export function NewProjectPage() {
   const [target, setTarget] = useState<Target>("web")
   const [roleEdits, setRoleEdits] = useState<RoleModels>({})
   const [customizing, setCustomizing] = useState(false)
-  const [gates, setGates] = useState<PlanningPhase[]>(["spec", "design"])
+  const [gates, setGates] = useState<PlanningPhase[]>(["spec", "concepts", "design"])
   const [github, setGithub] = useState(false)
   const [deploy, setDeploy] = useState(true)
   const [branding, setBranding] = useState(true)
@@ -260,7 +261,7 @@ export function NewProjectPage() {
     }
     setSubmitting(true)
     try {
-      const orderedGates = planningPhases.filter((phase) => gates.includes(phase) && (branding || phase !== "branding"))
+      const orderedGates = planningPhases.filter((phase) => gates.includes(phase) && (branding || (phase !== "branding" && phase !== "concepts")))
       const created = await api.createProject({
         name,
         brief,
@@ -381,7 +382,7 @@ export function NewProjectPage() {
                 <p className="mb-3 text-xs text-muted-foreground">The build pauses after each checked step until you approve it.</p>
                 <div className="grid gap-3 sm:grid-cols-2">
                   {planningPhases.map((phase) => {
-                    const disabled = phase === "branding" && !branding
+                    const disabled = (phase === "branding" || phase === "concepts") && !branding
                     return (
                       <div key={phase} className={cn("flex items-start gap-3", disabled && "opacity-50")}>
                         <Checkbox

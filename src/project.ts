@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { parseDocument, type Document } from "yaml"
 import { loadConfig, normalizePhaseName, planningPhases, roles, runnerNames, type Candidate, type PipelineConfig, type PlanningPhase, type Role, type RunnerName } from "./config.ts"
+import { conceptChoiceKey, conceptIds } from "./concepts.ts"
 import { appendFeedback, archiveFeedback } from "./feedback.ts"
 import { commitAll, commitOf, commitPaths, createBranch, fileAtRef, initRepository } from "./git.ts"
 import { changeTitle, createGitHub } from "./github.ts"
@@ -194,8 +195,15 @@ function commitHumanEdits(projectDir: string, store: Store, phase: PlanningPhase
   if (!store.currentChange()) commitAll(projectDir, `docs(${phase}): apply human edits`)
 }
 
-export function approvePhase(projectDir: string, store: Store, phase: string | undefined): void {
+// Approving the concepts phase needs the chosen direction (a, b, c...), which the branding phase then follows.
+export function approvePhase(projectDir: string, store: Store, phase: string | undefined, choice?: string): void {
   const approved = requireAwaitingApproval(store, phase)
+  if (approved === "concepts") {
+    const ids = conceptIds(projectDir)
+    if (!choice || !ids.includes(choice)) throw new ProjectError(400, `Choose a direction to approve the concepts: ${ids.join(", ") || "none found"}.`)
+    store.setMeta(conceptChoiceKey, choice)
+    store.log("gate", `concepts: direction ${choice} chosen`)
+  }
   commitHumanEdits(projectDir, store, approved)
   archiveFeedback(projectDir, approved)
   store.setPhase(approved, "approved")
