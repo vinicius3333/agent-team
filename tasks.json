@@ -114,5 +114,31 @@
       "npm test passes."
     ],
     "verify": "npm test"
+  },
+  {
+    "id": "L002",
+    "title": "Let the curator weaken and merge lessons, not only confirm or retire them",
+    "story": "As the project owner, I want wrong lessons to lose weight and duplicate lessons to merge, so the lessons file stays accurate without losing evidence.",
+    "phase": "feature",
+    "dependsOn": [],
+    "allowedPaths": [
+      "src/lessons.ts",
+      "src/improve.ts",
+      "prompts/curator.md",
+      "test/lessons.test.ts"
+    ],
+    "readPaths": [
+      "src/pipeline.ts",
+      "docs/architecture.md"
+    ],
+    "acceptance": [
+      "Lesson has an optional misses count (missing means 0). lessonWeight uses max(0, hits - misses) times the current decay.",
+      "CuratorResult accepts optional weaken: string[] (existing ids; each adds 1 to misses) and merge: { into: string, from: string[] }[] (existing ids). parseCuratorResult rejects unknown ids with a plain error.",
+      "A merge adds the from lessons' hits and misses to the into lesson, appends their evidence (keeping at most maxEvidence), unions roles and stacks, keeps the latest lastSeenAt, removes the from lessons, and records their ids through recordRetired so they do not return.",
+      "prompts/curator.md explains when to use weaken and merge, with an example, and says that weaken, merge, and retire are optional fields.",
+      "Old lessons.json files without misses still load, and old curator answers without weaken or merge still parse.",
+      "test/lessons.test.ts covers weaken, merge, and bad ids, offline. npm run typecheck and npm test pass."
+    ],
+    "verify": "npm run typecheck && npm test"
   }
 ]
