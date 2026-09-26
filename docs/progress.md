@@ -49,3 +49,11 @@ Files: `src/lessons.ts`, `src/pipeline.ts`, `test/lessons.test.ts`
 > Agent calls now get the lessons that fit their task, not only the heaviest lessons for their role. The last `npm run typecheck && npm test` run passed: typecheck is clean, and 300 of 301 tests pass with 0 failures and 1 skipped. The skipped test is not one of the lessons tests.
 > **`src/lessons.ts`**
 > - **New parameter:** `lessonsFor(lessons, role, limit, stacks, now, query = "")` takes the query as a new last parameter, so existing callers don't change.
+
+## L004: Create missing GitHub labels on existing repositories
+
+Files: `src/github.ts`, `test/github.test.ts`
+
+> Task issues are now created on repositories that already have an origin. The labels get created once per project, and if a label is still missing, the issue is created without labels. `npm run typecheck && npm test` passes: typecheck is clean, and 300 of 301 tests pass with 0 failures and 1 skipped. That skip was already in the suite before this change.
+> **Changes in `src/github.ts`:**
+> - **Labels on an existing origin:** when the repository already has an origin, the orchestrator runs `gh label create --force` for each label in the list. It then sets the store meta flag `github.labels`, so later runs skip this step. A new repository still gets its labels when it is created, and now sets the same flag.
