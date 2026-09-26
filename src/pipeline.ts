@@ -643,7 +643,8 @@ type AttemptResult =
   | { kind: "budget"; reason: string; limitUsd: number; diff: string }
 
 // "replanned" means tasks.json changed on main, so the caller reloads it before going on.
-type TaskOutcome = RunOutcome | "replanned"
+// "skipped": autonomy.decide: auto set the task aside, and the run goes on with the others.
+type TaskOutcome = RunOutcome | "replanned" | "skipped"
 
 export interface PreviousAttempt {
   reason: string
@@ -1360,27 +1361,32 @@ async function buildTasks(context: PipelineContext): Promise<RunOutcome> {
       }
       const unmerged = tasks.filter((task) => store.task(task.id).status !== "merged")
       if (!unmerged.length) break
+      const skipped = unmerged.filter((task) => isAutoSkipped(store, task.id))
+      if (skipped.length) {
+        noteStop(context, `${skipped.map((task) => task.id).join(", ")} skipped by autonomy.decide: auto; nothing else can start: ${unmerged.map((task) => task.id).join(", ")} are not merged`)
+        return "failed"
+      }
       noteStop(context, `no task can start: ${unmerged.map((task) => task.id).join(", ")} wait on tasks that are not merged`)
       return "failed"
     }
     const { id, outcome } = await Promise.race([...running.values()].map((entry) => entry.result))
     running.delete(id)
     if (outcome === "replanned") replanned = true
-    else if (outcome !== "completed") stop ??= outcome
+    else if (outcome !== "completed" && outcome !== "skipped") stop ??= outcome
   }
   store.log("run", "all tasks merged")
   return "completed"
 }
 
 function isReady(store: Store, task: Task, running: Map<string, { task: Task }>): boolean {
-  if (running.has(task.id) || store.task(task.id).status === "merged") return false
+  if (running.has(task.id) || store.task(task.id).status === "merged" || isAutoSkipped(store, task.id)) return false
   if (!task.dependsOn.every((dependency) => store.task(dependency)?.status === "merged")) return false
   return ![...running.values()].some((entry) => pathsOverlap(entry.task.allowedPaths, task.allowedPaths))
 }
 
 function blockedStop(context: PipelineContext, tasks: Task[]): RunOutcome | null {
   const { projectDir, store } = context
-  const task = tasks.find((candidate) => store.task(candidate.id).status === "blocked")
+  const task = tasks.find((candidate) => store.task(candidate.id).status === "blocked" && !isAutoSkipped(store, candidate.id))
   if (!task) return null
   const row = store.task(task.id)
   if (row.humanReason) {
@@ -1396,6 +1402,7 @@ function blockedStop(context: PipelineContext, tasks: Task[]): RunOutcome | null
 async function runTask(context: PipelineContext, task: Task): Promise<TaskOutcome> {
   const { config, projectDir, store } = context
   const maxRetries = config.roles.worker.maxRetries ?? 3
+  store.deleteMeta(autoSkipKey(task.id))
   while (store.task(task.id).attempts < maxRetries) {
     const { attempts, lastFailure } = store.task(task.id)
     const attempt = attempts + 1
@@ -1427,6 +1434,11 @@ async function runTask(context: PipelineContext, task: Task): Promise<TaskOutcom
         // Not counted: the worker ran out of money, not ideas. Its diff is saved under the current count so the next attempt resumes from it.
         writeAttemptDiff(projectDir, task.id, attempts, result.reason, result.diff)
         store.setMeta(taskBudgetStopKey(task.id), String(result.limitUsd))
+        if (decidesAlone(context)) {
+          const decided = decideBudget(context, task, result.limitUsd, result.reason)
+          if (decided === "retry") continue
+          return decided
+        }
         return requireHuman(context, task, `${result.reason}. Approve more budget to continue.`)
       case "failed":
         store.countAttempt(task.id)
@@ -1452,7 +1464,7 @@ async function handleBlock(context: PipelineContext, task: Task, block: Block): 
   const { store } = context
   if (store.task(task.id).replans >= maxReplansPerTask) {
     const reason = `${task.id} was already replanned once and is blocked again. ${formatBlock(block)}`
-    return (await autoApproveScope(context, task, reason)) ?? requireHuman(context, task, reason)
+    return decideScope(context, task, reason)
   }
   store.log("replan", `${task.id}: asking the planner to replan (${block.kind} block)`)
   const result = await replanTask(context, task, block)
@@ -1465,7 +1477,7 @@ async function handleBlock(context: PipelineContext, task: Task, block: Block): 
   store.countReplan(task.id)
   if (result.kind === "human") {
     const reason = `${result.reason}\n${formatBlock(block)}`
-    return (await autoApproveScope(context, task, reason)) ?? requireHuman(context, task, reason)
+    return decideScope(context, task, reason)
   }
   store.resetTask(task.id)
   if (!result.tasks.some((entry) => entry.id === task.id)) store.removeTask(task.id)
@@ -1478,23 +1490,25 @@ const maxAutoApprovals = 2
 // autonomy.autoApproveScope: gives a blocked task the files it asked for, as the dashboard's Approve button would,
 // instead of stopping the run. null means a person decides: the mode is off, nothing was asked for, or the task
 // already used its automatic approvals.
-async function autoApproveScope(context: PipelineContext, task: Task, reason: string): Promise<TaskOutcome | null> {
+// With unlimited (autonomy.decide: auto), the switch and the maxAutoApprovals limit do not apply.
+async function autoApproveScope(context: PipelineContext, task: Task, reason: string, unlimited = false): Promise<TaskOutcome | null> {
   const { projectDir, store } = context
   // Reread so the dashboard switch applies to a running build.
   let enabled = context.config.autonomy.autoApproveScope
   try {
     enabled = loadConfig(join(projectDir, "pipeline.yaml")).autonomy.autoApproveScope
   } catch {}
-  if (!enabled) return null
+  if (!enabled && !unlimited) return null
   const paths = suggestedPaths(reason)
   const countKey = `task.${task.id}.autoApprovals`
   const used = Number(store.meta(countKey) ?? 0)
-  if (!paths.length || used >= maxAutoApprovals) return null
+  if (!paths.length || (used >= maxAutoApprovals && !unlimited)) return null
+  const setting = unlimited ? "autonomy.decide is auto" : "autonomy.autoApproveScope is on"
   const workspace = createWorkspace(projectDir, `auto-approve-${task.id}-${used + 1}`, landingBranch(context))
   try {
     const current = loadTasks(join(workspace.path, "tasks.json"))
     const { tasks, owners } = widenTask(current, task.id, paths, (id) => store.task(id)?.status === "merged")
-    const body = [`${task.id} asked for files outside its scope, and autonomy.autoApproveScope is on.`, "", ...paths.map((path) => `- ${path}`), ...(owners.length ? ["", `It now waits for ${owners.join(", ")}.`] : [])].join("\n")
+    const body = [`${task.id} asked for files outside its scope, and ${setting}.`, "", ...paths.map((path) => `- ${path}`), ...(owners.length ? ["", `It now waits for ${owners.join(", ")}.`] : [])].join("\n")
     landTasksFile(context, workspace, tasks, `chore(plan): widen ${task.id} automatically`, body)
   } catch (error) {
     store.log("task", `${task.id}: automatic scope approval failed, asking a person: ${(error as Error).message.slice(0, 300)}`)
@@ -1504,8 +1518,63 @@ async function autoApproveScope(context: PipelineContext, task: Task, reason: st
   }
   store.setMeta(countKey, String(used + 1))
   store.resetTask(task.id)
-  store.log("task", `${task.id}: scope approved automatically (${paths.join(", ")}); attempts reset`)
+  store.log(unlimited ? "autonomy" : "task", `${task.id}: scope approved automatically (${paths.join(", ")}) because ${setting}; attempts reset`)
   return "replanned"
+}
+
+// ---------- autonomy.decide: auto ----------
+
+// Reread so a change in pipeline.yaml applies to a running build.
+function decidesAlone(context: PipelineContext): boolean {
+  let mode = context.config.autonomy.decide
+  try {
+    mode = loadConfig(join(context.projectDir, "pipeline.yaml")).autonomy.decide
+  } catch {}
+  return mode === "auto"
+}
+
+const autoSkipKey = (taskId: string) => `task.${taskId}.autoSkipped`
+const autoBudgetKey = (taskId: string) => `task.${taskId}.autoBudgetRaised`
+const autoBudgetRaiseFactor = 1.5
+
+function isAutoSkipped(store: Store, taskId: string): boolean {
+  return store.task(taskId)?.status === "blocked" && store.meta(autoSkipKey(taskId)) === "1"
+}
+
+// A scope block: widen the task with the files it asked for, with no limit on how often. A task that asks again
+// for files it already has (or names none) would loop, so it is set aside instead.
+async function decideScope(context: PipelineContext, task: Task, reason: string): Promise<TaskOutcome> {
+  if (!decidesAlone(context)) return (await autoApproveScope(context, task, reason)) ?? requireHuman(context, task, reason)
+  const paths = suggestedPaths(reason)
+  if (!paths.length) return skipTask(context, task, reason, "it named no files to add")
+  if (!filesOutsideScope(paths, task.allowedPaths).length) return skipTask(context, task, reason, `it asked again for files it already has (${paths.join(", ")})`)
+  return (await autoApproveScope(context, task, reason, true)) ?? skipTask(context, task, reason, "its scope could not be widened")
+}
+
+// A task out of its own budget: +50% once when the run budget still has that much left, else set it aside.
+function decideBudget(context: PipelineContext, task: Task, limitUsd: number, reason: string): "retry" | "skipped" {
+  const { store } = context
+  const raised = Math.round(limitUsd * autoBudgetRaiseFactor * 100) / 100
+  const left = currentRunBudget(context) - store.projectCost().usd
+  if (store.meta(autoBudgetKey(task.id)) === "1") return skipTask(context, task, reason, "its budget was already raised once")
+  if (left < raised) return skipTask(context, task, reason, `the run budget has $${Math.max(left, 0).toFixed(2)} left, less than the $${raised.toFixed(2)} a raise needs`)
+  store.setMeta(autoBudgetKey(task.id), "1")
+  store.setMeta(taskBudgetKey(task.id), String(raised))
+  store.deleteMeta(taskBudgetStopKey(task.id))
+  store.log("autonomy", `${task.id}: budget raised from $${limitUsd.toFixed(2)} to $${raised.toFixed(2)} because autonomy.decide is auto and the run budget has $${left.toFixed(2)} left`)
+  return "retry"
+}
+
+// Blocks the task without waiting for a person, records why on its GitHub issue, and lets the run go on.
+// agent-team retry puts it back in the queue.
+function skipTask(context: PipelineContext, task: Task, reason: string, why: string): "skipped" {
+  const { store } = context
+  const text = `${reason}\nSkipped automatically because autonomy.decide is auto: ${why}.`
+  store.updateTask(task.id, "blocked", text)
+  store.setMeta(autoSkipKey(task.id), "1")
+  store.log("autonomy", `${task.id} skipped: ${why}. The run goes on with the other tasks. To retry: agent-team retry ${context.projectDir} ${task.id}`)
+  context.github.taskBlocked(task, text)
+  return "skipped"
 }
 
 function requireHuman(context: PipelineContext, task: Task, reason: string): RunOutcome {
