@@ -30,6 +30,8 @@ Acceptance criteria:
 - After 5 wrong passwords from one address, login from that address is locked for 15 minutes, and the card shows "Too many tries. Try again in N minutes."
 - When no login is set and the server listens on loopback only, the dashboard opens with no login card.
 - When a trusted proxy sends the configured user header from an allowed IP, the dashboard treats that user as logged in.
+- When the preview starts with `APP_URL` set, a page request whose host is the `APP_URL` host answers 200 and shows the "Log in" card; a request with any other unknown host answers 403 with "This host name is not allowed. Add it to AGENT_TEAM_UI_HOSTS."
+- When the preview starts with `DEMO_PASSWORD` set (12 or more characters), the baseline login check opens `/`, fills the password field with `DEMO_PASSWORD`, submits, and sees the projects list; it does not wait for an email field.
 
 ### US-03: Create a project from a brief and start a build
 As an operator, I want to type a product brief in a form and start a build so that the agent team plans and builds the app for me.
@@ -104,5 +106,6 @@ Acceptance criteria:
 - **Exact behavior of change requests, sprints, cleanups, and operate agents.** I took these from the API routes, the README, and `docs/change-requests.md`, `docs/sprints.md`, and `docs/operate.md`, not from running them. Default: they behave as those docs describe.
 - **Plans in `docs/payments.md` and `docs/plans/`.** Default: treat them as not built, since the dashboard shows no payments or plans.
 - **Global lockout.** The README says 30 wrong passwords from any address lock all logins for 15 minutes. Default: this is true, but `US-02` tests only the per-address lockout.
-- **Do `npm test` and `npm run typecheck` pass on `main`?** No CI runs them. Default: the baseline step will find out.
+- **Do `npm test` and `npm run typecheck` pass on `main`?** No CI runs them. The import baseline found that `npm test` failed. Default: change C001 makes `npm test` pass offline.
+- **How does the demo account log in?** The dashboard has no users, so `DEMO_EMAIL` is unused. Default (C001): the login check uses `DEMO_PASSWORD` alone on the password-only card.
 - **Who uses it?** Real usage is unknown beyond the author. Default: the main user is a single developer who self-hosts it.
