@@ -2463,7 +2463,7 @@ export async function runAgent(context: PipelineContext, executor: Executor, rol
     {
       role,
       subject,
-      systemPrompt: withLessons(context, role, fillPrompt(loadPrompt(options.promptName ?? role), options.promptVariables ?? {})),
+      systemPrompt: withLessons(context, role, taskPrompt, fillPrompt(loadPrompt(options.promptName ?? role), options.promptVariables ?? {})),
       taskPrompt,
       allowedTools,
       writablePaths: options.writablePaths,
@@ -2474,12 +2474,13 @@ export async function runAgent(context: PipelineContext, executor: Executor, rol
   )
 }
 
-// Appends the strongest lessons for the role; learning must never break an agent call, so errors drop the lessons.
-function withLessons(context: PipelineContext, role: Role, systemPrompt: string): string {
+// Appends the role's lessons that best fit the task prompt; learning must never break an agent call, so errors drop
+// the lessons.
+function withLessons(context: PipelineContext, role: Role, taskPrompt: string, systemPrompt: string): string {
   const { learning } = context.config
   if (!learning?.enabled || !learning.maxLessonsPerRole) return systemPrompt
   try {
-    const lessons = formatLessons(lessonsFor(loadLessons(lessonsPath(context.projectDir)), role, learning.maxLessonsPerRole, projectStacks(context.projectDir)))
+    const lessons = formatLessons(lessonsFor(loadLessons(lessonsPath(context.projectDir)), role, learning.maxLessonsPerRole, projectStacks(context.projectDir), Date.now(), taskPrompt))
     return lessons ? `${systemPrompt.trimEnd()}\n\n${lessons}\n` : systemPrompt
   } catch {
     return systemPrompt
