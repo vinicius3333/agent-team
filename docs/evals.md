@@ -135,6 +135,10 @@ In `test/evals.test.ts`, using the stub harness pattern from `test/task-loop.tes
 10. Optional: `/api/evals` in `src/ui/server.ts` and `web/src/pages/evals.tsx`.
 11. Add the 4 full-tier briefs once smoke results are stable across 3 repeats.
 
+## Design score
+
+After each web brief, the design judge scores the last QA round's screenshots on eight dimensions, and the result stores the mean in `design`. A drop of more than 10 points is a regression. See `docs/design-styles.md`.
+
 ## Open questions
 
 - **Pass criteria beyond the pipeline's own QA.** QA is run by an agent in this repo, so a lenient QA prompt would score itself well. Should each brief carry a small hidden acceptance check (for example `evals/briefs/<id>/check.sh` that curls routes on the built app)? This is the strongest signal but needs the app started, which today only `deploy` and `src/smoke.ts` do.
