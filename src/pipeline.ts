@@ -19,6 +19,7 @@ import { changePath, importCleanupKey, importDoneKey } from "./project.ts"
 import { designSystemRoute, parseDesignScreens, parseLoginRoute, parseQaVerdict, runQaLoop, type QaRoundResult, type QaScreen } from "./qa.ts"
 import { extractJsonObject } from "./json.ts"
 import { conceptChoiceKey, conceptIds, conceptsDir } from "./concepts.ts"
+import { autoStyle, chosenStyleId, conceptStyleProblems, styleCatalogDir, styleNotes, writeStyleCatalog } from "./design-styles.ts"
 import { learnLessons } from "./improve.ts"
 import { formatLessons, lessonsFor, lessonsPath, loadLessons, projectStacks } from "./lessons.ts"
 import { formatSolutions, memoryPath, recordSolution, searchSolutions, type Solution } from "./memory.ts"
@@ -114,7 +115,7 @@ const phaseDefinitions: Record<PlanningPhase, PhaseDefinition> = {
       `${conceptsDir}/<a, b, c...>/style.md`,
       `${conceptsDir}/README.md`,
     ],
-    validate: (dir, config) => void validateConcepts(dir, config.branding.variations),
+    validate: (dir, config) => void validateConcepts(dir, config.branding.variations, config.branding.style),
     commits: [{ message: "design(concepts): add the logo and style directions", matches: [`${conceptsDir}/**`] }],
     reviewed: true,
   },
@@ -551,13 +552,15 @@ export function validateBranding(dir: string, count: number, mobile = false, dar
 
 const mobileImagePattern = /\.mobile\.(png|jpe?g|webp)$/i
 const darkImagePattern = /\.dark\.(png|jpe?g|webp)$/i
-export function validateConcepts(dir: string, variations: number): string[] {
+export function validateConcepts(dir: string, variations: number, style = autoStyle): string[] {
   requireFile(join(dir, conceptsDir, "README.md"))
   const ids = conceptIds(dir)
   if (ids.length < variations) throw new Error(`${conceptsDir}/ has ${ids.length} directions (${ids.join(", ") || "none"}); expected ${variations}: a, b, c`)
   for (const id of ids) {
     for (const file of ["logo.png", "landing.png", "style.md"]) requireFile(join(dir, conceptsDir, id, file))
   }
+  const problems = conceptStyleProblems(Object.fromEntries(ids.map((id) => [id, readFileSync(join(dir, conceptsDir, id, "style.md"), "utf8")])), style)
+  if (problems.length) throw new Error(`the concept styles do not match the catalog:\n- ${problems.join("\n- ")}`)
   return ids
 }
 
@@ -886,8 +889,9 @@ async function attemptPhase(context: PipelineContext, phase: PhaseName, definiti
   const executor = await createExecutor(context, workspace.path, name)
   const change = store.currentChange()
   const changeNotes = change && (definition.role === "architect" || definition.role === "planner") ? [["## Code map (git ls-files, without lockfiles and assets)", "", "```", ...codeMap(trackedFiles(workspace.path)), "```"].join("\n")] : []
+  const designStyleNotes = importing(context) ? [] : styleNotes({ phase, role: definition.role, dir: workspace.path, choice: store.meta(conceptChoiceKey), configured: config.branding.style, variations: config.branding.variations })
   const runPhaseAgent = async (subject: string, notes: string[]): Promise<AttemptResult | null> => {
-    const outcome = await runAgent(context, executor, definition.role, subject, definition.tools ?? planningTools, phasePrompt(context, phase, previousErrors, [...notes, ...changeNotes], definition, change), { promptName: definition.promptName })
+    const outcome = await runAgent(context, executor, definition.role, subject, definition.tools ?? planningTools, phasePrompt(context, phase, previousErrors, [...notes, ...changeNotes, ...designStyleNotes], definition, change), { promptName: definition.promptName })
     if (isInfrastructureFailure(outcome)) return { kind: "infrastructure", reason: `${outcome.failureClass}: ${outcome.result.summary}` }
     if (outcome.result.status !== "done") return { kind: "failed", reason: `agent ${outcome.result.status}: ${outcome.result.summary}` }
     return null
@@ -976,6 +980,7 @@ async function pickConcept(context: PipelineContext): Promise<RunOutcome> {
   const executor = await createExecutor(context, workspace.path, "concepts-pick")
   try {
     const ids = conceptIds(workspace.path)
+    writeStyleCatalog(workspace.path)
     let previousError: string | null = null
     for (let attempt = 1; attempt <= reviewAttempts; attempt++) {
       const prompt = conceptPickPrompt(ids, previousError)
@@ -1016,6 +1021,7 @@ function conceptPickPrompt(ids: string[], previousError: string | null): string 
     ...ids.flatMap((id) => [`- ${id}: ${conceptsDir}/${id}/logo.png, ${conceptsDir}/${id}/landing.png, ${conceptsDir}/${id}/style.md`]),
     "",
     `Read input.md, docs/spec.md, and ${conceptsDir}/README.md.`,
+    `Each style.md names its catalog style on its "Style:" line. ${styleCatalogDir}/<id>.md says who each style fits and who it does not: prefer the direction whose style fits the brief's users.`,
   ]
   if (previousError) lines.push("", `Your previous answer was rejected. Fix this: ${previousError}`)
   return lines.join("\n")
@@ -1023,7 +1029,9 @@ function conceptPickPrompt(ids: string[], previousError: string | null): string 
 
 async function reviewPhase(context: PipelineContext, executor: Executor, dir: string, phase: PlanningPhase, subject: string): Promise<ReviewOutcome> {
   const change = context.store.currentChange()
-  const prompt = (previousError: string | null) => designReviewPrompt({ phase, config: context.config, files: trackedAndNewFiles(dir), previousError, changeId: change?.id ?? null })
+  const style = phase === "concepts" ? null : chosenStyleId(dir, context.store.meta(conceptChoiceKey), context.config.branding.style)
+  if (style || phase === "concepts") writeStyleCatalog(dir)
+  const prompt = (previousError: string | null) => designReviewPrompt({ phase, config: context.config, files: trackedAndNewFiles(dir), previousError, changeId: change?.id ?? null, style })
   return reviewWithRetries(context, executor, subject, "design-reviewer", prompt)
 }
 
@@ -1048,7 +1056,7 @@ function trackedAndNewFiles(dir: string): string[] {
   return [...new Set([...trackedFiles(dir), ...changedFiles(dir)])].filter((file) => existsSync(join(dir, file))).sort()
 }
 
-export function designReviewPrompt(input: { phase: PlanningPhase; config: PipelineConfig; files: string[]; previousError: string | null; changeId?: string | null }): string {
+export function designReviewPrompt(input: { phase: PlanningPhase; config: PipelineConfig; files: string[]; previousError: string | null; changeId?: string | null; style?: string | null }): string {
   const { phase, files } = input
   const images = files.filter((file) => (file.startsWith("design/") || file.startsWith(`${marketingDir}/`)) && imagePattern.test(file))
   const lines = [`Review the ${phase} phase output. Project target: ${input.config.target}.`, ""]
@@ -1056,6 +1064,9 @@ export function designReviewPrompt(input: { phase: PlanningPhase; config: Pipeli
     lines.push(
       `Expected: ${input.config.branding.variations} directions in ${conceptsDir}/ (a, b, c...), each with logo.png, landing.png, and style.md, plus ${conceptsDir}/README.md.`,
       "Read input.md and docs/spec.md. The directions must be truly different from each other (logo idea, color, and layout), each one consistent in itself, and each landing a realistic product screen with real content in the brief's language.",
+      input.config.branding.style === autoStyle
+        ? `Each style.md names a different style from the catalog in ${styleCatalogDir}/README.md. Open each named style's file (${styleCatalogDir}/<id>.md). Fail a direction whose style does not fit the brief's users (its "Avoid for" list), that does not look like its style, or that shows one of its failure modes.`
+        : `Every direction uses the "${input.config.branding.style}" style the person chose. Read ${styleCatalogDir}/${input.config.branding.style}.md. Fail a direction that does not look like that style or that shows one of its failure modes.`,
     )
   } else if (phase === "branding" && input.changeId) {
     lines.push(
@@ -1079,6 +1090,9 @@ export function designReviewPrompt(input: { phase: PlanningPhase; config: Pipeli
       `The favicon set in ${faviconDir}/ was rendered from design/logo-mark.svg by the orchestrator. Judge the rendered PNGs, not only the SVG.`,
       "Read docs/spec.md for the user stories.",
     )
+  }
+  if (input.style && phase !== "concepts" && phase !== "marketing") {
+    lines.push(`The chosen visual style is "${input.style}". Read ${styleCatalogDir}/${input.style}.md. Fail output that drifts from its signature details or shows one of its failure modes.`)
   }
   lines.push("", "## Images to open", "", ...(images.length ? images.map((file) => `- ${file}`) : ["none"]))
   if (input.previousError) lines.push("", `Your previous answer was rejected. Fix this: ${input.previousError}`)

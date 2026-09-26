@@ -14,7 +14,7 @@ import { sendTest } from "./notify/index.ts"
 import { compareResults, defaultEvalsDir, evalTiers, formatComparison, hasRegressions, listBriefs, readBaseYaml, runEval, type EvalResult, type EvalTier } from "./evals.ts"
 import { approvePhase, createProject, openChange, openProjectStore, retryTask, withProjectStore } from "./project.ts"
 import { importProject } from "./import.ts"
-import { runProject, runSprint } from "./run.ts"
+import { judgeProjectDesign, runProject, runSprint } from "./run.ts"
 import { addBacklogItem } from "./sprint.ts"
 import { generateSessionSecret, hashPassword, passwordMinLength } from "./ui/auth.ts"
 import { listTemplates, templateTargets, type TemplateTarget } from "./templates.ts"
@@ -262,6 +262,7 @@ async function evalRun(flags: EvalFlags): Promise<void> {
     clean: flags.clean ?? false,
     signal: controller.signal,
     runProject,
+    judgeDesign: judgeProjectDesign,
   })
   console.log(`[eval] result: ${path}`)
   process.exitCode = !result.aborted && result.briefs.every((brief) => brief.outcome === "completed") ? 0 : 1

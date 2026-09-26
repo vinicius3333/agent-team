@@ -136,7 +136,7 @@ function writeEvaluation(projectDir: string, evaluation: Evaluation): void {
 
 // The evaluator sees the app through the screenshots of the last QA round, copied into its worktree.
 // The newest round may sit in a change's folder (qa/C001/round-11) when that change's QA was the last one to run.
-function copyLatestQaRound(context: PipelineContext, workspacePath: string): string | null {
+export function copyLatestQaRound(context: PipelineContext, workspacePath: string): string | null {
   const round = Number(context.store.meta("qa.round") ?? 0)
   if (!round) return null
   const qaDir = join(context.projectDir, ".agent-team", "qa")

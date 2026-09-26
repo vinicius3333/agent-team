@@ -4,7 +4,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { after, test } from "node:test"
 import { parse } from "yaml"
-import { compareResults, listBriefs, loadBrief, readBaseYaml, runEval, suiteConfig, type BriefResult, type EvalBrief, type EvalResult, type ProjectRunner } from "../src/evals.ts"
+import { designDimensions, type DesignScore } from "../src/design-judge.ts"
+import { compareResults, listBriefs, loadBrief, readBaseYaml, runEval, suiteConfig, type BriefResult, type DesignJudge, type EvalBrief, type EvalResult, type ProjectRunner } from "../src/evals.ts"
 import { openStore, type Store } from "../src/store.ts"
 
 const scratch = mkdtempSync(join(tmpdir(), "agent-team-evals-"))
@@ -177,4 +178,36 @@ test("compareResults refuses a changed brief unless allowed", () => {
   const after = evalResult([briefResult({ briefHash: "new" })])
   assert.throws(() => compareResults(before, after), /--allow-brief-change/)
   assert.match(compareResults(before, after, true).warnings.join(), /changed/)
+})
+
+function designScore(score: number): DesignScore {
+  const dimensions = Object.fromEntries(designDimensions.map((dimension) => [dimension, { score, notes: "" }])) as DesignScore["dimensions"]
+  return { score, dimensions, style: "bento-grid", summary: "ok", issues: [] }
+}
+
+test("runEval asks the design judge for web briefs only, and a failing judge records null", async () => {
+  const judged: string[] = []
+  const judges: DesignJudge[] = [
+    async (projectDir) => {
+      judged.push(projectDir)
+      return { kind: "scored", design: designScore(72) }
+    },
+    async () => {
+      throw new Error("docker is down")
+    },
+  ]
+  const { result } = await runEval({
+    evalsDir: join(scratch, "judge"), tier: "smoke", briefs: [brief({ id: "web" }), brief({ id: "api", target: "api" }), brief({ id: "broken" })], baseYaml: readBaseYaml(undefined), label: null,
+    maxUsd: null, clean: true, signal: new AbortController().signal, log: () => {}, runProject: completingRun,
+    judgeDesign: (...args) => judges.shift()!(...args),
+  })
+  assert.equal(judged.length, 1)
+  assert.deepEqual(result.briefs.map((entry) => entry.design?.score ?? null), [72, null, null])
+})
+
+test("compareResults flags a design score drop of more than 10 points", () => {
+  const before = evalResult([briefResult({ id: "a", design: designScore(80) }), briefResult({ id: "b", design: designScore(80) }), briefResult({ id: "c" })])
+  const after = evalResult([briefResult({ id: "a", design: designScore(69) }), briefResult({ id: "b", design: designScore(71) }), briefResult({ id: "c", design: designScore(40) })])
+  const regressions = Object.fromEntries(compareResults(before, after).briefs.map((entry) => [entry.id, entry.regressions]))
+  assert.deepEqual(regressions, { a: ["design score 80 -> 69"], b: [], c: [] })
 })

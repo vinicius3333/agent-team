@@ -86,6 +86,8 @@ export interface ProjectChoices {
   autoApproveScope?: boolean
   // A stack template name; undefined or "custom" lets the architect choose the stack.
   template?: string
+  // A style id from knowledge/design-styles.json, or "auto"; undefined keeps the value in pipeline.example.yaml.
+  designStyle?: string
 }
 
 const baseIgnores = [".agent-team/", "node_modules/"]
@@ -147,6 +149,7 @@ export function applyChoices(pipelineYaml: string, choices: Partial<ProjectChoic
   if (choices.github !== undefined) document.setIn(["publish", "github", "enabled"], choices.github)
   if (choices.deploy !== undefined) document.setIn(["deploy", "enabled"], choices.deploy)
   if (choices.branding !== undefined) document.setIn(["branding", "enabled"], choices.branding)
+  if (choices.designStyle !== undefined) document.setIn(["branding", "style"], choices.designStyle)
   if (choices.resolveAllQa !== undefined) document.setIn(["qa", "resolveAll"], choices.resolveAllQa)
   if (choices.sprints !== undefined) document.setIn(["sprints", "enabled"], choices.sprints)
   if (choices.autoApproveScope !== undefined) document.setIn(["autonomy", "autoApproveScope"], choices.autoApproveScope)

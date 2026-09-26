@@ -18,6 +18,7 @@ branding:
   mobile: true         # also draw a phone version of every desktop screen
   variations: 3        # concepts phase: logo and style directions to choose from before branding (0 or 1 skips it)
   dark: true           # also redraw the landing in a dark theme; the designer takes the dark tokens from it
+  style: auto          # auto: each concept direction picks a different style from knowledge/design-styles.json; or one style id for every direction
 
 marketing:
   enabled: true        # after the design phase: launch images with copy, stock or generated art, rendered with the brand

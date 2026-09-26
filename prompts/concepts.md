@@ -11,7 +11,7 @@ You are the visual illustrator on an AI agent team. Before the branding is drawn
 One folder per direction in `design/concepts/`, named `a`, `b`, `c` (as many as the prompt asks for):
 
 1. `logo.png`: the logo idea on a plain light background. A simple, geometric mark plus the product name, flat colors, no gradients or photo effects. It must redraw well as a small SVG and work as a favicon.
-2. `style.md`: the style block for this direction, as a short list: the hex value of every color role (background, surface, border, ink text, muted text, primary accent, success, warning, destructive), a named font pair (for example Inter and JetBrains Mono), the icon set (Lucide), the corner radius, and 3 to 5 words for the mood.
+2. `style.md`: first the line `Style: <id>`, naming the catalog style this direction uses (the task prompt says where the catalog is and whether a person fixed the style). Then the style block for this direction, as a short list: the hex value of every color role (background, surface, border, ink text, muted text, primary accent, success, warning, destructive), a named font pair (for example Inter and JetBrains Mono), the icon set (Lucide), the corner radius, and 3 to 5 words for the mood.
 3. `landing.png`: the public landing page in this direction, 1440x900, with the logo in the header. Draw it with `logo.png` attached as the reference, and follow the screen prompt structure below.
 4. `landing.prompt.txt` and `logo.prompt.txt`: the exact prompts you used.
 
@@ -19,7 +19,9 @@ Then write `design/concepts/README.md`: one section per direction with its name 
 
 ## Make the directions different
 
-Vary the logo idea, the accent color, the type, and the layout of the landing: for example a calm, spacious editorial look; a bold, colorful playful look; and a dense, precise product look. Each direction must fit the brief and its users. Three versions of one idea in different colors is a failure.
+Each direction uses a different style from the catalog, unless the person fixed one style for all of them. Pick styles that fit the brief and its users: read each style's "Fits" and "Avoid for" lists. Then vary the logo idea, the accent color, the type, and the layout of the landing. Three versions of one idea in different colors is a failure.
+
+Start each direction from its style's file: a palette, a type pairing, the layout, and the signature details. Adapt them to the product, and keep text contrast at WCAG AA. Avoid every failure mode the style lists. A direction that looks like a generic template of its style is a failure too.
 
 ## Screen prompt structure
 

@@ -11,6 +11,7 @@ import { defaultLeadConfig, defaultRoles as laterRoleDefaults, defaultRunBudgetU
 import { demoAccessMetaKey, readDemoAccess } from "../access.ts"
 import { pendingFeedback } from "../feedback.ts"
 import { customTemplate, findTemplate, listTemplates, readStack } from "../templates.ts"
+import { autoStyle, conceptStyle, conceptSwatches, designStyleIds, findDesignStyle, loadDesignCatalog, type DesignStyle } from "../design-styles.ts"
 import { conceptChoiceKey, conceptIds, conceptsDir } from "../concepts.ts"
 import { abandonChange, approveChangeMerge, approvePhase, approveTaskBudget, changePath, changeRoleModels, chooseTemplate, createProject, openChange, parseRoleModels, listProjects, ProjectError, raiseRunBudget, requestChanges, retryTask, runAlive, runLogPath, startRun as spawnRun, withProjectStore, type ProjectChoices, type RunCommand } from "../project.ts"
 import { addBacklogItem, sprintBlocker, sprintSpend, syncSprint } from "../sprint.ts"
@@ -358,6 +359,21 @@ function qaRounds(projectDir: string) {
 
 function templateSummaries() {
   return listTemplates().map(({ name, version, title, description, targets }) => ({ name, version, title, description, targets }))
+}
+
+// The first palette of each style gives the form and the concept cards their swatches.
+function styleSummary({ id, name, description, mood, fitsWhen, palettes, webgl }: DesignStyle) {
+  return { id, name, description, mood, fitsWhen, webgl: webgl === true, palette: palettes[0].roles }
+}
+
+function designStyleSummaries() {
+  return loadDesignCatalog().styles.map(styleSummary)
+}
+
+function conceptCatalogStyle(styleText: string) {
+  const id = conceptStyle(styleText)
+  const style = id ? findDesignStyle(id) : undefined
+  return style ? styleSummary(style) : null
 }
 
 // latest is the version in this orchestrator now, or null when the template folder is gone.
@@ -790,6 +806,10 @@ function parseChoices(body: Record<string, unknown>): { name: string; brief: str
   }
   if (template !== undefined && typeof template !== "string") throw new ProjectError(400, "The template field must be a template name.")
   chooseTemplate(template, target as ProjectChoices["target"])
+  const { designStyle } = body
+  if (designStyle !== undefined && (typeof designStyle !== "string" || (designStyle !== autoStyle && !designStyleIds().includes(designStyle)))) {
+    throw new ProjectError(400, `The design style must be ${autoStyle} or one of ${designStyleIds().join(", ")}.`)
+  }
   return {
     name,
     brief,
@@ -806,6 +826,7 @@ function parseChoices(body: Record<string, unknown>): { name: string; brief: str
       sprints: (body.sprints ?? body.evolve) as boolean | undefined,
       autoApproveScope: body.autoApproveScope as boolean | undefined,
       template: template as string | undefined,
+      designStyle: designStyle as string | undefined,
     },
   }
 }
@@ -1225,6 +1246,7 @@ export function startUi(options: UiOptions) {
       if (parts[0] === "api" && parts[1] === "git-identity" && parts.length === 2) return send(response, 200, readGitIdentity(runsDir))
       if (parts[0] === "api" && parts[1] === "notifications" && parts.length === 2) return send(response, 200, notificationStatus(runsDir, options.notifyDeps?.env))
       if (parts[0] === "api" && parts[1] === "templates" && parts.length === 2) return send(response, 200, templateSummaries())
+      if (parts[0] === "api" && parts[1] === "design-styles" && parts.length === 2) return send(response, 200, designStyleSummaries())
       if (parts[0] === "api" && parts[1] === "incidents" && parts.length === 2) return send(response, 200, allIncidents(runsDir))
       if (parts[0] === "api" && parts[1] === "incidents" && parts.length === 4) {
         if (!knownProject(parts[2])) return send(response, 404, { error: "unknown project" })
@@ -1303,11 +1325,16 @@ export function startUi(options: UiOptions) {
           return response.end(readFileSync(path))
         }
         if (parts[3] === "concepts" && parts.length === 4) {
-          const concepts = conceptIds(projectDir).map((id) => ({
-            id,
-            style: readTextFile(join(projectDir, conceptsDir, id, "style.md")),
-            images: readdirSync(join(projectDir, conceptsDir, id)).filter((file) => brandingImagePattern.test(file)).sort(),
-          }))
+          const concepts = conceptIds(projectDir).map((id) => {
+            const style = readTextFile(join(projectDir, conceptsDir, id, "style.md"))
+            return {
+              id,
+              style,
+              catalogStyle: conceptCatalogStyle(style),
+              swatches: conceptSwatches(style),
+              images: readdirSync(join(projectDir, conceptsDir, id)).filter((file) => brandingImagePattern.test(file)).sort(),
+            }
+          })
           return send(response, 200, { concepts, readme: readTextFile(join(projectDir, conceptsDir, "README.md")), choice: metaValue(projectDir, conceptChoiceKey) })
         }
         if (parts[3] === "concepts" && parts.length === 6) {

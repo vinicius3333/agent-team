@@ -1,6 +1,7 @@
 import { join } from "node:path"
 import { loadConfig } from "./config.ts"
 import { cleanupOrphans } from "./harness/docker.ts"
+import { judgeDesign, type DesignJudgeResult } from "./design-judge.ts"
 import { createGitHub } from "./github.ts"
 import { createHarness, liveAgentPrefix } from "./harness/harness.ts"
 import { removeAllWorkspaces } from "./harness/workspace.ts"
@@ -32,4 +33,12 @@ export async function runSprint(projectDir: string, store: Store, signal: AbortS
   const outcome = await runProject(projectDir, store, signal, (context) => startSprint(context, options))
   syncSprint(store)
   return outcome
+}
+
+// Scores the design of a finished project for the eval suite, outside a pipeline run.
+export async function judgeProjectDesign(projectDir: string, store: Store, signal: AbortSignal): Promise<DesignJudgeResult> {
+  const config = loadConfig(join(projectDir, "pipeline.yaml"))
+  const harness = createHarness({ config: config.harness, store, signal })
+  const github = createGitHub({ projectDir, config, store })
+  return judgeDesign({ projectDir, config, store, harness, github, signal })
 }

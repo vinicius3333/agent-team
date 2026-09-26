@@ -1,0 +1,2197 @@
+{
+  "updated": "2026-09-25",
+  "styles": [
+    {
+      "id": "immersive-3d-webgl",
+      "name": "3D / WebGL immersive",
+      "description": "A real-time 3D scene (Three.js, React Three Fiber or Spline) is the hero and often the navigation. Type stays quiet so the object carries the story.",
+      "mood": [
+        "cinematic",
+        "tactile",
+        "futuristic",
+        "playful-premium",
+        "exploratory"
+      ],
+      "fitsWhen": [
+        "Creative studios and agencies",
+        "Hardware, devices, wearables, cars (product you can rotate)",
+        "Games, launches, campaign microsites",
+        "Brands whose product is spatial (AR, 3D tools, architecture)"
+      ],
+      "avoidWhen": [
+        "B2B SaaS where the buyer needs facts fast",
+        "Content or docs sites",
+        "Audiences on low-end Android or slow networks",
+        "Pages whose main KPI is form conversion"
+      ],
+      "layout": {
+        "hero": "Full-viewport canvas behind or around a short headline (2-6 words) and one CTA; the scene reacts to pointer and scroll.",
+        "sections": "Scroll-driven chapters: the camera moves through the same scene while text panels fade in; end with a plain HTML contact/CTA section.",
+        "grid": "Loose; text anchored to corners or a 12-col grid overlaid on the canvas.",
+        "density": "Very low text density; 1 idea per viewport.",
+        "whitespace": "Huge - the 3D scene is the whitespace."
+      },
+      "typography": {
+        "pairings": [
+          {
+            "display": "Aeonik (commercial, measured on lusion.co)",
+            "body": "Aeonik",
+            "freeSubstitute": "Manrope or Onest for both"
+          },
+          {
+            "display": "Unbounded 500",
+            "body": "Inter Tight 400",
+            "note": "wide display gives sci-fi tone"
+          },
+          {
+            "display": "Syne 600",
+            "body": "Figtree 400"
+          }
+        ],
+        "scale": "Fluid clamp() sizes; H1 40-96px; weight 400-500 (measured lusion.co H1 42.75px/400, lh 1.1)."
+      },
+      "webgl": true,
+      "palettes": [
+        {
+          "name": "Lusion light (measured base)",
+          "mode": "light",
+          "roles": {
+            "background": "#FFFFFF",
+            "surface": "#F0F1FA",
+            "border": "#E4E6EF",
+            "ink": "#000000",
+            "muted": "#5A5D6B",
+            "primary": "#0016EC",
+            "onPrimary": "#FFFFFF",
+            "secondary": "#2B2E3A"
+          },
+          "note": "bg, surface, primary blue and pill button #2B2E3A measured on lusion.co"
+        },
+        {
+          "name": "Void studio",
+          "mode": "dark",
+          "roles": {
+            "background": "#07070A",
+            "surface": "#111118",
+            "border": "#24242E",
+            "ink": "#F2F2F5",
+            "muted": "#9A9AA8",
+            "primary": "#8C9BFF",
+            "onPrimary": "#07070A",
+            "secondary": "#FF6B3D"
+          }
+        }
+      ],
+      "signature": {
+        "radius": "Pill buttons (measured 93px on lusion.co), 15px cards",
+        "borders": "Almost none",
+        "shadows": "Very soft double shadow: rgba(0,0,0,.04) 0 6px 10px, rgba(0,0,0,.04) 0 2px 4px (measured lusion.co)",
+        "textures": "Film grain or noise in post-processing; bloom; chromatic aberration used sparingly",
+        "iconography": "Minimal; arrows and cursor followers",
+        "imagery": "Custom 3D models (GLB/GLTF), physically based materials, HDRI lighting, fluid or particle sims",
+        "motion": "Pointer parallax, scroll-scrubbed camera paths, custom cursor, page transitions via shader wipes"
+      },
+      "implementation": {
+        "libraries": [
+          "three",
+          "@react-three/fiber",
+          "@react-three/drei (useGLTF, Environment, ScrollControls, PerformanceMonitor, AdaptiveDpr)",
+          "@react-three/postprocessing",
+          "@splinetool/react-spline (only for simple scenes)",
+          "gsap + ScrollTrigger or motion (framer-motion) for DOM",
+          "lenis for smooth scroll",
+          "gltfjsx + gltf-transform/meshoptimizer/KTX2 for asset compression"
+        ],
+        "tailwind": "Keep DOM layer in Tailwind; place <Canvas> in a fixed `absolute inset-0 -z-10` wrapper; define colors as @theme tokens so shaders and CSS share values.",
+        "performance": [
+          "Render a static poster image (AVIF/WebP) as the LCP element; mount the Canvas after first paint (dynamic import, requestIdleCallback).",
+          "Budget: < 250 KB JS for the 3D chunk, < 2 MB total 3D assets, Draco/Meshopt geometry, KTX2 textures.",
+          "Clamp DPR to [1, 1.5] and use PerformanceMonitor to lower quality; frameloop='demand' when the scene is static.",
+          "Pause rendering when the canvas is off-screen (IntersectionObserver) or the tab is hidden."
+        ],
+        "accessibility": [
+          "prefers-reduced-motion: freeze the camera, disable auto-rotation and scroll-scrubbing, show the poster.",
+          "All content and CTAs must exist as real HTML, not text drawn in WebGL.",
+          "Provide a mobile fallback (poster or short muted loop video) under ~768px or when WebGL2 is missing.",
+          "Custom cursors must not hide the system cursor on focusable elements; keep visible focus rings."
+        ]
+      },
+      "failureModes": [
+        "Default Spline blob or glossy torus that has nothing to do with the product",
+        "Loader screen with a percentage counter before any content (kills LCP and bounce rate)",
+        "Scroll hijacking that breaks trackpad momentum and keyboard navigation",
+        "Heavy bloom and purple-cyan lighting (reads as stock AI render)",
+        "Headline text baked into the 3D scene, unreadable and not indexable"
+      ],
+      "references": [
+        {
+          "url": "https://lusion.co",
+          "measured": true
+        },
+        {
+          "url": "https://www.igloo.inc",
+          "measured": false,
+          "note": "Awwwards Site of the Year 2024"
+        },
+        {
+          "url": "https://bruno-simon.com",
+          "measured": false
+        },
+        {
+          "url": "https://press.stripe.com",
+          "measured": true,
+          "note": "3D rotating books on an editorial page (2 canvases)"
+        }
+      ]
+    },
+    {
+      "id": "minimal-saas-dark",
+      "name": "Minimal SaaS / \"Linear style\" dark product",
+      "description": "Near-black canvas, one tight grotesk, product screenshots as hero art, and a restrained accent. Precision and speed are the message.",
+      "mood": [
+        "precise",
+        "calm",
+        "engineered",
+        "premium",
+        "quiet-confident"
+      ],
+      "fitsWhen": [
+        "Developer tools, productivity SaaS, AI tooling",
+        "Products with a polished UI worth showing",
+        "Technical buyers who dislike marketing fluff"
+      ],
+      "avoidWhen": [
+        "Consumer brands needing warmth",
+        "Products without a strong UI to screenshot",
+        "Audiences reading long text (dark mode long-form tires eyes)",
+        "When every competitor already looks like this (check the category first)"
+      ],
+      "layout": {
+        "hero": "Left-aligned or centered H1 (2 lines), one-line subhead, primary + ghost CTA, then a large product screenshot/video that bleeds off the bottom of the viewport.",
+        "sections": "Logo strip, 3-5 feature chapters each with a large UI crop, changelog/speed proof, testimonials, pricing link, final CTA.",
+        "grid": "12-col, 1200-1280px max width; features alternate full-width UI and 2-3 column detail grids.",
+        "density": "Medium-low; lots of small 13-15px secondary text.",
+        "whitespace": "Generous vertical rhythm (120-200px section spacing)."
+      },
+      "typography": {
+        "pairings": [
+          {
+            "display": "Inter Variable 510 (measured linear.app, H1 64px, ls -1.408px = -0.022em)",
+            "body": "Inter Variable 400 15px",
+            "mono": "Berkeley Mono (commercial) -> JetBrains Mono / Geist Mono"
+          },
+          {
+            "display": "Geist 400-500 (measured vercel.com H1 64px, ls -3.84px = -0.06em)",
+            "body": "Geist",
+            "mono": "Geist Mono"
+          },
+          {
+            "display": "Inter Tight 600",
+            "body": "Inter 400",
+            "note": "Or swap to Hanken Grotesk / Onest to avoid the Inter-everywhere AI tell"
+          }
+        ],
+        "scale": "H1 56-72px, H2 40-48px, body 15-16px; tight negative tracking on display (-0.02 to -0.06em); line-height 1.0-1.1 on headings."
+      },
+      "palettes": [
+        {
+          "name": "Linear (measured)",
+          "mode": "dark",
+          "roles": {
+            "background": "#08090A",
+            "surface": "#0F1011",
+            "border": "#23252A",
+            "ink": "#F7F8F8",
+            "muted": "#8A8F98",
+            "primary": "#5E6AD2",
+            "onPrimary": "#FFFFFF",
+            "secondary": "#4CB782"
+          },
+          "note": "bg, surface, ink, muted and primary measured on linear.app. Tertiary text #62666D measured there reaches only 3.45:1 - do not use for body."
+        },
+        {
+          "name": "Vercel light (measured)",
+          "mode": "light",
+          "roles": {
+            "background": "#FAFAFA",
+            "surface": "#FFFFFF",
+            "border": "#EBEBEB",
+            "ink": "#171717",
+            "muted": "#4D4D4D",
+            "primary": "#171717",
+            "onPrimary": "#FFFFFF",
+            "secondary": "#006BFF"
+          },
+          "note": "bg, ink, muted, border and link blue oklch(0.5761 0.2508 258.23)=#006BFF measured on vercel.com"
+        }
+      ],
+      "signature": {
+        "radius": "6-12px on cards/buttons, pill for small nav CTAs (Linear: 9999px x76, 8px x32; Vercel: 6px)",
+        "borders": "1px hairlines at 6-10% white (rgba(255,255,255,.08) measured on Linear)",
+        "shadows": "Nearly none; depth from lighter surfaces and inner highlights",
+        "textures": "Subtle radial glow or noise behind the hero screenshot; grid/dot patterns at 3-5% opacity",
+        "iconography": "16px 1.5px-stroke line icons, monochrome",
+        "imagery": "Real product UI, often angled or cropped; no stock photos",
+        "motion": "Short (150-250ms) fades and masks; screenshots that assemble on scroll; keyboard-shortcut hints"
+      },
+      "implementation": {
+        "libraries": [
+          "motion (framer-motion)",
+          "lucide-react or custom icon set",
+          "next/font or @fontsource-variable/inter / geist",
+          "shiki for code snippets"
+        ],
+        "tailwind": "Define --color-bg, --color-surface, --color-line, --color-ink, --color-muted in @theme; use `text-balance` on H1; `tracking-[-0.022em]` utilities for display; use `border-white/8` style alpha borders.",
+        "performance": [
+          "Serve hero screenshot as AVIF with explicit width/height; it is the LCP image - preload it and give it fetchpriority=high",
+          "Replace autoplay videos with poster + play-on-view",
+          "Subset variable fonts; one family + one mono"
+        ],
+        "accessibility": [
+          "Muted grey text on near-black must still hit 4.5:1 (Linear's #8A8F98 does at 6.1:1; its #62666D does not)",
+          "Do not rely on subtle 8% borders to convey state",
+          "Honor prefers-reduced-motion for scroll reveals",
+          "Offer a light theme or respect prefers-color-scheme for long reading"
+        ]
+      },
+      "failureModes": [
+        "Indigo/purple accent + Inter + centered hero + badge above H1 = the canonical AI-generated SaaS look",
+        "Glowing purple radial blob behind the hero",
+        "Three identical icon-on-top feature cards",
+        "Fake UI mockups made of grey rectangles instead of the real product",
+        "Low-contrast grey body text (below 4.5:1) chasing an 'elegant' look"
+      ],
+      "references": [
+        {
+          "url": "https://linear.app",
+          "measured": true
+        },
+        {
+          "url": "https://vercel.com",
+          "measured": true
+        },
+        {
+          "url": "https://www.raycast.com",
+          "measured": true
+        },
+        {
+          "url": "https://resend.com",
+          "measured": false
+        }
+      ]
+    },
+    {
+      "id": "editorial-serif",
+      "name": "Editorial / serif-led magazine",
+      "description": "Reads like a well-set magazine or book: a serif carries headlines and often body, with columns, drop caps, captions and pull quotes. Authority through typography.",
+      "mood": [
+        "literate",
+        "thoughtful",
+        "trustworthy",
+        "warm",
+        "timeless"
+      ],
+      "fitsWhen": [
+        "AI labs, research orgs, think tanks, publishers",
+        "Newsletters, media, long-form content products",
+        "Premium consumer brands with a story",
+        "Founders or agencies selling judgment and taste"
+      ],
+      "avoidWhen": [
+        "Products that must look fast/technical",
+        "Dense feature comparison pages",
+        "Youth-oriented or gaming audiences"
+      ],
+      "layout": {
+        "hero": "Large serif headline (often a full sentence), short standfirst, byline/date-like metadata, a single understated CTA; sometimes an illustration or photo with a caption.",
+        "sections": "Essay-like sections with numbered headings, pull quotes, footnotes/sidenotes, a table of contents, and an index-like footer.",
+        "grid": "Asymmetric editorial grid: narrow text column (60-70ch) with wide margins for notes and images.",
+        "density": "Medium; text-forward.",
+        "whitespace": "Generous margins; tight leading in headlines."
+      },
+      "typography": {
+        "pairings": [
+          {
+            "display": "Anthropic Sans 700 (commercial) + Anthropic Serif body (measured anthropic.com, body 20px)",
+            "freeSubstitute": "Instrument Sans + Source Serif 4 / Newsreader"
+          },
+          {
+            "display": "Ivar Display / Ivar Text (commercial, measured press.stripe.com, P 25px lh 1.5)",
+            "freeSubstitute": "Fraunces (opsz axis) or Newsreader for both"
+          },
+          {
+            "display": "Playfair Display 500 or Gloock",
+            "body": "Source Serif 4 400",
+            "ui": "IBM Plex Sans / Instrument Sans for labels"
+          }
+        ],
+        "scale": "Ratio 1.333-1.5; body 18-21px with line-height 1.5-1.6; max 65ch; headlines with small negative tracking; use real italics and old-style numerals."
+      },
+      "palettes": [
+        {
+          "name": "Paper (measured anthropic.com)",
+          "mode": "light",
+          "roles": {
+            "background": "#FAF9F5",
+            "surface": "#F0EEE6",
+            "border": "#E3DACC",
+            "ink": "#141413",
+            "muted": "#6B6A63",
+            "primary": "#141413",
+            "onPrimary": "#FAF9F5",
+            "secondary": "#D97757"
+          },
+          "note": "bg, surface, ink and clay accent measured on anthropic.com. Its muted #87867F reaches only 3.47:1 on the paper bg, so this palette darkens muted to #6B6A63. Clay #D97757 is decorative (3.1:1)."
+        },
+        {
+          "name": "Night press (measured press.stripe.com)",
+          "mode": "dark",
+          "roles": {
+            "background": "#1D1A15",
+            "surface": "#29241D",
+            "border": "#3D362C",
+            "ink": "#E2CAB0",
+            "muted": "#A89880",
+            "primary": "#FFD943",
+            "onPrimary": "#1D1A15",
+            "secondary": "#C1B676"
+          },
+          "note": "bg #1D1A15, ink #E2CAB0, yellow #FFD943 and olive #C1B676 measured on press.stripe.com"
+        }
+      ],
+      "signature": {
+        "radius": "0-8px (press.stripe.com mostly 0; anthropic.com 8px/16px/24px)",
+        "borders": "Hairline rules between sections, column rules",
+        "shadows": "None or a whisper (anthropic.com: rgba(0,0,0,.01) 0 2px 2px, .02 0 4px 4px, .04 0 16px 24px)",
+        "textures": "Paper tone backgrounds, occasional grain",
+        "iconography": "Few icons; typographic markers (numbers, dingbats, arrows)",
+        "imagery": "Commissioned illustration, duotone photography, captions",
+        "motion": "Minimal: fades, underline reveals"
+      },
+      "implementation": {
+        "libraries": [
+          "@fontsource-variable/fraunces or newsreader",
+          "@tailwindcss/typography (prose) customized",
+          "motion for subtle reveals"
+        ],
+        "tailwind": "Use `font-feature-settings` for 'onum','liga'; `max-w-[65ch]`; `text-pretty` on paragraphs; `hyphens-auto` for narrow columns.",
+        "performance": [
+          "Serif variable fonts are heavy - subset to Latin, preload only the display weight",
+          "Use font-display: swap with size-adjust fallback metrics to avoid layout shift"
+        ],
+        "accessibility": [
+          "Body 18px+, line-height >= 1.5",
+          "Warm grey muted text often fails contrast - check it",
+          "Keep links underlined in body text"
+        ]
+      },
+      "failureModes": [
+        "Playfair Display + Montserrat default pairing (overused template look)",
+        "A single italic serif word inside a sans headline as 'accent' - listed as an AI tell",
+        "Serif used only in the hero while everything else is generic SaaS",
+        "Justified text without hyphenation (rivers)",
+        "Faux-vintage ornaments without editorial content to back them"
+      ],
+      "references": [
+        {
+          "url": "https://www.anthropic.com",
+          "measured": true
+        },
+        {
+          "url": "https://press.stripe.com",
+          "measured": true
+        },
+        {
+          "url": "https://every.to",
+          "measured": false
+        },
+        {
+          "url": "https://www.readcereal.com",
+          "measured": false
+        }
+      ]
+    },
+    {
+      "id": "bento-grid",
+      "name": "Bento grid",
+      "description": "Features are packed into a mosaic of rounded tiles of different sizes, each a mini-poster with one stat, visual, or interaction.",
+      "mood": [
+        "organized",
+        "modern",
+        "scannable",
+        "product-rich",
+        "friendly"
+      ],
+      "fitsWhen": [
+        "Products with many features of similar weight",
+        "Hardware spec summaries (Apple style)",
+        "Portfolios and link-in-bio pages",
+        "Feature overview sections inside other styles"
+      ],
+      "avoidWhen": [
+        "Only 2-3 features (the grid looks empty)",
+        "Narrative or emotional brands",
+        "When each tile would contain the same icon+heading+2 lines"
+      ],
+      "layout": {
+        "hero": "Usually a conventional hero; the bento appears right below as the feature overview, or the whole hero is one large tile inside the grid.",
+        "sections": "1-3 bento clusters (6-9 tiles each), each cluster with a section heading; tiles mix screenshots, big numbers, mini-animations, quotes.",
+        "grid": "CSS grid with 4-6 columns on desktop; tiles span 1-3 columns and 1-2 rows; collapses to 1-2 columns on mobile.",
+        "density": "Medium-high but chunked.",
+        "whitespace": "Consistent 12-24px gutters; generous padding inside tiles (24-40px)."
+      },
+      "typography": {
+        "pairings": [
+          {
+            "display": "GT Walsheim Medium (commercial, measured framer.com H1 54px/500 ls -0.04em)",
+            "body": "Inter Variable 18px",
+            "freeSubstitute": "Plus Jakarta Sans 600 or Figtree 600"
+          },
+          {
+            "display": "SF Pro Display (Apple, system)",
+            "body": "SF Pro Text",
+            "freeSubstitute": "Inter Tight 600 + Inter 400"
+          },
+          {
+            "display": "Bricolage Grotesque 600",
+            "body": "DM Sans 400"
+          }
+        ],
+        "scale": "Tile headings 20-28px, tile stats 48-96px; body 15-17px; keep one type family per page."
+      },
+      "palettes": [
+        {
+          "name": "Framer dark (measured)",
+          "mode": "dark",
+          "roles": {
+            "background": "#000000",
+            "surface": "#242424",
+            "border": "#333333",
+            "ink": "#FFFFFF",
+            "muted": "#999999",
+            "primary": "#0099FF",
+            "onPrimary": "#000000",
+            "secondary": "#FFFFFF"
+          },
+          "note": "bg #000, tile surface #242424, muted #999999 and blue #0099FF measured on framer.com. White on #0099FF is only 3.0:1, so use black button text or a darker blue."
+        },
+        {
+          "name": "Apple-like light",
+          "mode": "light",
+          "roles": {
+            "background": "#F5F5F7",
+            "surface": "#FFFFFF",
+            "border": "#E5E5EA",
+            "ink": "#1D1D1F",
+            "muted": "#6E6E73",
+            "primary": "#0066CC",
+            "onPrimary": "#FFFFFF",
+            "secondary": "#BF4800"
+          }
+        }
+      ],
+      "signature": {
+        "radius": "16-28px tiles (framer.com: 8px x230, 15px x71, 20px x24); nested radius = outer - padding",
+        "borders": "Either none (fills) or 1px hairline",
+        "shadows": "None or very soft; tiles separated by surface color",
+        "textures": "Per-tile gradients or product imagery",
+        "iconography": "Large illustrative icons or real UI crops, not generic line icons",
+        "imagery": "Product shots, charts, mini-UIs, avatars",
+        "motion": "Tile hover lift, looping micro-animations inside tiles, staggered reveal"
+      },
+      "implementation": {
+        "libraries": [
+          "CSS grid (no library)",
+          "motion for hover/stagger",
+          "react-use-measure for in-tile animations"
+        ],
+        "tailwind": "`grid grid-cols-2 md:grid-cols-6 auto-rows-[minmax(180px,auto)] gap-4`; tiles use `md:col-span-2 md:row-span-2`; use `grid-flow-dense` carefully (it reorders visually but not for screen readers).",
+        "performance": [
+          "Lazy-load tile videos; pause off-screen loops",
+          "Avoid a canvas per tile"
+        ],
+        "accessibility": [
+          "Keep DOM order = reading order; don't let grid-flow-dense scramble the logical order",
+          "Each tile needs a real heading",
+          "Tiles that are links need one clear link target, not nested links"
+        ]
+      },
+      "failureModes": [
+        "Every tile identical: icon, heading, two lines (just a card grid)",
+        "Random spans that don't reflect importance",
+        "Too many tiles (>12) in one cluster - becomes a wall",
+        "Mobile collapse to one tall column of 12 tiles with no hierarchy"
+      ],
+      "references": [
+        {
+          "url": "https://www.framer.com",
+          "measured": true
+        },
+        {
+          "url": "https://www.apple.com/iphone/",
+          "measured": false
+        },
+        {
+          "url": "https://bentogrids.com",
+          "measured": false,
+          "note": "curated bento gallery"
+        }
+      ]
+    },
+    {
+      "id": "neo-brutalism",
+      "name": "Neo-brutalism / brutalist",
+      "description": "Thick black outlines, hard offset shadows, flat saturated fills and blunt type. It looks deliberately raw but is structured and usable.",
+      "mood": [
+        "bold",
+        "honest",
+        "irreverent",
+        "energetic",
+        "indie"
+      ],
+      "fitsWhen": [
+        "Creator tools, indie SaaS, marketplaces (Gumroad)",
+        "Gen Z consumer apps, hackathons, communities",
+        "Brands positioning against polished corporate competitors"
+      ],
+      "avoidWhen": [
+        "Finance, health, legal, enterprise security",
+        "Luxury",
+        "Audiences that equate polish with trust"
+      ],
+      "layout": {
+        "hero": "Huge headline (80-120px), sticker-like badges, a chunky bordered CTA with hard shadow; sometimes a marquee ticker.",
+        "sections": "Bordered blocks with alternating flat color backgrounds, big numbers, testimonial 'cards' tilted a few degrees, FAQ as bordered accordions.",
+        "grid": "Visible grid; blocks separated by 2-4px black borders instead of whitespace.",
+        "density": "Medium-high.",
+        "whitespace": "Less whitespace; borders do the separation."
+      },
+      "typography": {
+        "pairings": [
+          {
+            "display": "ABC Favorit (commercial, measured gumroad.com H1 96px/400)",
+            "body": "ABC Favorit",
+            "freeSubstitute": "Familjen Grotesk or Space Grotesk"
+          },
+          {
+            "display": "DM Sans 700 (measured neobrutalism.dev H1 60px)",
+            "body": "DM Sans 500"
+          },
+          {
+            "display": "Archivo Black / Rubik Mono One",
+            "body": "Public Sans 400",
+            "mono": "Space Mono for labels"
+          }
+        ],
+        "scale": "Big jumps (ratio 1.5-1.618); display 72-120px; body 18px; uppercase labels with letter-spacing."
+      },
+      "palettes": [
+        {
+          "name": "Gumroad (measured)",
+          "mode": "light",
+          "roles": {
+            "background": "#F4F4F0",
+            "surface": "#FFFFFF",
+            "border": "#000000",
+            "ink": "#000000",
+            "muted": "#4A4A48",
+            "primary": "#FF90E8",
+            "onPrimary": "#000000",
+            "secondary": "#FFC900"
+          },
+          "note": "bg #F4F4F0, pink #FF90E8, yellow #FFC900 measured on gumroad.com (also #F1F333, #DC341E). Pink is a fill - text on it must be black (10.4:1); white would be 2.0:1."
+        },
+        {
+          "name": "neobrutalism.dev (measured)",
+          "mode": "light",
+          "roles": {
+            "background": "#DCEBFE",
+            "surface": "#FFFFFF",
+            "border": "#000000",
+            "ink": "#000000",
+            "muted": "#333333",
+            "primary": "#5294FF",
+            "onPrimary": "#000000",
+            "secondary": "#FACC00"
+          },
+          "note": "main bg, blue #5294FF and yellow #FACC00 measured; buttons have 2px #000 border, 5px radius and box-shadow 4px 4px 0 0 #000"
+        }
+      ],
+      "signature": {
+        "radius": "0-8px, or full pills (gumroad.com uses pills x129)",
+        "borders": "2-4px solid #000 everywhere",
+        "shadows": "Hard offset, no blur: 4px 4px 0 0 #000 (measured neobrutalism.dev); hover translates the element into its shadow",
+        "textures": "Flat fills; occasional halftone or sticker graphics",
+        "iconography": "Chunky filled icons, emoji-like stickers, hand-drawn doodles",
+        "imagery": "Cut-out photos with outlines, flat illustrations",
+        "motion": "Snappy (100-150ms) press-in on click, marquees, wiggle on hover"
+      },
+      "implementation": {
+        "libraries": [
+          "neobrutalism.dev components (shadcn-based)",
+          "motion for press effects",
+          "react-fast-marquee"
+        ],
+        "tailwind": "Tokens: `--shadow-brutal: 4px 4px 0 0 var(--color-ink)`; button: `border-2 border-ink shadow-brutal active:translate-x-1 active:translate-y-1 active:shadow-none`.",
+        "performance": [
+          "Cheap to render; keep marquees CSS-only (transform) and pause offscreen"
+        ],
+        "accessibility": [
+          "Saturated fills + white text often fail - use black text on pastels",
+          "Marquees need pause control and must stop under prefers-reduced-motion",
+          "Don't let tilted cards break reading or focus order"
+        ]
+      },
+      "failureModes": [
+        "Random clashing colors with no system (brutal ≠ arbitrary)",
+        "Offset shadows in different directions/lengths across components",
+        "White text on bright pink/yellow fills",
+        "Applying the style to a serious enterprise product where it erodes trust"
+      ],
+      "references": [
+        {
+          "url": "https://gumroad.com",
+          "measured": true
+        },
+        {
+          "url": "https://www.neobrutalism.dev",
+          "measured": true
+        },
+        {
+          "url": "https://brutalistwebsites.com",
+          "measured": false,
+          "note": "gallery of raw brutalist sites"
+        }
+      ]
+    },
+    {
+      "id": "glass-aurora",
+      "name": "Glassmorphism / aurora gradient mesh",
+      "description": "Soft, blurred color fields (mesh or aurora gradients) sit behind translucent frosted panels. Depth comes from light and blur instead of borders.",
+      "mood": [
+        "luminous",
+        "dreamy",
+        "modern",
+        "soft-tech",
+        "optimistic"
+      ],
+      "fitsWhen": [
+        "Fintech and payments (Stripe mesh), AI consumer apps, wellness tech",
+        "OS/platform-adjacent products (Apple Liquid Glass era)",
+        "Launch pages where a mood matters more than density"
+      ],
+      "avoidWhen": [
+        "Text-heavy pages (text on blur loses contrast)",
+        "Low-end devices (backdrop-filter costs 15-30% FPS in field reports)",
+        "When the gradient is the only idea"
+      ],
+      "layout": {
+        "hero": "Animated gradient mesh canvas or CSS blobs behind a crisp H1; product UI in a frosted card floating above.",
+        "sections": "White or dark neutral sections punctuated by gradient 'moments'; frosted nav bar; feature cards with subtle transparency.",
+        "grid": "Standard 12-col; overlapping layers.",
+        "density": "Low-medium.",
+        "whitespace": "Generous."
+      },
+      "typography": {
+        "pairings": [
+          {
+            "display": "Söhne 300 (commercial, measured stripe.com H1 48px/300)",
+            "body": "Söhne 400",
+            "freeSubstitute": "Inter Tight 300-400 or Schibsted Grotesk"
+          },
+          {
+            "display": "Inter 600 (measured raycast.com H1 64px/600)",
+            "body": "Inter 400",
+            "freeSubstitute": "Onest / Hanken Grotesk to avoid Inter default"
+          },
+          {
+            "display": "Sora 500",
+            "body": "Manrope 400"
+          }
+        ],
+        "scale": "Light display weights (300-400) read elegant over color; H1 48-72px; body 16-18px."
+      },
+      "palettes": [
+        {
+          "name": "Stripe mesh light (measured)",
+          "mode": "light",
+          "roles": {
+            "background": "#FFFFFF",
+            "surface": "#F6F9FC",
+            "border": "#E3E8EE",
+            "ink": "#061B31",
+            "muted": "#50617A",
+            "primary": "#533AFD",
+            "onPrimary": "#FFFFFF",
+            "secondary": "#0A7C8C"
+          },
+          "note": "ink #061B31, muted #50617A and primary #533AFD measured on stripe.com (canvas gradient present). Suggested mesh stops: #A960EE, #FF333D, #90E0FF, #FFCB57 (Stripe's public gradient, not measured)."
+        },
+        {
+          "name": "Aurora night",
+          "mode": "dark",
+          "roles": {
+            "background": "#0B0B12",
+            "surface": "#16161F",
+            "border": "#2A2A38",
+            "ink": "#F4F4F8",
+            "muted": "#A0A0B4",
+            "primary": "#7CF5C8",
+            "onPrimary": "#0B0B12",
+            "secondary": "#FF7AB6"
+          },
+          "note": "Glow stops: #7CF5C8, #5B8CFF, #FF7AB6 at 30-50% opacity over bg; panels rgba(255,255,255,0.05-0.08) with 1px rgba(255,255,255,0.12) border (Raycast measured rgba(255,255,255,.05) x104)"
+        }
+      ],
+      "signature": {
+        "radius": "12-24px panels; Raycast 11px x159, 8px x109 (measured)",
+        "borders": "1px inner highlight borders (white 10-20%)",
+        "shadows": "Layered keycap/inset shadows (Raycast: rgba(0,0,0,.4) 0 1.5px .5px 2.5px, #000 0 0 .5px 1px, rgba(0,0,0,.25) 0 2px 1px 1px inset)",
+        "textures": "Noise overlay (2-4%) to prevent gradient banding",
+        "iconography": "Glossy app-icon style or glyphs",
+        "imagery": "Gradient meshes, light leaks, 3D glass objects",
+        "motion": "Slowly drifting gradients (20-40s loops), cursor-following glow"
+      },
+      "implementation": {
+        "libraries": [
+          "Stripe-style minigl gradient (WebGL) or CSS radial-gradient blobs",
+          "@paper-design/shaders-react (mesh gradient shaders)",
+          "motion"
+        ],
+        "tailwind": "`backdrop-blur-xl bg-white/5 border border-white/10`; limit blur to nav/modals/1-2 hero panels (Raycast measured 21 blurred elements, Rolex 45 - high).",
+        "performance": [
+          "backdrop-filter is expensive on scroll; don't stack blurred layers",
+          "Render gradient as CSS or a single small canvas; pause when hidden",
+          "Add noise via a tiny tiled PNG, not an SVG filter on a large area"
+        ],
+        "accessibility": [
+          "Check contrast on the worst point of the gradient, not the average",
+          "Provide solid fallback: @supports not (backdrop-filter) -> opaque surface",
+          "prefers-reduced-transparency (Safari/Chromium flag) -> opaque panels; prefers-reduced-motion -> static gradient"
+        ]
+      },
+      "failureModes": [
+        "Purple-to-blue/cyan gradient behind a centered Inter headline (the #1 AI tell)",
+        "Glass cards with neon glow on everything",
+        "Banding in gradients (no dithering/noise)",
+        "Text directly on the brightest part of the mesh"
+      ],
+      "references": [
+        {
+          "url": "https://stripe.com",
+          "measured": true
+        },
+        {
+          "url": "https://www.raycast.com",
+          "measured": true
+        },
+        {
+          "url": "https://www.apple.com/os/",
+          "measured": false,
+          "note": "Liquid Glass design language"
+        }
+      ]
+    },
+    {
+      "id": "swiss-grid",
+      "name": "Swiss / International typographic grid",
+      "description": "Objective, grid-driven layouts with a neo-grotesk, strong alignment, flush-left text and one signal color. Order is the aesthetic.",
+      "mood": [
+        "rational",
+        "clean",
+        "confident",
+        "architectural",
+        "timeless"
+      ],
+      "fitsWhen": [
+        "Design studios, architecture, typefoundries, museums, events",
+        "Hardware and industrial design (teenage.engineering)",
+        "Research tools and knowledge products (Are.na)"
+      ],
+      "avoidWhen": [
+        "Brands needing warmth or playfulness",
+        "Heavy illustration content",
+        "Teams without discipline to keep the grid (it breaks visibly)"
+      ],
+      "layout": {
+        "hero": "Oversized flush-left headline or wordmark set on the grid, small metadata columns (date, location, index numbers), no decorative imagery; or a single large photo cropped to grid.",
+        "sections": "Numbered sections, tables and lists, index pages, captions in small type.",
+        "grid": "Strict 12-col (or 6/8) with visible alignment; sometimes grid lines drawn.",
+        "density": "Varies - sparse posters or dense index tables.",
+        "whitespace": "Asymmetric, active whitespace."
+      },
+      "typography": {
+        "pairings": [
+          {
+            "display": "Helvetica Now / Neue Haas Grotesk (commercial)",
+            "body": "same",
+            "freeSubstitute": "Inter Tight or Archivo"
+          },
+          {
+            "display": "Suisse Intl (commercial, measured aesop.com)",
+            "body": "Suisse Intl",
+            "freeSubstitute": "Hanken Grotesk / Schibsted Grotesk"
+          },
+          {
+            "display": "Instrument Sans 600",
+            "body": "Instrument Sans 400",
+            "mono": "IBM Plex Mono for index numbers"
+          }
+        ],
+        "scale": "Few sizes with big contrast (e.g. 12/16/24/96); flush-left, ragged-right; tight headline leading (0.9-1.0)."
+      },
+      "palettes": [
+        {
+          "name": "Paper + red",
+          "mode": "light",
+          "roles": {
+            "background": "#FFFFFF",
+            "surface": "#F2F2F2",
+            "border": "#000000",
+            "ink": "#000000",
+            "muted": "#555555",
+            "primary": "#E30613",
+            "onPrimary": "#FFFFFF",
+            "secondary": "#0047BB"
+          }
+        },
+        {
+          "name": "Are.na grey (measured)",
+          "mode": "light",
+          "roles": {
+            "background": "#F7F7F5",
+            "surface": "#FFFFFF",
+            "border": "#DEDEDE",
+            "ink": "#333333",
+            "muted": "#696969",
+            "primary": "#00075F",
+            "onPrimary": "#FFFFFF",
+            "secondary": "#D93A00"
+          },
+          "note": "ink #333333, muted #696969, navy button #00075F and #DEDEDE measured on are.na (bg there is #FFFFFF with #F7F7F7 surfaces)"
+        }
+      ],
+      "signature": {
+        "radius": "0-3px (are.na 3px x128)",
+        "borders": "1px rules, table lines",
+        "shadows": "None",
+        "textures": "None",
+        "iconography": "Arrows, numbers, simple geometric marks",
+        "imagery": "Documentary photography, product on seamless, grid-cropped",
+        "motion": "Minimal; instant state changes, hover underlines"
+      },
+      "implementation": {
+        "libraries": [
+          "CSS grid",
+          "@fontsource-variable/inter-tight"
+        ],
+        "tailwind": "`grid grid-cols-12 gap-x-4`; use `col-start-*` to place text off-center; debug overlay with a `bg-[repeating-linear-gradient]` grid toggle.",
+        "performance": [
+          "Very light; images are the only weight"
+        ],
+        "accessibility": [
+          "Tiny metadata type (11-12px) must still pass contrast; keep body >=16px",
+          "Red accents fail on some backgrounds - check"
+        ]
+      },
+      "failureModes": [
+        "Helvetica + red without a real grid (pastiche)",
+        "All text the same size - no hierarchy",
+        "Centered layouts (breaks the idiom)"
+      ],
+      "references": [
+        {
+          "url": "https://teenage.engineering",
+          "measured": true
+        },
+        {
+          "url": "https://www.are.na",
+          "measured": true
+        },
+        {
+          "url": "https://klim.co.nz",
+          "measured": false
+        }
+      ]
+    },
+    {
+      "id": "playful-illustrated",
+      "name": "Playful / illustrated / colorful",
+      "description": "Bright color, rounded forms, mascots or custom illustration, and bouncy micro-interactions. The product feels friendly before you read a word.",
+      "mood": [
+        "joyful",
+        "approachable",
+        "energetic",
+        "warm",
+        "casual"
+      ],
+      "fitsWhen": [
+        "Consumer apps, education, kids/family, games",
+        "SMB tools that want to feel human (Mailchimp, Notion illustrations)",
+        "Community products"
+      ],
+      "avoidWhen": [
+        "Enterprise security, finance compliance",
+        "Luxury",
+        "When no budget for original illustration (stock illustration looks cheap)"
+      ],
+      "layout": {
+        "hero": "Mascot or illustration beside a short, bold headline and one big rounded CTA.",
+        "sections": "Alternating illustration/text rows, colored section bands, stats with friendly icons, app store badges.",
+        "grid": "Standard 12-col with generous rounded containers.",
+        "density": "Low-medium.",
+        "whitespace": "Generous, bright."
+      },
+      "typography": {
+        "pairings": [
+          {
+            "display": "Feather Bold / DIN Next Rounded (commercial, measured duolingo.com)",
+            "body": "duolingo-sans",
+            "freeSubstitute": "Nunito 800 + Nunito 500, or Baloo 2"
+          },
+          {
+            "display": "Fredoka 600",
+            "body": "Figtree 400"
+          },
+          {
+            "display": "Bricolage Grotesque 800",
+            "body": "DM Sans 400"
+          }
+        ],
+        "scale": "Rounded, heavy display (700-900); body 17-18px at weight 500 (measured duolingo P 17px/500)."
+      },
+      "palettes": [
+        {
+          "name": "Duolingo (measured)",
+          "mode": "light",
+          "roles": {
+            "background": "#FFFFFF",
+            "surface": "#DDF4FF",
+            "border": "#E5E5E5",
+            "ink": "#3C3C3C",
+            "muted": "#6F6F6F",
+            "primary": "#58CC02",
+            "onPrimary": "#0B2A00",
+            "secondary": "#1CB0F6"
+          },
+          "note": "ink #3C3C3C, muted #777777, green #58CC02, blue #1CB0F6, surface #DDF4FF measured. Duolingo sets white uppercase text on #58CC02: 2.09:1, a WCAG fail even for large text. This palette uses dark text #0B2A00 instead. Measured muted #777777 is 4.48:1 on white (just under AA), so muted is darkened to #6F6F6F."
+        },
+        {
+          "name": "Warm pop",
+          "mode": "light",
+          "roles": {
+            "background": "#FFF8EE",
+            "surface": "#FFFFFF",
+            "border": "#1F1A17",
+            "ink": "#1F1A17",
+            "muted": "#5E554D",
+            "primary": "#FF5A36",
+            "onPrimary": "#1F1A17",
+            "secondary": "#2E6BFF"
+          }
+        }
+      ],
+      "signature": {
+        "radius": "12-24px everywhere; pill buttons",
+        "borders": "Optional 2px darker outlines",
+        "shadows": "Solid bottom 'press' border (Duolingo buttons: 4px bottom border, 12px radius, 15px/700 uppercase, ls 0.8px - measured)",
+        "textures": "Flat color, confetti, blobs",
+        "iconography": "Filled, rounded, multicolor",
+        "imagery": "Original character/mascot illustration, Lottie/Rive animations",
+        "motion": "Springy (overshoot) transitions, character reactions, Rive state machines"
+      },
+      "implementation": {
+        "libraries": [
+          "@rive-app/react-canvas or lottie-react (dotlottie)",
+          "motion (spring transitions)",
+          "canvas-confetti"
+        ],
+        "tailwind": "Tokens for 4-6 brand colors; `rounded-2xl`; custom `shadow-[0_4px_0_0_var(--color-primary-dark)]` press effect.",
+        "performance": [
+          "Rive files are small and GPU-rendered; prefer over large Lottie JSON",
+          "Lazy-load below-fold animations"
+        ],
+        "accessibility": [
+          "Bright brand greens/blues/oranges almost always fail with white text - use dark text or darken the fill",
+          "Mascot animations: respect prefers-reduced-motion; add alt text"
+        ]
+      },
+      "failureModes": [
+        "Generic 'corporate Memphis' flat people with purple skin",
+        "Stock illustration packs mixed in different styles",
+        "Too many colors with no hierarchy",
+        "White text on saturated brand color"
+      ],
+      "references": [
+        {
+          "url": "https://www.duolingo.com",
+          "measured": true
+        },
+        {
+          "url": "https://mailchimp.com",
+          "measured": false
+        },
+        {
+          "url": "https://www.headspace.com",
+          "measured": false
+        }
+      ]
+    },
+    {
+      "id": "dense-technical",
+      "name": "Dense technical / developer docs-like",
+      "description": "Monospace or near-mono type, flat surfaces, dense information, code blocks and tables above the fold. It signals 'built by engineers for engineers'.",
+      "mood": [
+        "no-nonsense",
+        "competent",
+        "fast",
+        "transparent",
+        "utilitarian"
+      ],
+      "fitsWhen": [
+        "Databases, infra, APIs, CLIs, open-source projects",
+        "Technical buyers who evaluate by docs",
+        "Brands positioning against glossy SaaS (the 'anti-grid' reaction noted in 2026)"
+      ],
+      "avoidWhen": [
+        "Non-technical buyers",
+        "Consumer products",
+        "Emotion-led brands"
+      ],
+      "layout": {
+        "hero": "Small headline (can be the same size as body - PlanetScale sets H1 at 16px/700), a one-paragraph pitch, install command or code block, and 1-2 flat CTAs.",
+        "sections": "Benchmarks tables, code samples with tabs, changelog, customer quotes as plain text, pricing table with numbers.",
+        "grid": "Single column 70-90ch or docs-like sidebar + content.",
+        "density": "High.",
+        "whitespace": "Tight but consistent (8px baseline)."
+      },
+      "typography": {
+        "pairings": [
+          {
+            "display": "ui-monospace / SF Mono (system, measured planetscale.com everything at 16px)",
+            "body": "same",
+            "freeSubstitute": "JetBrains Mono / IBM Plex Mono"
+          },
+          {
+            "display": "IBM Plex Sans 600",
+            "body": "IBM Plex Sans 400",
+            "mono": "IBM Plex Mono"
+          },
+          {
+            "display": "Geist 600",
+            "body": "Geist 400",
+            "mono": "Geist Mono"
+          }
+        ],
+        "scale": "Compressed scale (ratio 1.125-1.2) or flat; hierarchy via weight, color and rules, not size."
+      },
+      "palettes": [
+        {
+          "name": "PlanetScale (measured)",
+          "mode": "light",
+          "roles": {
+            "background": "#FAFAFA",
+            "surface": "#FFFFFF",
+            "border": "#EBEBEB",
+            "ink": "#111111",
+            "muted": "#414141",
+            "primary": "#FF4400",
+            "onPrimary": "#000000",
+            "secondary": "#006BD7"
+          },
+          "note": "bg #FAFAFA, text #414141, black button #111111, orange oklch(0.6622 0.2377 39.25)~#FF4400 and link oklch(0.5358 0.191 252.41)~#006BD7 measured. PlanetScale puts white text on the orange: ~3.4:1, fails AA for 16px text; this palette uses black."
+        },
+        {
+          "name": "Terminal dark",
+          "mode": "dark",
+          "roles": {
+            "background": "#0D1117",
+            "surface": "#161B22",
+            "border": "#30363D",
+            "ink": "#E6EDF3",
+            "muted": "#8B949E",
+            "primary": "#3FB950",
+            "onPrimary": "#0D1117",
+            "secondary": "#D29922"
+          }
+        }
+      ],
+      "signature": {
+        "radius": "0-4px (PlanetScale: 0 on buttons)",
+        "borders": "1px rules, table grids, 2px focus outlines",
+        "shadows": "None",
+        "textures": "ASCII art, dot matrices, diagrams",
+        "iconography": "Minimal; keyboard glyphs, status dots",
+        "imagery": "Code, terminal output, architecture diagrams, charts",
+        "motion": "Typing effect for commands (short), copy-button feedback"
+      },
+      "implementation": {
+        "libraries": [
+          "shiki (syntax highlighting, build time)",
+          "@fontsource/jetbrains-mono or ibm-plex-mono",
+          "fumadocs / nextra patterns for docs-like layout"
+        ],
+        "tailwind": "`font-mono` as default body via @theme --font-sans override; `tabular-nums`; `max-w-[80ch]`.",
+        "performance": [
+          "Very light; highlight code at build time, not client-side"
+        ],
+        "accessibility": [
+          "All-monospace body reduces reading speed - keep paragraphs short",
+          "Copy buttons need aria-live feedback",
+          "Tables need <th scope>"
+        ]
+      },
+      "failureModes": [
+        "Fake terminal hero with made-up commands",
+        "Matrix-green on black cliché",
+        "Density without hierarchy - everything bold",
+        "Tiny 12-13px mono body text"
+      ],
+      "references": [
+        {
+          "url": "https://planetscale.com",
+          "measured": true
+        },
+        {
+          "url": "https://tailwindcss.com",
+          "measured": false
+        },
+        {
+          "url": "https://bun.sh",
+          "measured": false
+        }
+      ]
+    },
+    {
+      "id": "retro-y2k-pixel",
+      "name": "Retro / Y2K / pixel / retro-OS",
+      "description": "Nostalgic computing: pixel fonts, desktop windows, chrome gradients, stickers and CRT textures. In 2025-26 the 'website as a desktop OS' variant became mainstream (PostHog).",
+      "mood": [
+        "nostalgic",
+        "fun",
+        "subcultural",
+        "quirky",
+        "handmade"
+      ],
+      "fitsWhen": [
+        "Music, culture, fashion drops, creator communities",
+        "Developer brands with humor (PostHog)",
+        "Games and indie apps"
+      ],
+      "avoidWhen": [
+        "Conservative B2B",
+        "Accessibility-critical public services (pixel fonts hurt legibility)",
+        "When the joke hides the product"
+      ],
+      "layout": {
+        "hero": "A fake desktop with draggable windows, icons and a menu bar; or a Y2K chrome logo on a starfield/gradient.",
+        "sections": "Content inside window chrome; taskbar/dock navigation; guestbook/marquee sections.",
+        "grid": "Free-form, overlapping windows (desktop) - with a normal stacked layout on mobile.",
+        "density": "High, playful.",
+        "whitespace": "Low."
+      },
+      "typography": {
+        "pairings": [
+          {
+            "display": "Pixel: ChiKareGo2 / Pixolde (free-ish, measured poolsuite.net)",
+            "body": "system ui-sans-serif",
+            "googleAlternative": "Silkscreen or Pixelify Sans + Inter"
+          },
+          {
+            "display": "RoundHog (custom, measured posthog.com H1 36px/800)",
+            "body": "RoundHog 17px/500",
+            "freeSubstitute": "Nunito Sans / Rubik"
+          },
+          {
+            "display": "VT323 or Press Start 2P (display only)",
+            "body": "IBM Plex Mono / Space Mono"
+          }
+        ],
+        "scale": "Pixel fonts at integer multiples of their design size (8/16/24/32px) to stay crisp; body in a readable font."
+      },
+      "palettes": [
+        {
+          "name": "Poolsuite (measured)",
+          "mode": "light",
+          "roles": {
+            "background": "#F6D5D5",
+            "surface": "#F9F0E9",
+            "border": "#000000",
+            "ink": "#000000",
+            "muted": "#4A3F3F",
+            "primary": "#000000",
+            "onPrimary": "#F9F0E9",
+            "secondary": "#FAF4C6"
+          },
+          "note": "bg #F6D5D5, window #F9F0E9, #FAF4C6 and #000 measured on poolsuite.net"
+        },
+        {
+          "name": "PostHog retro OS (measured)",
+          "mode": "light",
+          "roles": {
+            "background": "#EEEFE9",
+            "surface": "#FDFDF8",
+            "border": "#D2D3CC",
+            "ink": "#111827",
+            "muted": "#374151",
+            "primary": "#EB9D2A",
+            "onPrimary": "#111111",
+            "secondary": "#1D4AFF"
+          },
+          "note": "bg #EEEFE9, surface #FDFDF8, ink #111827, body #374151, orange #EB9D2A with #111111 text and 1.5px #B17816 border, hard bottom shadow rgb(210,211,204) 0 2.5px 0 - measured on posthog.com"
+        }
+      ],
+      "signature": {
+        "radius": "2-8px (window corners), 9999px for Y2K pills",
+        "borders": "1-2px black window borders, bevels",
+        "shadows": "Hard drop shadows, bevel/inset (Win95), large soft window shadow (poolsuite: rgba(0,0,0,.3) 0 50px 80px -50px)",
+        "textures": "Dithering, scanlines, halftone, chrome gradients",
+        "iconography": "Pixel icons (32x32), desktop icons, cursors",
+        "imagery": "Pixel art, low-poly 3D, stickers, lo-fi photos",
+        "motion": "Draggable windows, blinking cursors, marquee"
+      },
+      "implementation": {
+        "libraries": [
+          "react-rnd or @dnd-kit for draggable windows",
+          "98.css / XP.css for chrome",
+          "@fontsource/silkscreen, @fontsource/pixelify-sans"
+        ],
+        "tailwind": "Disable font smoothing for pixel fonts (`[-webkit-font-smoothing:none]`), `image-rendering: pixelated` on sprites.",
+        "performance": [
+          "Desktop metaphors can load many apps at once - lazy-load window contents"
+        ],
+        "accessibility": [
+          "Draggable windows need keyboard alternatives and a linear mobile layout",
+          "Never set body copy in pixel fonts",
+          "Blinking/marquee must stop under prefers-reduced-motion (WCAG 2.2.2)"
+        ]
+      },
+      "failureModes": [
+        "Pixel font for paragraphs",
+        "Nostalgia without a concept (random 90s stickers)",
+        "Desktop metaphor that hides the CTA",
+        "Mobile shows the desktop scaled down"
+      ],
+      "references": [
+        {
+          "url": "https://posthog.com",
+          "measured": true
+        },
+        {
+          "url": "https://poolsuite.net",
+          "measured": true
+        }
+      ]
+    },
+    {
+      "id": "luxury-premium-dark",
+      "name": "Luxury / premium dark",
+      "description": "Dark, restrained, image-led pages with thin serifs or wide caps, lots of air and very slow motion. Scarcity and craft over information.",
+      "mood": [
+        "exclusive",
+        "sensual",
+        "restrained",
+        "elegant",
+        "slow"
+      ],
+      "fitsWhen": [
+        "Watches, jewelry, fashion, hotels, cars, spirits",
+        "Premium services (private banking, architecture)",
+        "High-end B2C launches"
+      ],
+      "avoidWhen": [
+        "Price-sensitive audiences",
+        "Products needing explanation",
+        "Dense catalogs where filters matter more than mood"
+      ],
+      "layout": {
+        "hero": "Full-bleed photography or video, small centered wordmark, one line of caps or thin serif, discreet 'Discover' link.",
+        "sections": "Alternating full-bleed images and short copy blocks; product detail with macro shots; appointment/boutique CTA.",
+        "grid": "Centered, symmetric; wide margins.",
+        "density": "Very low.",
+        "whitespace": "Extreme."
+      },
+      "typography": {
+        "pairings": [
+          {
+            "display": "Helvetica Now Text 700 (commercial, measured rolex.com H2 90.7px/700 lh 0.95 over video)",
+            "body": "Helvetica Now Text",
+            "freeSubstitute": "Inter Tight 700 + Inter 400"
+          },
+          {
+            "display": "Cormorant Garamond 300-500",
+            "body": "Jost 300-400 or Tenor Sans"
+          },
+          {
+            "display": "Bodoni Moda 400 (opsz)",
+            "body": "Manrope 300",
+            "labels": "Manrope caps with 0.2em tracking"
+          }
+        ],
+        "scale": "Big contrast between very large display and small, widely tracked labels (11-13px caps, 0.12-0.25em)."
+      },
+      "palettes": [
+        {
+          "name": "Noir and gold",
+          "mode": "dark",
+          "roles": {
+            "background": "#0B0B0A",
+            "surface": "#151513",
+            "border": "#2A2926",
+            "ink": "#EDE8DF",
+            "muted": "#9C958A",
+            "primary": "#C8A96A",
+            "onPrimary": "#0B0B0A",
+            "secondary": "#8A2F3B"
+          },
+          "note": "Burgundy secondary is decorative only on this bg"
+        },
+        {
+          "name": "Crown green (Rolex measured accent)",
+          "mode": "dark",
+          "roles": {
+            "background": "#0E1A14",
+            "surface": "#15241C",
+            "border": "#2A3B31",
+            "ink": "#F2EFE6",
+            "muted": "#A9B3AA",
+            "primary": "#127749",
+            "onPrimary": "#FFFFFF",
+            "secondary": "#B89B5E"
+          },
+          "note": "green #127749 and ink #212121 measured on rolex.com; Rolex hero CTA is rgba(118,118,118,.3) glass pill with white 16px/700 text over video"
+        }
+      ],
+      "signature": {
+        "radius": "0 or full pill (rolex: 6px, 9999px)",
+        "borders": "Hairline gold/grey rules",
+        "shadows": "None; depth from photography",
+        "textures": "Subtle grain, deep blacks",
+        "iconography": "Almost none; thin line icons",
+        "imagery": "Professional macro photography, slow cinematic video",
+        "motion": "Slow (600-1200ms) eased fades, parallax on imagery"
+      },
+      "implementation": {
+        "libraries": [
+          "motion",
+          "lenis (gentle smooth scroll)",
+          "next/image or unpic for responsive images"
+        ],
+        "tailwind": "Tokens for gold/ink; `tracking-[0.2em] uppercase text-xs` labels; `aspect-[4/5]` product imagery.",
+        "performance": [
+          "Hero video: poster is the LCP; <2 MB muted H.264/AV1 loop; no autoplay on mobile data-saver",
+          "AVIF images with srcset"
+        ],
+        "accessibility": [
+          "Gold on black and thin weights often fail - check at actual weight",
+          "Text over video needs a scrim (gradient overlay) for contrast",
+          "Pause control for background video (WCAG 2.2.2)"
+        ]
+      },
+      "failureModes": [
+        "Gold gradient text and fake metallic effects",
+        "Stock luxury photos (champagne, marble)",
+        "Thin 200-weight grey body text",
+        "Script fonts"
+      ],
+      "references": [
+        {
+          "url": "https://www.rolex.com",
+          "measured": true
+        },
+        {
+          "url": "https://www.aman.com",
+          "measured": false
+        },
+        {
+          "url": "https://www.bang-olufsen.com",
+          "measured": false
+        }
+      ]
+    },
+    {
+      "id": "organic-warm-natural",
+      "name": "Organic / warm natural",
+      "description": "Cream and earth tones, soft serif or humanist sans, natural photography and textures. Calm, sensory and human.",
+      "mood": [
+        "calm",
+        "grounded",
+        "sensory",
+        "honest",
+        "crafted"
+      ],
+      "fitsWhen": [
+        "Skincare, food, wellness, hospitality, sustainability",
+        "Healthcare and therapy practices",
+        "AI or tech brands wanting to feel human (Anthropic's warm paper palette)"
+      ],
+      "avoidWhen": [
+        "Hard-tech buyers wanting specs",
+        "High-energy youth brands",
+        "Gaming"
+      ],
+      "layout": {
+        "hero": "Large natural photograph or still life, short headline, understated text link CTA; sometimes a split layout (text left, image right).",
+        "sections": "Ingredient/story sections, image-led product rows, long-form journal content, store locator.",
+        "grid": "Classic 12-col with asymmetric image placement.",
+        "density": "Low.",
+        "whitespace": "Generous; cream space."
+      },
+      "typography": {
+        "pairings": [
+          {
+            "display": "Suisse Intl 400 (commercial, measured aesop.com H1 36px/400)",
+            "body": "Suisse Intl 14px",
+            "freeSubstitute": "Hanken Grotesk + Young Serif accents"
+          },
+          {
+            "display": "Fraunces 400 (soft, WONK axis off)",
+            "body": "Instrument Sans 400"
+          },
+          {
+            "display": "Young Serif",
+            "body": "Figtree 400"
+          }
+        ],
+        "scale": "Modest sizes, regular weights; relaxed line-height (1.4-1.6)."
+      },
+      "palettes": [
+        {
+          "name": "Aesop cream (measured)",
+          "mode": "light",
+          "roles": {
+            "background": "#FFFEF2",
+            "surface": "#F6F5E8",
+            "border": "#D9D6C3",
+            "ink": "#333333",
+            "muted": "#666666",
+            "primary": "#333333",
+            "onPrimary": "#FFFEF2",
+            "secondary": "#8A6A3F"
+          },
+          "note": "bg #FFFEF2, ink #333333, grey #666666 button, surface #F6F5E8 measured on aesop.com"
+        },
+        {
+          "name": "Sage and clay",
+          "mode": "light",
+          "roles": {
+            "background": "#F3EFE6",
+            "surface": "#FBF8F2",
+            "border": "#DDD4C3",
+            "ink": "#2B2A26",
+            "muted": "#6B6558",
+            "primary": "#3F5A40",
+            "onPrimary": "#F3EFE6",
+            "secondary": "#B85C35"
+          }
+        }
+      ],
+      "signature": {
+        "radius": "0-4px (aesop mostly 0-3px) or soft organic blobs",
+        "borders": "Thin warm rules",
+        "shadows": "Soft, low (aesop: rgba(0,0,0,.02) 0 0 6px, rgba(0,0,0,.08) 0 2px 4px)",
+        "textures": "Paper, linen, grain, botanical line drawings",
+        "iconography": "Hand-drawn or thin line",
+        "imagery": "Natural-light photography, raw materials, hands, plants",
+        "motion": "Slow fades; no bounce"
+      },
+      "implementation": {
+        "libraries": [
+          "motion",
+          "@fontsource-variable/fraunces"
+        ],
+        "tailwind": "Warm neutral scale in @theme (not Tailwind's cool stone/zinc defaults).",
+        "performance": [
+          "Photography is the weight - AVIF, responsive sizes, lazy below fold"
+        ],
+        "accessibility": [
+          "Aesop sets body at 12-14px; keep >=16px",
+          "Warm grey on cream: check muted text (#666 on #FFFEF2 = 5.66:1 passes)"
+        ]
+      },
+      "failureModes": [
+        "Beige everything with no contrast or accent",
+        "Stock leaves and generic 'wellness' photos",
+        "Blob shapes with no purpose",
+        "Tiny body text for elegance"
+      ],
+      "references": [
+        {
+          "url": "https://www.aesop.com",
+          "measured": true
+        },
+        {
+          "url": "https://www.anthropic.com",
+          "measured": true
+        },
+        {
+          "url": "https://www.patagonia.com",
+          "measured": false
+        }
+      ]
+    },
+    {
+      "id": "kinetic-typography",
+      "name": "Kinetic typography / motion-heavy",
+      "description": "Type is the image: headlines split, scale, scroll horizontally, morph weight or react to the cursor. Usually monochrome so motion carries the brand.",
+      "mood": [
+        "dynamic",
+        "confident",
+        "expressive",
+        "loud",
+        "crafted"
+      ],
+      "fitsWhen": [
+        "Agencies, studios, portfolios, events and festivals",
+        "Brand launches and campaigns",
+        "Music and fashion"
+      ],
+      "avoidWhen": [
+        "Conversion-critical SaaS pages",
+        "Content read by screen-reader-heavy audiences unless done carefully",
+        "Low-end mobile traffic"
+      ],
+      "layout": {
+        "hero": "One oversized word or line (10-20vw) animated on load; minimal nav; scroll cue.",
+        "sections": "Pinned sections with text scrubbed by scroll, horizontal-scroll project rows, marquee client lists, big footer wordmark.",
+        "grid": "Edge-to-edge; type often bleeds past the viewport.",
+        "density": "Low text, high motion.",
+        "whitespace": "Large, contrasty (black/white flips)."
+      },
+      "typography": {
+        "pairings": [
+          {
+            "display": "LocomotiveNew (custom, measured locomotive.ca H1 79px/400)",
+            "body": "Helvetica Now Display 17px",
+            "freeSubstitute": "Big Shoulders Display or Anton + Inter Tight"
+          },
+          {
+            "display": "Monument Extended (commercial)",
+            "body": "Neue Montreal",
+            "freeSubstitute": "Unbounded 700 + Inter Tight"
+          },
+          {
+            "display": "Roboto Flex / Recursive (variable axes to animate)",
+            "body": "Inter 400"
+          }
+        ],
+        "scale": "Fluid viewport-based display (clamp(3rem, 12vw, 14rem)); body normal 16-18px."
+      },
+      "palettes": [
+        {
+          "name": "Locomotive mono (measured)",
+          "mode": "light",
+          "roles": {
+            "background": "#FFFFFF",
+            "surface": "#000000",
+            "border": "#000000",
+            "ink": "#000000",
+            "muted": "#555555",
+            "primary": "#312DFB",
+            "onPrimary": "#FFFFFF",
+            "secondary": "#000000"
+          },
+          "note": "locomotive.ca uses only 4 distinct colors: #000, #FFF and blue #312DFB (measured). Surface flips to black sections with white text."
+        },
+        {
+          "name": "Acid on black",
+          "mode": "dark",
+          "roles": {
+            "background": "#0A0A0A",
+            "surface": "#161616",
+            "border": "#2E2E2E",
+            "ink": "#F5F5F0",
+            "muted": "#9E9E96",
+            "primary": "#D4FF3A",
+            "onPrimary": "#0A0A0A",
+            "secondary": "#FF4D2E"
+          }
+        }
+      ],
+      "signature": {
+        "radius": "0",
+        "borders": "None or full-width rules",
+        "shadows": "None",
+        "textures": "Occasional grain; video inside letterforms",
+        "iconography": "Arrows",
+        "imagery": "Project videos revealed by text masks",
+        "motion": "Split-text reveals, scroll-scrubbed scale, horizontal scroll, variable-font weight animation, magnetic cursor"
+      },
+      "implementation": {
+        "libraries": [
+          "gsap + ScrollTrigger + SplitText (free since 2025)",
+          "motion (useScroll, useTransform)",
+          "lenis"
+        ],
+        "tailwind": "Fluid type via `text-[clamp(3rem,12vw,14rem)] leading-[0.85] tracking-tight`; `overflow-hidden` wrappers for line masks.",
+        "performance": [
+          "Animate transform/opacity only; avoid animating font-size/layout",
+          "Split text only above-the-fold headline; don't split long paragraphs"
+        ],
+        "accessibility": [
+          "Keep the unsplit text for screen readers (aria-label on parent, aria-hidden on split spans)",
+          "prefers-reduced-motion: show final state immediately",
+          "Don't hijack scroll speed; don't pin for more than ~1-2 viewports",
+          "Motion over 5s needs pause (WCAG 2.2.2)"
+        ]
+      },
+      "failureModes": [
+        "Letter-by-letter reveals on every heading (slow and tiring)",
+        "Scroll-jacking and long pinned sections",
+        "Text that is illegible mid-animation when a user lands via anchor link",
+        "Motion without content - agency reel with no CTA"
+      ],
+      "references": [
+        {
+          "url": "https://locomotive.ca",
+          "measured": true
+        },
+        {
+          "url": "https://basement.studio",
+          "measured": false
+        },
+        {
+          "url": "https://www.awwwards.com/websites/",
+          "measured": false
+        }
+      ]
+    },
+    {
+      "id": "cinematic-full-bleed",
+      "name": "Cinematic full-bleed photo/video hero",
+      "description": "A full-viewport photo or video with oversized plain sans type laid on top, then calm sections. Listed as a 2026 trend ('cinematic heroes').",
+      "mood": [
+        "immersive",
+        "emotional",
+        "bold",
+        "aspirational"
+      ],
+      "fitsWhen": [
+        "Travel, hospitality, outdoor, automotive, events",
+        "Consumer hardware with great footage",
+        "Brands with a strong photo library"
+      ],
+      "avoidWhen": [
+        "No original footage (stock video looks cheap)",
+        "Products that need a UI screenshot to explain"
+      ],
+      "layout": {
+        "hero": "100svh media with scrim, H1 bottom-left, one CTA; nav transparent over the media.",
+        "sections": "Short copy + image pairs, gallery, booking/CTA band.",
+        "grid": "12-col; media full-bleed, text in columns.",
+        "density": "Low.",
+        "whitespace": "Generous."
+      },
+      "typography": {
+        "pairings": [
+          {
+            "display": "Inter Tight 700 at 80-120px",
+            "body": "Inter 400"
+          },
+          {
+            "display": "Archivo 800 (width axis 110-125)",
+            "body": "Archivo 400"
+          },
+          {
+            "display": "Instrument Serif 400",
+            "body": "Instrument Sans 400",
+            "note": "overused in AI output - use only with a real editorial reason"
+          }
+        ],
+        "scale": "Display 72-120px, lh 0.9-1.0; body 16-18px."
+      },
+      "palettes": [
+        {
+          "name": "Night overlay",
+          "mode": "dark",
+          "roles": {
+            "background": "#0A0A0A",
+            "surface": "#141414",
+            "border": "#2A2A2A",
+            "ink": "#FFFFFF",
+            "muted": "#B3B3B3",
+            "primary": "#FFFFFF",
+            "onPrimary": "#0A0A0A",
+            "secondary": "#FFB547"
+          },
+          "note": "Always put a 40-60% black gradient scrim under hero text"
+        },
+        {
+          "name": "Daylight",
+          "mode": "light",
+          "roles": {
+            "background": "#F7F6F2",
+            "surface": "#FFFFFF",
+            "border": "#E2E0D8",
+            "ink": "#111111",
+            "muted": "#5C5C5C",
+            "primary": "#111111",
+            "onPrimary": "#FFFFFF",
+            "secondary": "#1F6FEB"
+          }
+        }
+      ],
+      "signature": {
+        "radius": "0-12px",
+        "borders": "None",
+        "shadows": "None; scrims instead",
+        "textures": "Film grain on video",
+        "iconography": "Minimal",
+        "imagery": "Original photography/video",
+        "motion": "Ken Burns, slow parallax"
+      },
+      "implementation": {
+        "libraries": [
+          "native <video> with poster",
+          "motion"
+        ],
+        "tailwind": "`relative h-svh` hero, `bg-gradient-to-t from-black/60` scrim.",
+        "performance": [
+          "Poster image is LCP; preload it; video preload='none' on mobile",
+          "Serve 720p/1080p variants"
+        ],
+        "accessibility": [
+          "Pause button for background video",
+          "Scrim for text contrast",
+          "Captions if the video carries meaning"
+        ]
+      },
+      "failureModes": [
+        "Stock drone footage",
+        "Text over busy imagery without scrim",
+        "Autoplay video with sound"
+      ],
+      "references": [
+        {
+          "url": "https://www.rolex.com",
+          "measured": true
+        },
+        {
+          "url": "https://reallygooddesigns.com/web-design-trends-2026/",
+          "measured": false,
+          "note": "trend article listing cinematic hero examples"
+        }
+      ]
+    },
+    {
+      "id": "maximalist-collage",
+      "name": "Maximalist / collage / anti-design",
+      "description": "Dense, layered compositions: cut-out photos, scribbles, stickers, clashing type and torn paper. Energy and personality over order.",
+      "mood": [
+        "chaotic",
+        "rebellious",
+        "loud",
+        "tactile",
+        "fun"
+      ],
+      "fitsWhen": [
+        "Beverage and fashion brands (Liquid Death-style)",
+        "Festivals, zines, music",
+        "Brands that want to stand out in a sea of minimal SaaS"
+      ],
+      "avoidWhen": [
+        "Anything needing trust and clarity",
+        "Accessibility-first contexts without extra effort"
+      ],
+      "layout": {
+        "hero": "Collage of overlapping elements with a huge headline and sticker CTA.",
+        "sections": "Layered scrapbook panels, rotated elements, mixed type.",
+        "grid": "Broken or overlapping; still an underlying grid for text blocks.",
+        "density": "Very high.",
+        "whitespace": "Minimal."
+      },
+      "typography": {
+        "pairings": [
+          {
+            "display": "Anton / Bebas Neue",
+            "body": "Work Sans 400",
+            "accent": "Caveat or Permanent Marker for scribbles"
+          },
+          {
+            "display": "Bricolage Grotesque 800 (width axis)",
+            "body": "Space Grotesk 400"
+          },
+          {
+            "display": "DM Serif Display",
+            "body": "DM Sans",
+            "accent": "mixed-case ransom letters as images"
+          }
+        ],
+        "scale": "Wild contrast; body stays readable 17-18px."
+      },
+      "palettes": [
+        {
+          "name": "Zine",
+          "mode": "light",
+          "roles": {
+            "background": "#F2EDE3",
+            "surface": "#FFFFFF",
+            "border": "#111111",
+            "ink": "#111111",
+            "muted": "#4D4740",
+            "primary": "#C8261F",
+            "onPrimary": "#FFFFFF",
+            "secondary": "#2C5CFF"
+          }
+        },
+        {
+          "name": "Poster night",
+          "mode": "dark",
+          "roles": {
+            "background": "#111111",
+            "surface": "#1E1E1E",
+            "border": "#F2EDE3",
+            "ink": "#F2EDE3",
+            "muted": "#B5AEA3",
+            "primary": "#FFE14D",
+            "onPrimary": "#111111",
+            "secondary": "#FF5CA8"
+          }
+        }
+      ],
+      "signature": {
+        "radius": "Mixed",
+        "borders": "Torn edges, tape",
+        "shadows": "Paper drop shadows",
+        "textures": "Paper, halftone, photocopy grain",
+        "iconography": "Stickers, hand-drawn",
+        "imagery": "Cut-out photography, scans",
+        "motion": "Wobble, drag-to-rearrange"
+      },
+      "implementation": {
+        "libraries": [
+          "motion (drag)",
+          "SVG filters (feTurbulence) sparingly"
+        ],
+        "tailwind": "Absolute-positioned layers inside a relative container; `rotate-[-3deg]` utilities.",
+        "performance": [
+          "Many large PNG cutouts - use WebP/AVIF with alpha, sprite small stickers"
+        ],
+        "accessibility": [
+          "Keep a clean reading layer for real text",
+          "Decorative images aria-hidden"
+        ]
+      },
+      "failureModes": [
+        "Chaos with no focal point or CTA",
+        "Illegible text over collage",
+        "Clip-art stickers"
+      ],
+      "references": [
+        {
+          "url": "https://liquiddeath.com",
+          "measured": false
+        },
+        {
+          "url": "https://www.figma.com/resource-library/web-design-trends/",
+          "measured": false,
+          "note": "lists maximalism and collage as 2026 trends"
+        }
+      ]
+    }
+  ],
+  "fundamentals": [
+    {
+      "id": "type-scale",
+      "check": "Use a consistent modular type scale (ratio 1.2-1.333 for product/SaaS, 1.414-1.618 for expressive/editorial). Measured: Linear 15/48/64, Vercel 24/56/64, Gumroad 18/48/96.",
+      "pass": "<= 6-7 distinct font sizes on the page; each maps to a role",
+      "sources": [
+        "https://typescale.com",
+        "https://www.refactoringui.com"
+      ]
+    },
+    {
+      "id": "display-tracking",
+      "check": "Large display type gets negative tracking (-0.01 to -0.04em; Vercel goes to -0.06em); small caps labels get positive tracking (+0.05 to +0.2em). Body stays at 0.",
+      "pass": "No default tracking on 48px+ headlines",
+      "sources": [
+        "measured: linear.app, vercel.com, framer.com"
+      ]
+    },
+    {
+      "id": "line-length",
+      "check": "Body text 45-75 characters per line (aim ~60-66).",
+      "pass": "max-width ~60-70ch on paragraphs",
+      "sources": [
+        "https://baymard.com/blog/line-length-readability"
+      ]
+    },
+    {
+      "id": "line-height",
+      "check": "Body line-height 1.4-1.6; headings 0.9-1.2 (tighter as size grows).",
+      "pass": "No 1.5 line-height on 64px headings; no 1.2 on body",
+      "sources": [
+        "https://www.w3.org/WAI/WCAG22/Understanding/text-spacing.html"
+      ]
+    },
+    {
+      "id": "hierarchy",
+      "check": "One dominant element per viewport (usually H1 or hero visual); clear H1 > H2 > body steps via size, weight and color.",
+      "pass": "Squint test: the eye lands on H1, then CTA, then supporting visual",
+      "sources": [
+        "https://www.nngroup.com/articles/visual-hierarchy-ux-definition/"
+      ]
+    },
+    {
+      "id": "spacing-rhythm",
+      "check": "Spacing from a 4px or 8px base with a limited set of steps (e.g. 4,8,12,16,24,32,48,64,96,128); section padding consistent.",
+      "pass": "No arbitrary values like 13px/37px; same gap for same relationship",
+      "sources": [
+        "https://www.refactoringui.com",
+        "https://m3.material.io/foundations/layout/understanding-layout/spacing"
+      ]
+    },
+    {
+      "id": "contrast",
+      "check": "WCAG 2.2 AA: 4.5:1 body text, 3:1 large text (>=24px or >=18.66px bold) and UI components/focus indicators. Check muted text and button text on brand color - measured failures: Duolingo white-on-green 2.09:1, PlanetScale white-on-orange ~3.4:1, Anthropic muted 3.47:1, Linear tertiary 3.45:1.",
+      "pass": "All text meets AA at its actual size and weight",
+      "sources": [
+        "https://www.w3.org/TR/WCAG22/#contrast-minimum",
+        "https://www.w3.org/TR/WCAG22/#non-text-contrast"
+      ]
+    },
+    {
+      "id": "cta-clarity",
+      "check": "One primary CTA per view with a verb-led label; secondary CTA visually weaker (ghost/link). Primary CTA visible without scrolling.",
+      "pass": "Exactly one filled primary button above the fold",
+      "sources": [
+        "https://www.nngroup.com/articles/scrolling-and-attention/"
+      ]
+    },
+    {
+      "id": "above-the-fold",
+      "check": "Above the fold states what it is, for whom, and why (headline + subhead), shows the product or proof, and holds the primary CTA. NN/g: 57% of viewing time is above the fold, 74% in the first two screenfuls.",
+      "pass": "A stranger can say what the product does after 5 seconds",
+      "sources": [
+        "https://www.nngroup.com/articles/scrolling-and-attention/"
+      ]
+    },
+    {
+      "id": "color-discipline",
+      "check": "Neutral scale + 1 primary accent + at most 1-2 secondary accents, all as tokens. Measured distinct color counts (text+bg union): locomotive 4, gumroad 9, planetscale 11, vercel 15, anthropic 15, linear 50, framer 53.",
+      "pass": "Accent used for action/emphasis only; no ad-hoc hex values",
+      "sources": [
+        "measured sites in this file"
+      ]
+    },
+    {
+      "id": "consistency",
+      "check": "Same radius family, shadow family, icon style and button styles across the page; nested radius = outer radius - padding.",
+      "pass": "<= 3 radius values, <= 2 shadow styles, one icon set",
+      "sources": [
+        "https://www.refactoringui.com"
+      ]
+    },
+    {
+      "id": "originality",
+      "check": "Avoid the generic AI look: Inter-only + indigo/purple gradient + centered hero + badge above H1 + three identical icon cards + stat row + colored left-border cards + 'Build faster. Ship smarter.' copy. Also overused as 'safe alternatives': Space Grotesk, Instrument Serif, Geist, italic serif accent word.",
+      "pass": "At least 2 deliberate, product-specific choices (type, color, layout, imagery) that a template would not make",
+      "sources": [
+        "https://www.925studios.co/blog/ai-slop-design-tells",
+        "https://www.developersdigest.tech/blog/ai-design-slop-and-how-to-spot-it",
+        "https://dev.to/james_anderson_h/the-purple-gradient-problem-why-ai-ui-all-looks-alike-and-how-to-fix-it-3j65"
+      ]
+    },
+    {
+      "id": "real-content",
+      "check": "Use real product screenshots, real numbers, named customers; no lorem ipsum, no grey-box fake UI, no stock people.",
+      "pass": "Every visual could only belong to this product",
+      "sources": [
+        "https://www.925studios.co/blog/ai-slop-design-tells"
+      ]
+    },
+    {
+      "id": "mobile",
+      "check": "Mobile-first: 16px+ body, 44x44px tap targets (WCAG 2.5.8 min 24x24), no horizontal scroll, hero fits 375x667 with CTA visible, heavy effects replaced with static fallbacks.",
+      "pass": "Checked at 375px and 768px widths",
+      "sources": [
+        "https://www.w3.org/TR/WCAG22/#target-size-minimum",
+        "https://www.getresponse.com/blog/landing-page-design-trends"
+      ]
+    },
+    {
+      "id": "performance",
+      "check": "Core Web Vitals: LCP < 2.5s, INP < 200ms, CLS < 0.1. Hero media: poster/static image is the LCP element; WebGL and video are progressive enhancement.",
+      "pass": "Lighthouse mobile performance >= 85 on the built page",
+      "sources": [
+        "https://web.dev/articles/vitals",
+        "https://mintec.co/blog/video-lcp-hero-performance-2026/"
+      ]
+    },
+    {
+      "id": "motion-accessibility",
+      "check": "Respect prefers-reduced-motion; auto-moving content > 5s needs pause (WCAG 2.2.2); no scroll-jacking; animate transform/opacity only.",
+      "pass": "Page is fully usable with reduced motion on",
+      "sources": [
+        "https://www.w3.org/TR/WCAG22/#pause-stop-hide",
+        "https://developer.mozilla.org/en-US/docs/Web/CSS/@media/prefers-reduced-motion"
+      ]
+    },
+    {
+      "id": "focus-and-semantics",
+      "check": "Visible focus rings, semantic landmarks, one H1, headings in order, alt text, real buttons/links.",
+      "pass": "Keyboard-only walkthrough reaches every CTA",
+      "sources": [
+        "https://www.w3.org/TR/WCAG22/#focus-visible"
+      ]
+    }
+  ],
+  "sources": [
+    {
+      "title": "Web Design Trends 2026: What Actually Held Up After Six Months (StudioMeyer)",
+      "url": "https://studiomeyer.io/en/blog/webdesign-trends-2026-reality-check"
+    },
+    {
+      "title": "Top 10 Web Design Trends 2026 (Really Good Designs)",
+      "url": "https://reallygooddesigns.com/web-design-trends-2026/"
+    },
+    {
+      "title": "Top Web Design Trends for 2026 (Figma)",
+      "url": "https://www.figma.com/resource-library/web-design-trends/"
+    },
+    {
+      "title": "Landing Page Design Trends 2026 (Moburst)",
+      "url": "https://www.moburst.com/blog/landing-page-design-trends-2026/"
+    },
+    {
+      "title": "Landing Page Design Trends for 2026 (GetResponse)",
+      "url": "https://www.getresponse.com/blog/landing-page-design-trends"
+    },
+    {
+      "title": "Web design trends 2025 (Depositphotos)",
+      "url": "https://blog.depositphotos.com/web-design-trends-2025.html"
+    },
+    {
+      "title": "Web Design Trends 2026: Tactile Brutalism (Fireart)",
+      "url": "https://fireart.studio/blog/the-best-web-design-trends/"
+    },
+    {
+      "title": "AI Slop Fonts and Gradients (925 Studios)",
+      "url": "https://www.925studios.co/blog/ai-slop-design-tells"
+    },
+    {
+      "title": "AI Design Slop: 16 Patterns (Developers Digest)",
+      "url": "https://www.developersdigest.tech/blog/ai-design-slop-and-how-to-spot-it"
+    },
+    {
+      "title": "The Purple Gradient Problem (DEV Community)",
+      "url": "https://dev.to/james_anderson_h/the-purple-gradient-problem-why-ai-ui-all-looks-alike-and-how-to-fix-it-3j65"
+    },
+    {
+      "title": "Readability: The Optimal Line Length (Baymard)",
+      "url": "https://baymard.com/blog/line-length-readability"
+    },
+    {
+      "title": "Scrolling and Attention (NN/g)",
+      "url": "https://www.nngroup.com/articles/scrolling-and-attention/"
+    },
+    {
+      "title": "WCAG 2.2",
+      "url": "https://www.w3.org/TR/WCAG22/"
+    },
+    {
+      "title": "Web Vitals (web.dev)",
+      "url": "https://web.dev/articles/vitals"
+    },
+    {
+      "title": "The Hero Video Dilemma (Mintec)",
+      "url": "https://mintec.co/blog/video-lcp-hero-performance-2026/"
+    },
+    {
+      "title": "Three.js in Production 2026 (AppScale)",
+      "url": "https://appscale.blog/en/blog/threejs-production-3d-web-2026-webgpu-realtime-standards"
+    },
+    {
+      "title": "100 Three.js Tips (Utsubo)",
+      "url": "https://www.utsubo.com/blog/threejs-best-practices-100-tips"
+    },
+    {
+      "title": "Godly",
+      "url": "https://godly.website"
+    },
+    {
+      "title": "Awwwards",
+      "url": "https://www.awwwards.com/websites/"
+    },
+    {
+      "title": "Refactoring UI",
+      "url": "https://www.refactoringui.com"
+    },
+    {
+      "title": "Measured: linear.app",
+      "url": "https://linear.app"
+    },
+    {
+      "title": "Measured: vercel.com",
+      "url": "https://vercel.com"
+    },
+    {
+      "title": "Measured: stripe.com",
+      "url": "https://stripe.com"
+    },
+    {
+      "title": "Measured: gumroad.com",
+      "url": "https://gumroad.com"
+    },
+    {
+      "title": "Measured: neobrutalism.dev",
+      "url": "https://neobrutalism.dev"
+    },
+    {
+      "title": "Measured: anthropic.com",
+      "url": "https://anthropic.com"
+    },
+    {
+      "title": "Measured: press.stripe.com",
+      "url": "https://press.stripe.com"
+    },
+    {
+      "title": "Measured: posthog.com",
+      "url": "https://posthog.com"
+    },
+    {
+      "title": "Measured: lusion.co",
+      "url": "https://lusion.co"
+    },
+    {
+      "title": "Measured: aesop.com",
+      "url": "https://aesop.com"
+    },
+    {
+      "title": "Measured: teenage.engineering",
+      "url": "https://teenage.engineering"
+    },
+    {
+      "title": "Measured: are.na",
+      "url": "https://are.na"
+    },
+    {
+      "title": "Measured: locomotive.ca",
+      "url": "https://locomotive.ca"
+    },
+    {
+      "title": "Measured: raycast.com",
+      "url": "https://raycast.com"
+    },
+    {
+      "title": "Measured: planetscale.com",
+      "url": "https://planetscale.com"
+    },
+    {
+      "title": "Measured: duolingo.com",
+      "url": "https://duolingo.com"
+    },
+    {
+      "title": "Measured: poolsuite.net",
+      "url": "https://poolsuite.net"
+    },
+    {
+      "title": "Measured: rolex.com",
+      "url": "https://rolex.com"
+    },
+    {
+      "title": "Measured: framer.com",
+      "url": "https://framer.com"
+    }
+  ]
+}

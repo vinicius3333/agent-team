@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs"
 import { dirname } from "node:path"
 import { parse } from "yaml"
+import { autoStyle, designStyleIds } from "./design-styles.ts"
 import { insightAgents, type InsightAgent } from "./store.ts"
 import { customTemplate, findTemplate, readStack, type StackManifest } from "./templates.ts"
 
@@ -84,7 +85,9 @@ export interface PipelineConfig {
   // mobile: the illustrator also draws a phone version of every desktop screen.
   // variations: how many logo-and-style directions the concepts phase draws before branding (under 2 skips it).
   // dark: the illustrator also redraws the landing in a dark theme, and the designer takes the .dark tokens from it.
-  branding: { enabled: boolean; count: number; mobile: boolean; variations: number; dark: boolean }
+  // style: "auto" lets each concept direction pick a different style from knowledge/design-styles.json; a style id
+  // makes every direction use that style.
+  branding: { enabled: boolean; count: number; mobile: boolean; variations: number; dark: boolean; style: string }
   marketing: { enabled: boolean; pieces: number; formats: MarketingFormat[] }
   publish: PublishConfig
   deploy: { enabled: boolean }
@@ -314,8 +317,8 @@ function normalizeGates(rawGates: unknown): PlanningPhase[] {
   return [...new Set(rawGates.map((gate) => normalizePhaseName(String(gate))))] as PlanningPhase[]
 }
 
-function normalizeBranding(raw: { enabled?: boolean; count?: number; mobile?: boolean; variations?: number; dark?: boolean } | undefined): PipelineConfig["branding"] {
-  return { enabled: raw?.enabled ?? true, count: raw?.count ?? 4, mobile: raw?.mobile ?? true, variations: raw?.variations ?? 3, dark: raw?.dark ?? true }
+function normalizeBranding(raw: { enabled?: boolean; count?: number; mobile?: boolean; variations?: number; dark?: boolean; style?: string } | undefined): PipelineConfig["branding"] {
+  return { enabled: raw?.enabled ?? true, count: raw?.count ?? 4, mobile: raw?.mobile ?? true, variations: raw?.variations ?? 3, dark: raw?.dark ?? true, style: raw?.style ?? autoStyle }
 }
 
 // Roles added after a project was created get a default, so older pipeline.yaml files keep working.
@@ -362,6 +365,7 @@ function validateConfig(config: PipelineConfig, projectDir: string): void {
   if (config.branding.count < 2 || config.branding.count > 6) errors.push("branding.count must be between 2 and 6")
   if (!Number.isInteger(config.branding.variations) || config.branding.variations < 0 || config.branding.variations > 4) errors.push("branding.variations must be a whole number from 0 to 4 (under 2 skips the concepts phase)")
   if (typeof config.branding.dark !== "boolean") errors.push("branding.dark must be true or false")
+  if (config.branding.style !== autoStyle && !designStyleIds().includes(config.branding.style)) errors.push(`branding.style must be ${autoStyle} or one of ${designStyleIds().join(", ")}`)
   if (!Number.isInteger(config.marketing.pieces) || config.marketing.pieces < 1 || config.marketing.pieces > 6) errors.push("marketing.pieces must be a whole number between 1 and 6")
   if (!Array.isArray(config.marketing.formats) || !config.marketing.formats.length) errors.push("marketing.formats needs at least one format")
   for (const format of config.marketing.formats ?? []) {

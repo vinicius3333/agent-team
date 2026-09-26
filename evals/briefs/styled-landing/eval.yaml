@@ -1,0 +1,14 @@
+# Exercises the style catalog: three concept directions, each from a different catalog style, then the design judge.
+tier: full
+target: web
+budgetUsd: 35
+timeoutMinutes: 90
+pipeline:
+  branding:
+    enabled: true
+    count: 2
+    mobile: true
+    variations: 3
+    dark: false
+  marketing:
+    enabled: false

@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import { join } from "node:path"
 import { parse, parseDocument } from "yaml"
 import { loadConfig, type PipelineConfig } from "./config.ts"
+import type { DesignJudgeResult, DesignScore } from "./design-judge.ts"
 import { commitPaths } from "./git.ts"
 import type { RunOutcome, RunStop } from "./pipeline.ts"
 import { createProject, installDir, openProjectStore } from "./project.ts"
@@ -41,6 +42,8 @@ export interface BriefResult {
   unreportedCalls: number
   tokens: number
   wallMs: number
+  // The design judge's score of the screenshots; null when it skipped. Missing in results from before the judge.
+  design?: DesignScore | null
 }
 
 export interface EvalResult {
@@ -58,6 +61,8 @@ export interface EvalResult {
 
 // Runs one project to its end. Injected so tests use a stub instead of real agents.
 export type ProjectRunner = (projectDir: string, store: Store, signal: AbortSignal) => Promise<RunOutcome>
+// Scores the built app's screenshots after the run. Injected for the same reason.
+export type DesignJudge = (projectDir: string, store: Store, signal: AbortSignal) => Promise<DesignJudgeResult>
 
 const defaultTimeoutMinutes = 90
 
@@ -148,7 +153,7 @@ function qaSummary(projectDir: string): { rounds: number; verdict: string | null
   return { rounds: rounds.length, verdict }
 }
 
-export function summarizeBrief(options: { brief: EvalBrief; projectDir: string; store: Store; config: PipelineConfig; outcome: BriefResult["outcome"]; wallMs: number }): BriefResult {
+export function summarizeBrief(options: { brief: EvalBrief; projectDir: string; store: Store; config: PipelineConfig; outcome: BriefResult["outcome"]; wallMs: number; design?: DesignScore | null }): BriefResult {
   const { brief, projectDir, store, config, outcome, wallMs } = options
   const summary = store.evalSummary()
   const byRole: Record<string, number> = {}
@@ -173,6 +178,7 @@ export function summarizeBrief(options: { brief: EvalBrief; projectDir: string; 
     unreportedCalls: summary.unreportedCalls,
     tokens: summary.tokens,
     wallMs,
+    design: options.design ?? null,
   }
 }
 
@@ -186,6 +192,7 @@ export interface EvalOptions {
   clean: boolean
   signal: AbortSignal
   runProject: ProjectRunner
+  judgeDesign?: DesignJudge
   log?: (message: string) => void
   now?: () => Date
 }
@@ -248,10 +255,12 @@ export async function runEval(options: EvalOptions): Promise<{ result: EvalResul
         store.log("eval", `stopped after the ${brief.timeoutMinutes} minute timeout`)
         outcome = "timeout"
       }
-      return summarizeBrief({ brief, projectDir, store, config, outcome, wallMs: Date.now() - started })
+      const wallMs = Date.now() - started
+      const design = await scoreDesign(options.judgeDesign, brief, projectDir, store, signal)
+      return summarizeBrief({ brief, projectDir, store, config, outcome, wallMs, design })
     })
     result.briefs.push(entry)
-    log(`[eval] ${brief.id}: ${entry.outcome}, ${entry.tasks.merged}/${entry.tasks.total} tasks merged, $${entry.costUsd.toFixed(2)}`)
+    log(`[eval] ${brief.id}: ${entry.outcome}, ${entry.tasks.merged}/${entry.tasks.total} tasks merged, $${entry.costUsd.toFixed(2)}${entry.design ? `, design ${entry.design.score}/100` : ""}`)
     if (signal.aborted) {
       result.aborted = "interrupt"
       break
@@ -264,6 +273,19 @@ export async function runEval(options: EvalOptions): Promise<{ result: EvalResul
   writeFileSync(path, `${JSON.stringify(result, null, 2)}\n`)
   if (clean) rmSync(runsDir, { recursive: true, force: true })
   return { result, path }
+}
+
+// The judge runs after a timeout too, on whatever the last QA round captured; only an interrupt skips it.
+async function scoreDesign(judge: DesignJudge | undefined, brief: EvalBrief, projectDir: string, store: Store, signal: AbortSignal): Promise<DesignScore | null> {
+  if (!judge || brief.target === "api" || signal.aborted) return null
+  try {
+    const result = await judge(projectDir, store, signal)
+    if (result.kind === "scored") return result.design
+    store.log("eval", `design judge skipped: ${result.reason.slice(0, 300)}`)
+  } catch (error) {
+    store.log("eval", `design judge threw: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  return null
 }
 
 async function withProjectStoreAsync<T>(projectDir: string, use: (store: Store) => Promise<T>): Promise<T> {
@@ -281,6 +303,8 @@ export function readBaseYaml(configPath: string | undefined): string {
 
 const outcomeRank: Record<BriefResult["outcome"], number> = { completed: 0, awaiting_approval: 1, paused: 2, timeout: 3, failed: 4 }
 const costRegressionRatio = 1.25
+// Judge scores move a few points between identical runs; a drop larger than this is a regression.
+const designRegressionPoints = 10
 
 export interface BriefComparison {
   id: string
@@ -333,6 +357,7 @@ export function compareResults(before: EvalResult, after: EvalResult, allowBrief
     if (mergedShare(next) < mergedShare(previous)) regressions.push(`merged tasks ${previous.tasks.merged}/${previous.tasks.total} -> ${next.tasks.merged}/${next.tasks.total}`)
     if (previous.costUsd > 0 && next.costUsd > previous.costUsd * costRegressionRatio) regressions.push(`cost +${Math.round((next.costUsd / previous.costUsd - 1) * 100)}%`)
     if (previous.tokens > 0 && next.tokens > previous.tokens * costRegressionRatio) regressions.push(`tokens +${Math.round((next.tokens / previous.tokens - 1) * 100)}%`)
+    if (previous.design && next.design && next.design.score < previous.design.score - designRegressionPoints) regressions.push(`design score ${previous.design.score} -> ${next.design.score}`)
     briefs.push({ id: previous.id, before: previous, after: next, regressions })
   }
   for (const next of after.briefs) if (!before.briefs.some((brief) => brief.id === next.id)) missing.push(next.id)
@@ -345,11 +370,11 @@ function row(cells: string[], widths: number[]): string {
 
 function briefCells(label: string, brief: BriefResult): string[] {
   const cost = `$${brief.costUsd.toFixed(2)}${brief.unreportedCalls ? ` (+${brief.unreportedCalls} unreported)` : ""}`
-  return [label, brief.outcome, `${brief.tasks.merged}/${brief.tasks.total}`, String(brief.attempts.total), cost, String(brief.tokens), `${Math.round(brief.wallMs / 60_000)}m`, `${brief.qa.rounds} ${brief.qa.verdict ?? "-"}`, String(brief.reviews.fail)]
+  return [label, brief.outcome, `${brief.tasks.merged}/${brief.tasks.total}`, String(brief.attempts.total), cost, String(brief.tokens), `${Math.round(brief.wallMs / 60_000)}m`, `${brief.qa.rounds} ${brief.qa.verdict ?? "-"}`, String(brief.reviews.fail), brief.design ? String(brief.design.score) : "-"]
 }
 
 export function formatComparison(comparison: Comparison, before: EvalResult, after: EvalResult): string {
-  const header = ["brief", "outcome", "merged", "attempts", "cost", "tokens", "wall", "qa", "rejections"]
+  const header = ["brief", "outcome", "merged", "attempts", "cost", "tokens", "wall", "qa", "rejections", "design"]
   const lines: string[][] = []
   for (const brief of comparison.briefs) {
     lines.push(briefCells(`${brief.id} A`, brief.before))

@@ -1,6 +1,6 @@
 {
   "name": "react-vite",
-  "version": 2,
+  "version": 3,
   "title": "React + Vite web app",
   "description": "React, Tailwind CSS v4, shadcn/ui, Lucide, Vitest. A static build served with serve.",
   "targets": ["web"],

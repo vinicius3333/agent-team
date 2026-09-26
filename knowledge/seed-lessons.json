@@ -665,5 +665,50 @@
     "sourceTitle": "LGPD, Lei 13.709/2018",
     "license": "public law",
     "checkedAt": "2026-09-25"
+  },
+  {
+    "id": "K-r3f-poster-first",
+    "roles": [
+      "worker",
+      "reviewer"
+    ],
+    "stacks": [
+      "@react-three/fiber"
+    ],
+    "rule": "Paint a static poster image first and load the 3D canvas lazily after it, so the poster, not the WebGL scene, is the Largest Contentful Paint.",
+    "source": "https://web.dev/articles/lcp",
+    "sourceTitle": "web.dev",
+    "license": "CC BY 4.0",
+    "checkedAt": "2026-09-25"
+  },
+  {
+    "id": "K-r3f-reduced-motion",
+    "roles": [
+      "worker",
+      "reviewer"
+    ],
+    "stacks": [
+      "@react-three/fiber"
+    ],
+    "rule": "When prefers-reduced-motion is reduce, show the static poster instead of an animated 3D scene: no auto-rotation, camera moves, or scroll-driven animation.",
+    "source": "https://developer.mozilla.org/en-US/docs/Web/CSS/@media/prefers-reduced-motion",
+    "sourceTitle": "MDN",
+    "license": "CC BY-SA 2.5",
+    "checkedAt": "2026-09-25"
+  },
+  {
+    "id": "K-r3f-render-on-demand",
+    "roles": [
+      "worker",
+      "reviewer"
+    ],
+    "stacks": [
+      "@react-three/fiber"
+    ],
+    "rule": "In React Three Fiber, clamp dpr to [1, 1.5], use frameloop=\"demand\" for still scenes, and never create objects or call setState inside useFrame.",
+    "source": "https://r3f.docs.pmnd.rs/advanced/scaling-performance",
+    "sourceTitle": "React Three Fiber docs",
+    "license": "paraphrase only",
+    "checkedAt": "2026-09-25"
   }
 ]
