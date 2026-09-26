@@ -43,7 +43,18 @@ export interface HarnessConfig {
 
 export interface PublishConfig {
   // board false skips the project board and the build epic, for a repository agent-team does not own.
-  github: { enabled: boolean; owner: string | null; visibility: "private" | "public"; name: string | null; board: boolean }
+  // issues: poll open issues labeled agent-team into the backlog every everyMinutes (1 to 1440).
+  github: { enabled: boolean; owner: string | null; visibility: "private" | "public"; name: string | null; board: boolean; issues: { enabled: boolean; everyMinutes: number } }
+}
+
+// An OpenAI-compatible endpoint for the codex runner. apiKeyEnv is the name of the env var that holds the key.
+export interface CodexRunnerConfig {
+  baseUrl: string
+  apiKeyEnv: string | null
+}
+
+export interface RunnersConfig {
+  codex: CodexRunnerConfig | null
 }
 
 export const importGitHubModes = ["source", "new", "none"] as const
@@ -91,6 +102,7 @@ export interface PipelineConfig {
   branding: { enabled: boolean; count: number; mobile: boolean; variations: number; dark: boolean; style: string }
   marketing: { enabled: boolean; pieces: number; formats: MarketingFormat[] }
   publish: PublishConfig
+  runners: RunnersConfig
   deploy: { enabled: boolean }
   // resolveAll: a QA pass with open findings counts as a fail, so every finding, minor ones included, gets a fix task.
   qa: { enabled: boolean; maxRounds: number; resolveAll: boolean }
@@ -249,8 +261,13 @@ export function loadConfig(path: string): PipelineConfig {
         visibility: raw.publish?.github?.visibility ?? "private",
         name: raw.publish?.github?.name ?? null,
         board: raw.publish?.github?.board ?? true,
+        issues: {
+          enabled: raw.publish?.github?.issues?.enabled ?? true,
+          everyMinutes: raw.publish?.github?.issues?.everyMinutes ?? 10,
+        },
       },
     },
+    runners: { codex: normalizeCodexRunner(raw.runners?.codex) },
     budget: { perTaskUsd: raw.budget?.perTaskUsd ?? 2, runUsd: raw.budget?.runUsd ?? defaultRunBudgetUsd },
     parallelTasks: raw.parallelTasks ?? defaultParallelTasks,
     roles: normalizeRoles(raw.roles),
@@ -467,6 +484,46 @@ function normalizeRoles(rawRoles: Record<string, any> | undefined): Record<Role,
   return normalized as Record<Role, RoleConfig>
 }
 
+// A block with neither key counts as unset. Validation checks the raw values, so they are kept as they are.
+function normalizeCodexRunner(raw: any): CodexRunnerConfig | null {
+  if (raw === undefined || raw === null) return null
+  const baseUrl = raw.baseUrl ?? null
+  const apiKeyEnv = raw.apiKeyEnv ?? null
+  if (baseUrl === null && apiKeyEnv === null) return null
+  return { baseUrl, apiKeyEnv }
+}
+
+function isHttpUrl(value: unknown): boolean {
+  if (typeof value !== "string") return false
+  try {
+    const { protocol } = new URL(value)
+    return protocol === "http:" || protocol === "https:"
+  } catch {
+    return false
+  }
+}
+
+function runnerProblems(runners: RunnersConfig): string[] {
+  const codex = runners.codex
+  if (!codex) return []
+  const problems: string[] = []
+  if (codex.baseUrl === null) problems.push("runners.codex.apiKeyEnv needs runners.codex.baseUrl; set the base URL or remove apiKeyEnv")
+  else if (!isHttpUrl(codex.baseUrl)) problems.push("Set codex base URL to a full http or https URL.")
+  if (codex.apiKeyEnv !== null && (typeof codex.apiKeyEnv !== "string" || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(codex.apiKeyEnv))) {
+    problems.push("runners.codex.apiKeyEnv must be the name of an environment variable, not the key")
+  }
+  return problems
+}
+
+function issuesProblems(issues: PublishConfig["github"]["issues"]): string[] {
+  const problems: string[] = []
+  if (typeof issues.enabled !== "boolean") problems.push("publish.github.issues.enabled must be true or false")
+  if (typeof issues.everyMinutes !== "number" || !(issues.everyMinutes >= 1 && issues.everyMinutes <= 1440)) {
+    problems.push("publish.github.issues.everyMinutes must be a number from 1 to 1440")
+  }
+  return problems
+}
+
 function importProblems(config: ImportConfig | null): string[] {
   if (!config) return []
   const problems: string[] = []
@@ -477,7 +534,7 @@ function importProblems(config: ImportConfig | null): string[] {
 }
 
 function validateConfig(config: PipelineConfig, projectDir: string): void {
-  const errors: string[] = [...templateProblems(config, projectDir), ...operateProblems(config.operate), ...importProblems(config.import)]
+  const errors: string[] = [...templateProblems(config, projectDir), ...operateProblems(config.operate), ...importProblems(config.import), ...issuesProblems(config.publish.github.issues), ...runnerProblems(config.runners)]
   if (!["none", "docker"].includes(config.harness.isolation)) errors.push("harness.isolation must be none or docker")
   if (!["private", "public"].includes(config.publish.github.visibility)) errors.push("publish.github.visibility must be private or public")
   if (config.branding.count < 2 || config.branding.count > 6) errors.push("branding.count must be between 2 and 6")
