@@ -216,3 +216,11 @@ Files: `src/doctor.ts`, `src/store.ts`, `web/src/api/types.ts`, `web/src/compone
 > I added GitHub issue polling. Open issues labeled `agent-team` now become open backlog items with source `github`, and each issue gets one comment linking to its item. The last verify run passed: typecheck is clean, the tests in `issues`, `doctor` and `sprint` all pass, web lint shows warnings only, and the web build succeeds. I didn't load the page in a browser; the orchestrator's check will be the first real look.
 > **What changed**
 > - **`src/operate/issues.ts` (new):**
+
+## T014: Make sprints and routines run on this project and report what blocks them
+
+Files: `src/cli.ts`, `src/config.ts`, `src/project.ts`, `src/routines.ts`, `src/sprint.ts`, `src/ui/server.ts`, `test/routines.test.ts`, `test/sprint.test.ts`, `web/src/components/operate/routines.tsx`, `web/src/components/operate/sprints.tsx`, `test/fixtures/imported-project/state.json`
+
+> Sprints and routines now run on imported projects, and when something blocks them the CLI and the dashboard say what it is. The full `verify` command passes: typecheck and 44 tests pass, lint shows only warnings in files I didn't touch, and the web build succeeds. I didn't run `sprint --check` or `routines --check` against a real project; only the tests exercise the new code.
+> The last attempt failed only because the web packages weren't installed (`oxlint: not found`). I ran `npm --prefix web ci` and then reapplied the earlier diff.
+> **What changed**
