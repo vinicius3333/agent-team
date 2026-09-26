@@ -243,6 +243,8 @@ export interface DeployInfo {
   tunnelContainer: string
   app: string
   tunnel: string
+  // The last deploy failure, one sentence plus the next step. Null after a good deploy.
+  error: string | null
 }
 
 export interface ChatSession {
