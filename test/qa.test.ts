@@ -8,9 +8,10 @@ import { after, test } from "node:test"
 import { loadConfig } from "../src/config.ts"
 import { qaHardFailures } from "../src/pipeline.ts"
 import { createProject } from "../src/project.ts"
-import { parseArchitectureCommands, parseDesignScreens, parseLoginRoute, parseQaVerdict, runQaLoop, validateFixTasks, type QaLoopSteps, type QaRoundResult } from "../src/qa.ts"
+import { noPageRendered, noPageRenderedMessage, parseArchitectureCommands, parseDesignScreens, parseLoginRoute, parseQaVerdict, runQaLoop, validateFixTasks, type QaLoopSteps, type QaRoundResult } from "../src/qa.ts"
 import { openStore } from "../src/store.ts"
 import type { Task } from "../src/tasks.ts"
+import type { RouteReport, VisualReport } from "../src/screenshots.ts"
 import { startUi } from "../src/ui/server.ts"
 
 const scratch = mkdtempSync(join(tmpdir(), "agent-team-qa-"))
@@ -238,4 +239,44 @@ test("parseLoginRoute reads the Login line of docs/design.md", () => {
   assert.equal(parseLoginRoute("## Navigation\n- **Login:** `/login/`\n"), "/login")
   assert.equal(parseLoginRoute("Login route: /auth/sign-in"), "/auth/sign-in")
   assert.equal(parseLoginRoute("Log in with the button"), null)
+})
+
+function route(path: string, overrides: Partial<RouteReport> = {}): RouteReport {
+  return { route: path, slug: routeSlugOf(path), file: `screens/${routeSlugOf(path)}.png`, status: 200, consoleErrors: [], error: null, branding: null, mobileBranding: null, ...overrides }
+}
+
+function routeSlugOf(path: string): string {
+  return path.replace(/\W+/g, "-") || "home"
+}
+
+function visualReport(overrides: Partial<VisualReport> = {}): VisualReport {
+  return { baseUrl: "http://app:3000", viewport: { width: 1440, height: 900 }, startError: null, routes: [], ...overrides }
+}
+
+test("noPageRendered is true when every route answers 403", () => {
+  assert.equal(noPageRenderedMessage, "No page rendered. Check the host and start command.")
+  assert.equal(noPageRendered(visualReport({ routes: [route("/", { status: 403 }), route("/login", { status: 403 })] })), true)
+})
+
+test("noPageRendered is true when every route has a null status and an error", () => {
+  const routes = [route("/", { status: null, file: null, error: "net::ERR_CONNECTION_REFUSED" }), route("/login", { status: null, error: "timeout" })]
+  assert.equal(noPageRendered(visualReport({ routes })), true)
+})
+
+test("noPageRendered is true when the app did not start or has no routes", () => {
+  assert.equal(noPageRendered(visualReport({ startError: "npm start exited with code 1" })), true)
+  assert.equal(noPageRendered(visualReport()), true)
+})
+
+test("noPageRendered is true when routes answer 5xx or leave no screenshot", () => {
+  assert.equal(noPageRendered(visualReport({ routes: [route("/", { status: 502 }), route("/login", { file: null })] })), true)
+})
+
+test("noPageRendered is false when one route answers 2xx or 3xx with a screenshot", () => {
+  assert.equal(noPageRendered(visualReport({ routes: [route("/"), route("/login", { status: 403 }), route("/app", { status: 403 })] })), false)
+  assert.equal(noPageRendered(visualReport({ routes: [route("/", { status: 302 }), route("/app", { status: 403 })] })), false)
+})
+
+test("noPageRendered is false when there is no visual report", () => {
+  assert.equal(noPageRendered(null), false)
 })
