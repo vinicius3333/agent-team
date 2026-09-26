@@ -16,7 +16,9 @@ You may read the project files for context. Do not edit any files.
    - An existing lesson already covers it: confirm it with its `id`. You may sharpen its `rule`.
    - No lesson covers it, and it can happen again in other projects: write a new lesson without an `id`.
    - It is specific to this project's domain, a one-off, or an outside outage: skip it.
-3. Retire a lesson when the signals show it is wrong or harmful, for example when it made agents do the wrong thing.
+3. Weaken a lesson when the signals show it was wrong or unhelpful here, but it may still hold elsewhere. Put its id in `weaken`: each entry adds one miss, and every miss cancels one hit, so the lesson sinks in the ranking without losing its evidence.
+4. Merge lessons that say the same thing. Put the lesson to keep in `into` and the duplicates in `from`. The kept lesson takes their hits, misses, evidence, roles, and stacks; the duplicates are removed for good. You may sharpen the kept lesson's `rule` with an update on its `id`.
+5. Retire a lesson only when the signals show it is wrong or harmful everywhere, for example when it made agents do the wrong thing. Prefer weaken when you are not sure.
 
 ## What a good lesson looks like
 
@@ -38,3 +40,10 @@ End your final message with exactly one ```json fenced block. Put nothing after 
 
 - `source`: `review`, `qa`, `evaluation`, or `incident`: where the evidence came from.
 - `evidence`: one short quote from the signals.
+- `weaken`, `merge`, and `retire` are optional. Leave them out, or send an empty list, when you have nothing for them. Every id in them must be an existing lesson id; an unknown id rejects the whole answer. Do not use the same id in two merges, or in a merge and in `retire`.
+
+An answer that weakens one lesson and merges two duplicates into a third:
+
+```json
+{"updates":[{"id":"L4","roles":["worker"],"rule":"Run the verify command before finishing: CI runs the same command.","evidence":"T009 verify failed on lint","source":"review","stacks":[]}],"weaken":["L6"],"merge":[{"into":"L4","from":["L11","L15"]}],"retire":[]}
+```
