@@ -3,9 +3,10 @@ import { basename, join } from "node:path"
 import { openChange, raiseRunBudget } from "./project.ts"
 import { evaluationDimensions, gapFinding, parseEvaluation, parseSprintPlan, sprintBlocker, sprintRequest, syncSprint, type Evaluation, type EvaluationGap, type SprintPlan } from "./sprint.ts"
 import { applyCuratorResult, collectSignals, curatorPrompt, lessonsPath, loadLessons, parseCuratorResult, projectStacks, recordRetired, removedIds, saveLessons } from "./lessons.ts"
-import { createExecutor, isInfrastructureFailure, landingBranch, qaRoundPath, runAgent, type PipelineContext, type RunOutcome } from "./pipeline.ts"
+import { createExecutor, ensureDeployed, isInfrastructureFailure, landingBranch, qaRoundPath, runAgent, type PipelineContext, type RunOutcome } from "./pipeline.ts"
 import { createWorkspace, removeWorkspace } from "./harness/workspace.ts"
-import type { Finding } from "./store.ts"
+import { deployErrorKey } from "./deploy.ts"
+import type { Finding, Store } from "./store.ts"
 
 const readTools = ["read"]
 const agentAttempts = 2
@@ -79,6 +80,8 @@ export type SprintPlanResult =
 // A failed evaluation does not stop the sprint: the PM plans from the backlog alone.
 export async function planSprint(context: PipelineContext, sprint: number): Promise<SprintPlanResult> {
   const { store } = context
+  // The evaluator judges the live app, so bring it up first. A failed deploy does not stop the sprint: the report says why.
+  await ensureDeployed(context)
   store.log("sprint", `sprint ${sprint}: evaluating the live app against the brief`)
   const evaluated = await evaluate(context, sprint)
   if (evaluated.kind === "infrastructure") return evaluated
@@ -148,6 +151,14 @@ export function copyLatestQaRound(context: PipelineContext, workspacePath: strin
   return relative
 }
 
+// The sprint report line for the live app. An empty deploy.url means not deployed too; the reason comes from deploy.error.
+export function liveAppLine(store: Store): string {
+  const url = store.meta("deploy.url")
+  if (url) return `- The live app: ${url}.`
+  const reason = store.meta(deployErrorKey)
+  return reason ? `- The live app: not deployed (${reason.replace(/\.$/, "")}).` : "- The live app: not deployed."
+}
+
 function userRequests(context: PipelineContext): string[] {
   const messages = context.store.chatMessages(maxChatMessages, "all").filter((message) => message.author === "human")
   return messages.map((message) => `- ${message.at}: ${message.body.replace(/\s+/g, " ").slice(0, 400)}`)
@@ -156,7 +167,6 @@ function userRequests(context: PipelineContext): string[] {
 function evaluatorPrompt(input: { context: PipelineContext; sprint: number; screenshots: string | null; previousError: string | null }): string {
   const { context, sprint } = input
   const { store } = context
-  const liveUrl = store.meta("deploy.url")
   const previous = readPreviousEvaluation(context.projectDir, sprint)
   const requests = userRequests(context)
   const lines = [
@@ -165,7 +175,7 @@ function evaluatorPrompt(input: { context: PipelineContext; sprint: number; scre
     "## Sources",
     "",
     "- The brief: `input.md`. The spec: `docs/spec.md`. Also read `docs/architecture.md`, `docs/design.md`, and the code.",
-    `- The live app: ${liveUrl ?? "not deployed"}.`,
+    liveAppLine(store),
     input.screenshots ? `- Screenshots of every route from the last QA round: \`${input.screenshots}/\` (report.json lists them). Open them.` : "- No QA screenshots are available.",
   ]
   if (previous) {
@@ -239,7 +249,7 @@ function sprintPlannerPrompt(input: { context: PipelineContext; sprint: number; 
     "## Sources",
     "",
     "- The brief: `input.md`. The spec: `docs/spec.md`. The finished changes: `docs/changes/*/request.md`.",
-    `- The live app: ${context.store.meta("deploy.url") ?? "not deployed"}.`,
+    liveAppLine(context.store),
   ]
   if (evaluation) {
     lines.push("", `## This sprint's evaluation: ${evaluation.score}/100`, "", evaluation.summary, "", ...evaluationDimensions.map((dimension) => `- ${dimension}: ${evaluation.dimensions[dimension].score}. ${evaluation.dimensions[dimension].notes}`))
