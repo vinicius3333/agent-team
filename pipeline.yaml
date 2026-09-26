@@ -45,7 +45,7 @@ learning:
   maxSimilarTasks: 2 # similar solutions from other projects shown to each worker
 
 deploy:
-  enabled: false # after the build, run the app in a container and expose it at a random https://*.trycloudflare.com URL
+  enabled: true # after the build, run the app in a container and expose it at a random https://*.trycloudflare.com URL
 
 operate:
   # after deploy: agents watch the live app and write findings; a person approves each one as a change
