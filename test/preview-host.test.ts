@@ -7,6 +7,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { after, test } from "node:test"
 import { fileURLToPath } from "node:url"
+import { hashPassword, loadAuthConfig } from "../src/ui/auth.ts"
+import { previewHosts } from "../src/ui/hosts.ts"
 import { startUi } from "../src/ui/server.ts"
 
 const scratch = mkdtempSync(join(tmpdir(), "agent-team-preview-host-"))
@@ -77,4 +79,38 @@ test("every dashboard page answers 200 with the built shell on the AGENT_TEAM_UI
     const denied = await get(port, page, "evil.example")
     assert.equal(denied.status, 403, `${page} with an unknown host answered ${denied.status}`)
   }
+})
+
+test("the preview host list from HOSTNAME lets the container name reach every page with a password set", async (t) => {
+  const builtShell = existsSync(join(builtWebDir, "index.html"))
+  const webDir = builtShell ? builtWebDir : join(scratch, "container-web-dist")
+  if (!builtShell) {
+    mkdirSync(webDir, { recursive: true })
+    writeFileSync(join(webDir, "index.html"), "<div id=root></div>")
+  }
+  const auth = loadAuthConfig({ AGENT_TEAM_UI_PASSWORD_HASH: hashPassword("correct horse battery") })
+  const previous = process.env.AGENT_TEAM_UI_HOSTS
+  process.env.AGENT_TEAM_UI_HOSTS = previewHosts({ HOSTNAME: "agent-team-qa-agent-team" }).join(",")
+  let port: number
+  try {
+    const server = startUi({ runsDir: join(scratch, "container-runs"), port: 0, host: "127.0.0.1", auth, startRun: () => {}, notifications: false, webDir })
+    await once(server, "listening")
+    t.after(() => server.close())
+    port = (server.address() as AddressInfo).port
+  } finally {
+    if (previous === undefined) delete process.env.AGENT_TEAM_UI_HOSTS
+    else process.env.AGENT_TEAM_UI_HOSTS = previous
+  }
+
+  const shell = readFileSync(join(webDir, "index.html"), "utf8")
+  for (const page of ["/", "/login", "/new", "/import", "/incidents", "/settings"]) {
+    const response = await get(port, page, "agent-team-qa-agent-team:4400")
+    assert.equal(response.status, 200, `${page} answered ${response.status}`)
+    // The Log in card is drawn by the client, so the body is the dashboard shell. Checked only with a real build.
+    if (builtShell) assert.equal(response.body, shell, `${page} did not answer with web/dist/index.html`)
+  }
+
+  const denied = await get(port, "/", "evil.example")
+  assert.equal(denied.status, 403)
+  assert.deepEqual(JSON.parse(denied.body), { error: "This host name is not allowed. Add it to AGENT_TEAM_UI_HOSTS." })
 })

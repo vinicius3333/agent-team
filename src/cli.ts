@@ -19,6 +19,7 @@ import { judgeProjectDesign, runProject, runSprint } from "./run.ts"
 import { addBacklogItem } from "./sprint.ts"
 import { generateSessionSecret, hashPassword, passwordMinLength } from "./ui/auth.ts"
 import { listTemplates, templateTargets, type TemplateTarget } from "./templates.ts"
+import { previewHosts } from "./ui/hosts.ts"
 import { startUi } from "./ui/server.ts"
 
 const usage = `Usage:
@@ -43,6 +44,7 @@ const usage = `Usage:
   agent-team doctor <runsDir> [--once]
   agent-team notify-test <runsDir> [--channel <name>]
   agent-team hash-password
+  agent-team preview-hosts
   agent-team session-secret
   agent-team eval run [--tier smoke|full] [--brief <id>]... [--config <file>] [--label <name>] [--out <evalsDir>] [--max-usd <n>] [--clean] [--yes]
   agent-team eval compare <resultA.json> <resultB.json> [--allow-brief-change]`
@@ -341,6 +343,7 @@ async function main(): Promise<void> {
   const { positionals, values } = parseArgs({ allowPositionals: true, options: { brief: { type: "string" }, request: { type: "string" }, template: { type: "string" }, target: { type: "string" }, port: { type: "string" }, host: { type: "string" }, once: { type: "boolean" }, "insecure-no-auth": { type: "boolean" }, channel: { type: "string" }, agent: { type: "string" }, from: { type: "string" }, url: { type: "string", multiple: true }, github: { type: "string" }, gate: { type: "string", multiple: true }, choice: { type: "string" }, add: { type: "string" }, detail: { type: "string" }, severity: { type: "string" }, now: { type: "boolean" }, run: { type: "string" } } })
   const [command, target, extra] = positionals
   if (command === "hash-password") return printPasswordHash()
+  if (command === "preview-hosts") return console.log(previewHosts(process.env).join(","))
   if (command === "session-secret") return console.log(generateSessionSecret())
   if (command === "templates") return templates()
   if (!command || !target) {
