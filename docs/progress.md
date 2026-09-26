@@ -97,3 +97,11 @@ Files: `deploy.json`, `src/cli.ts`, `src/ui/server.ts`, `test/deploy-start.test.
 > The preview start command now builds its allowed host list with a new `agent-team preview-hosts` command, so the container name from `HOSTNAME` is allowed even when `APP_URL` is missing. The last `verify` run passed: typecheck is clean, and 34 of 35 tests pass with 0 failures. The one skip is an existing test that needs `web/dist`, which isn't built in this worktree. For the same reason, the new page test only checked status codes, not the page body.
 > - **`src/ui/hosts.ts` (new):**
 > - `parseHostList(value)` splits on commas, trims, lower-cases, and drops empty values and duplicates.
+
+## T007: Keep lead.access when saving the Lead settings and show the access level in the form
+
+Files: `src/lead-actions.ts`, `src/ui/server.ts`, `web/src/api/types.ts`, `web/src/components/project/lead-settings-card.tsx`, `test/lead-actions.test.ts`
+
+> Saving the Lead settings now keeps `lead.access`, and the form has an Access field with Limited and Full. The full `verify` command passes.
+> The web dependencies weren't installed at first, so `oxlint` wasn't found. I installed them with `npm --prefix web ci` and ran the web steps again. I did not open the page in a browser; that check is left to the orchestrator.
+> **Saving (`src/lead-actions.ts`)**
