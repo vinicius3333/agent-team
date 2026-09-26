@@ -128,3 +128,11 @@ Files: `web/src/components/project/gates-card.tsx`, `web/src/components/ui/switc
 > The gate checkboxes were already 24×24 px on phones and 16 px at 1440 px, from an earlier run of this task (commit `abca968`). This run fixes how the label lines up with the box, and moves the switch's phone sizing into the shared switch component. `verify` passes: lint has only warnings in files I didn't touch, and `npm run build:ui` builds. I didn't open the pages in a browser, and there's no component test setup, so the orchestrator's phone check is the first real check of the sizes and alignment.
 > **Already in place:** `checkbox.tsx` uses `size-6 sm:size-4`. Radix's hidden input copies the box's measured size, so it is also 24×24 on phones. The focus ring is still there. Space checks the box, and clicking the label works through `htmlFor`.
 > **What I changed:**
+
+## L008: Make the lead chat full screen and responsive on phones
+
+Files: `web/src/components/project/chat-tab.tsx`, `web/src/components/project/lead-action-card.tsx`, `web/src/components/project/lead-composer.tsx`, `web/src/pages/project.tsx`
+
+> I made the Build > Chat screen full screen on phones and stopped it from scrolling sideways. The last `verify` run passed: lint, the dashboard build and typecheck. I didn't open it at 360px or 412px in a browser, and I didn't add tests. So the phone layout, the keyboard and the scroll behaviour are unchecked until the orchestrator's browser check.
+> - **Page (`web/src/pages/project.tsx`):**
+> - Below `sm` on the chat view, the page header (breadcrumb, title, badges) is hidden.
