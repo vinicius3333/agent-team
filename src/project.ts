@@ -280,11 +280,14 @@ export function changePath(id: string, file: string): string {
 }
 
 // Done means the last run got through QA and deploy (deploy counts as approved when it is off) with every task merged.
-// An imported project counts as done with no tasks, once its import finished.
+// An imported project counts as done once the importer approved its phases (import.done, or an approved baseline):
+// nothing was built, and the deploy happens with the first change or sprint, so its deploy phase does not count.
 export function buildComplete(store: Store): boolean {
-  if (!["plan", "qa", "deploy"].every((phase) => store.phaseStatus(phase) === "approved")) return false
   const tasks = store.tasks()
-  return (tasks.length > 0 || store.meta(importDoneKey) === "1") && tasks.every((task) => task.status === "merged")
+  if (!tasks.every((task) => task.status === "merged")) return false
+  const approved = (phases: string[]) => phases.every((phase) => store.phaseStatus(phase) === "approved")
+  if (store.meta(importDoneKey) === "1" || store.phaseStatus("baseline") === "approved") return approved(["plan", "qa"])
+  return tasks.length > 0 && approved(["plan", "qa", "deploy"])
 }
 
 function changeSlug(request: string): string {
