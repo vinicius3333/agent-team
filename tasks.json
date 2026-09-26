@@ -471,5 +471,28 @@
     "verify": "npm --prefix web run lint && npm --prefix web run build && npm run typecheck",
     "ui": true,
     "change": "C002"
+  },
+  {
+    "id": "L009",
+    "title": "Stop merges into main from failing on local changes",
+    "story": "As an operator, I want a change or task merge into main to work even when the main checkout has uncommitted edits, so the run does not stop and the doctor does not burn its attempts on the same error.",
+    "phase": "feature",
+    "dependsOn": [],
+    "allowedPaths": [
+      "src/harness/workspace.ts",
+      "test/workspace.test.ts"
+    ],
+    "readPaths": [
+      "src/pipeline.ts",
+      "src/doctor.ts"
+    ],
+    "acceptance": [
+      "Before merging, mergeIntoMain checks git status in the project folder.",
+      "If tracked files are dirty, it stashes them with a named message such as 'agent-team: auto-stash before merging <branch>', merges, and logs '[merge] stashed local changes: <files>'.",
+      "If the merge fails, it aborts the merge and restores the stash, so the folder is left as it was, then throws a plain error that names the files.",
+      "Untracked files that the merge does not touch do not block the merge.",
+      "test/workspace.test.ts covers: a clean main, a dirty main (the merge works and the stash exists), and a merge conflict (the stash is restored). It uses temp git repos and sets user.name and user.email."
+    ],
+    "verify": "npm run typecheck && node --disable-warning=ExperimentalWarning --test test/workspace.test.ts"
   }
 ]
