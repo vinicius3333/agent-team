@@ -201,7 +201,40 @@ export function publicUrlEnv(url: string): Record<string, string> {
   return { APP_URL: url, PUBLIC_URL: url, BASE_URL: url, NEXT_PUBLIC_APP_URL: url, NEXTAUTH_URL: url, ORIGIN: url }
 }
 
+export const deployErrorKey = "deploy.error"
+
+// One sentence on what went wrong, then the next step, for the dashboard and the sprint report.
+export function deployErrorText(projectDir: string, result: Extract<DeployResult, { url: null }>): string {
+  const retry = `then run: agent-team deploy ${projectDir}.`
+  const first = result.error.trim().split("\n")[0].replace(/[.:]\s*$/, "").slice(0, 300)
+  if (result.stage === "secrets") return `The stored secrets could not be read on this host: ${first}. Enter them again in Settings > Secrets, ${retry}`
+  if (result.stage === "tunnel") return `The app runs, but its public URL did not answer: ${first}. Check that this server can reach Cloudflare, ${retry}`
+  const port = result.error.match(/did not answer on port (\d+)/)?.[1]
+  if (port) return `The app did not answer on port ${port}. Check the start command in deploy.json, ${retry}`
+  if (result.error.startsWith("app exited")) return `The app stopped right after it started. Check the start command in deploy.json and the app logs, ${retry}`
+  if (result.error.startsWith("no deploy.json")) return `There is no deploy.json, npm start script, or index.html to serve. Add a deploy.json, ${retry}`
+  return `The app did not start: ${first}. Check the start command in deploy.json, ${retry}`
+}
+
+// A good deploy saves the URL and clears the last failure.
+export function recordDeployResult(projectDir: string, store: Store, result: DeployResult): void {
+  if (result.url !== null) store.setMeta("deploy.url", result.url)
+  store.setMeta(deployErrorKey, result.url === null ? deployErrorText(projectDir, result) : "")
+}
+
+// The app container can stop while deploy.url stays set, for example after the host restarted.
+export function appContainerRunning(projectDir: string): boolean {
+  const result = spawnSync("docker", ["inspect", "-f", "{{.State.Running}}", names(projectDir).app], { encoding: "utf8" })
+  return result.status === 0 && result.stdout.trim() === "true"
+}
+
 export async function deployProject(projectDir: string, store: Store): Promise<DeployResult> {
+  const result = await startDeploy(projectDir, store)
+  recordDeployResult(projectDir, store, result)
+  return result
+}
+
+async function startDeploy(projectDir: string, store: Store): Promise<DeployResult> {
   const { app, tunnel } = names(projectDir)
   let stage: "app" | "tunnel" = "app"
   try {
@@ -252,5 +285,6 @@ export function undeployProject(projectDir: string, store: Store): void {
   const { app, tunnel } = names(projectDir)
   removeContainers(app, tunnel)
   store.setMeta("deploy.url", "")
+  store.setMeta(deployErrorKey, "")
   store.log("deploy", "stopped app and tunnel")
 }

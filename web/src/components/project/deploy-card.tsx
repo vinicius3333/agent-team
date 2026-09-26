@@ -10,7 +10,7 @@ export function DeployCard() {
   const { detail, openPanel } = useProjectView()
   const deploy = detail.deploy
   const state = deployState(detail)
-  if (!deploy || (deploy.status === "missing" && state.status === "pending")) return null
+  if (!deploy || (deploy.status === "missing" && state.status === "pending" && !deploy.error)) return null
   const label = state.note || deploy.status
   return (
     <Card className="gap-4">
@@ -30,6 +30,10 @@ export function DeployCard() {
             </a>
             <CopyButton value={deploy.url} label="Copy live URL" />
           </div>
+        ) : deploy.error ? (
+          <p className="text-sm break-words text-muted-foreground">
+            <span className="font-medium text-foreground">Not deployed:</span> {deploy.error}
+          </p>
         ) : (
           <p className="text-sm text-muted-foreground">No public URL yet.</p>
         )}

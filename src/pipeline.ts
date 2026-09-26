@@ -12,7 +12,7 @@ import { hostExecutor, type Executor } from "./harness/executor.ts"
 import { defaultAllowlist, ensureEgressProxy } from "./harness/network.ts"
 import type { Harness, HarnessOutcome } from "./harness/harness.ts"
 import { amendCommit, commitAndRebase, createWorkspace, fastForward, mergeInto, mergeIntoMain, removeWorkspace, type Workspace } from "./harness/workspace.ts"
-import { appLimitsText, deployProject } from "./deploy.ts"
+import { appContainerRunning, appLimitsText, deployErrorKey, deployProject, recordDeployResult } from "./deploy.ts"
 import { missingSecrets, projectSecretStatuses, secretsWaitingText } from "./secrets.ts"
 import { archiveFeedback, readFeedback } from "./feedback.ts"
 import { changeTitle, type GitHub } from "./github.ts"
@@ -591,6 +591,9 @@ export interface PipelineContext {
   renderFavicons?: typeof generateFavicons
   // Replaces the Docker render of the marketing pieces.
   renderMarketing?: typeof renderMarketing
+  // Replace the Docker deploy and the app container check, the same way.
+  deploy?: typeof deployProject
+  appRunning?: (projectDir: string) => boolean
 }
 
 // Why the run stopped, shown on the dashboard. kind "budget" offers to raise the budget.
@@ -1218,7 +1221,8 @@ async function runTasks(context: PipelineContext): Promise<RunOutcome> {
       if (merged !== "completed") return merged
       advanceBaseline(context)
     }
-    const result = await runDeployPhase(context)
+    // On a resume with nothing to build, the phase may be approved while the app has no URL or its container stopped.
+    const result = (await ensureDeployed(context)) ?? (await runDeployPhase(context))
     deployUrl = result.url
     return result.outcome
   }
@@ -1240,7 +1244,9 @@ async function finishDocsOnlyChange(context: PipelineContext, change: Change): P
   store.setPhase("qa", "approved")
   store.setPhase("deploy", "approved")
   context.github.changeFinished(change, "The change needed no code. Its docs are merged into main; the app was not redeployed.")
-  return "completed"
+  // No redeploy for the docs, but an app that was never deployed, or whose container stopped, goes live now.
+  const deployed = await ensureDeployed(context)
+  return deployed?.outcome ?? "completed"
 }
 
 // D3: one merge of the change branch into main, after QA passed. main is merged into the branch first when it moved,
@@ -2165,6 +2171,19 @@ function writeJson(path: string, value: unknown): void {
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`)
 }
 
+// Brings the live app up when deploy is on but there is no URL or the app container stopped, for example an old
+// project whose deploy phase was approved without a URL. Returns null when there was nothing to do.
+export async function ensureDeployed(context: PipelineContext): Promise<{ outcome: RunOutcome; url: string | null } | null> {
+  const { projectDir, config, store } = context
+  if (!config.deploy.enabled) return null
+  const url = store.meta("deploy.url")
+  if (url && (context.appRunning ?? appContainerRunning)(projectDir)) return null
+  // runDeployPhase skips an approved phase that has a URL, so reset it: the URL is gone or its container stopped.
+  if (store.phaseStatus("deploy") === "approved") store.setPhase("deploy", "pending")
+  store.log("deploy", url ? "the app container is not running; deploying again" : "deploy is on but the app has no URL; deploying")
+  return runDeployPhase(context)
+}
+
 // Deploy is the last phase. When the app does not come up, a worker agent gets the failure and fixes
 // the start setup (deploy.json, start script), the fix lands through the normal merge path, and deploy retries.
 async function runDeployPhase(context: PipelineContext): Promise<{ outcome: RunOutcome; url: string | null }> {
@@ -2178,6 +2197,7 @@ async function runDeployPhase(context: PipelineContext): Promise<{ outcome: RunO
   const missing = missingSecrets(projectSecretStatuses(projectDir, store))
   if (missing.length) {
     store.setPhase("deploy", "awaiting_approval")
+    store.setMeta(deployErrorKey, `Waiting for secrets: ${missing.join(", ")}. Enter or skip them in Settings > Secrets.`)
     store.log("gate", `phase "deploy" ${secretsWaitingText}: ${missing.join(", ")}`)
     return { outcome: "awaiting_approval", url: null }
   }
@@ -2198,7 +2218,8 @@ async function runDeployPhase(context: PipelineContext): Promise<{ outcome: RunO
         continue
       }
     }
-    const result = await deployProject(projectDir, store)
+    const result = await (context.deploy ?? deployProject)(projectDir, store)
+    recordDeployResult(projectDir, store, result)
     if (result.url !== null) {
       store.setPhase("deploy", "approved")
       return { outcome: "completed", url: result.url }

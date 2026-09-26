@@ -666,7 +666,8 @@ async function detail(runsDir: string, name: string) {
     worktrees: worktrees.split("\n").filter(Boolean),
     containers,
     liveAgents: live,
-    deploy,
+    // The cached container state is shared across requests, so the last failure is added here, not cached with it.
+    deploy: { ...deploy, error: meta["deploy.error"] || null },
     access: readDemoAccess(meta[demoAccessMetaKey]),
     qa: { round: meta["qa.round"] ? Number(meta["qa.round"]) : null },
     feedback: pendingFeedback(projectDir),

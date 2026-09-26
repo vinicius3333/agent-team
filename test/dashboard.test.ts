@@ -123,6 +123,20 @@ test("operate events do not mark a project active", async (t) => {
   assert.equal((await (await fetch(`${base}/api/projects/live-app`)).json()).active, true)
 })
 
+test("GET /api/projects/{name} returns the last deploy failure, or null", async (t) => {
+  const runsDir = join(scratch, "deploy-error-runs")
+  createProject(join(runsDir, "broken-app"), "brief")
+  createProject(join(runsDir, "fine-app"), "brief")
+  const reason = "The app did not answer on port 4400. Check the start command in deploy.json, then run: agent-team deploy /runs/broken-app."
+  withProjectStore(join(runsDir, "broken-app"), (store) => store.setMeta("deploy.error", reason))
+  const server = startUi({ runsDir, port: 0, auth: { mode: "none" } })
+  await once(server, "listening")
+  t.after(() => server.close())
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  assert.equal((await (await fetch(`${base}/api/projects/broken-app`)).json()).deploy.error, reason)
+  assert.equal((await (await fetch(`${base}/api/projects/fine-app`)).json()).deploy.error, null)
+})
+
 test("POST /api/projects writes role models and POST /roles changes them", async (t) => {
   const runsDir = join(scratch, "roles-runs")
   const server = startUi({ runsDir, port: 0, auth: { mode: "none" }, startRun: () => {} })

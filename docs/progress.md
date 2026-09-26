@@ -200,3 +200,11 @@ Files: `site/src/sections/install-section.tsx`
 > The first step in `#install` is now a `docker run` of `ghcr.io/vinicius3333/agent-team:latest`. It uses the existing code block and copy button, and the three old steps follow as steps 2–4. Lint and build both pass; lint shows one warning in `motion.tsx`, which I didn't touch. I haven't run the command against a real image (none is published yet), so "it starts the dashboard" comes from reading the `Dockerfile`, `docker/entrypoint.sh` and the server code.
 > The command shown on the site:
 > ```
+
+## T013: Deploy when deploy is enabled and show why a deploy failed
+
+Files: `src/deploy.ts`, `src/improve.ts`, `src/pipeline.ts`, `src/ui/server.ts`, `test/dashboard.test.ts`, `test/deploy.test.ts`, `test/sprint.test.ts`, `web/src/api/types.ts`, `web/src/components/project/deploy-card.tsx`
+
+> `ensureDeployed` is in place and the dashboard now shows why a deploy failed. The full verify command passes: typecheck is clean, the 4 test files pass (38 of 38), web lint reports only warnings that were already there, and the web build succeeds. I didn't run the whole `npm test` suite or the clean-install start check. The web build first failed because the web packages weren't installed, so I ran `npm --prefix web ci` and it passed after that.
+> **What changed:**
+> - **Deploy on demand** (`src/pipeline.ts`): `ensureDeployed(context)` does nothing when deploy is off, or when there is a URL and the app container is running. Otherwise it resets an approved deploy phase to pending and calls `runDeployPhase`. Tests can swap in a fake deploy and a fake container check. It runs on the docs-only change path and before the normal deploy step, so a resume with nothing to build also brings the app up.
