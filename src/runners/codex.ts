@@ -4,6 +4,8 @@ import type { AgentRunner, RunRequest, RunResult } from "./types.ts"
 export const codexRunner: AgentRunner = {
   name: "codex",
   async run(request: RunRequest): Promise<RunResult> {
+    const apiKeyEnv = request.codex?.apiKeyEnv
+    if (apiKeyEnv && !process.env[apiKeyEnv]) throw new Error(`Set ${apiKeyEnv} in the environment for the codex base URL.`)
     const result = await request.executor.exec({
       command: "codex",
       args: [
@@ -11,6 +13,7 @@ export const codexRunner: AgentRunner = {
         "--json",
         "--skip-git-repo-check",
         ...sandboxArgs(request),
+        ...providerArgs(request),
         "-C", request.executor.workdir,
         "-m", request.model,
         "-",
@@ -38,6 +41,14 @@ export const codexRunner: AgentRunner = {
 function sandboxArgs(request: RunRequest): string[] {
   if (request.executor.kind === "docker") return ["-s", "danger-full-access"]
   return ["-s", "workspace-write", "-c", "sandbox_workspace_write.network_access=true"]
+}
+
+// A custom OpenAI-compatible endpoint. Codex reads the key from the env var named by env_key, so only the name is passed.
+export function providerArgs(request: Pick<RunRequest, "codex">): string[] {
+  if (!request.codex?.baseUrl) return []
+  const { baseUrl, apiKeyEnv } = request.codex
+  const fields = [`name = "agent-team"`, `base_url = ${JSON.stringify(baseUrl)}`, ...(apiKeyEnv ? [`env_key = ${JSON.stringify(apiKeyEnv)}`] : []), `wire_api = "chat"`]
+  return ["-c", 'model_provider="agent-team"', "-c", `model_providers.agent-team={ ${fields.join(", ")} }`]
 }
 
 // Codex counts cached tokens inside input_tokens, so input plus output is the total.

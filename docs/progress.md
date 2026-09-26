@@ -160,3 +160,75 @@ Files: `contracts/openapi.yaml`, `docs/sprints.md`, `src/operate/findings.ts`, `
 > You can now tick several open items in Operate > Backlog and start them all as one change. The full `verify` command passes: typecheck, 25/25 tests in `test/operate.test.ts`, lint (warnings only, all in files I didn't change) and the web build. I haven't viewed the page in a browser, so the orchestrator's phone and desktop check is the first real look at the layout.
 > **Server**
 > - `src/operate/findings.ts`: new `approveFindings(projectDir, store, ids)`.
+
+## T012: Set a stored session secret in the deploy start command
+
+Files: `deploy.json`, `test/auth.test.ts`, `test/deploy-start.test.ts`, `.env.example`
+
+> The deploy start command now passes a stored session secret to the dashboard, so a login should survive a redeploy once the secret is saved. The last `verify` run passed: typecheck is clean and all 15 tests pass.
+> **Changes**
+> - **`deploy.json`**: the start command sets `AGENT_TEAM_UI_SESSION_SECRET="${AGENT_TEAM_UI_SESSION_SECRET:-}"` just before the `ui` command. The hash step, host list, `ui` command, install and port are unchanged, and the file holds no secret value. When the variable is empty, `src/ui/auth.ts` still makes a random secret, as it did before.
+
+## T008: Remove the old run container and wait for it before resuming
+
+Files: `src/project.ts`, `test/run-container.test.ts`
+
+> Before it starts a new run container, `startRunContainer` now removes the old one and waits until it is gone. The verify command passes: typecheck is clean and all 6 tests in `test/run-container.test.ts` pass.
+> **`src/project.ts`**
+> - `startRunContainer` is now exported. It takes optional deps `{ docker, processAlive, sleep }`, and the defaults are the real ones: `execFileSync("docker", …)`, the existing `processAlive`, and a blocking sleep. The sleep has to block because `startRun` stays synchronous, so its callers don't change.
+
+## T009: Add config for GitHub issue polling and the Codex base URL
+
+Files: `pipeline.example.yaml`, `src/config.ts`, `test/config.test.ts`
+
+> I added both config blocks. `loadConfig` now reads GitHub issue polling settings and an optional custom endpoint for the Codex runner. The last `verify` run passed: typecheck is clean and all 14 tests in `test/config.test.ts` pass. I didn't run the full test suite, but no other test or source file compares the whole publish config, so the new field shouldn't break anything.
+> **`src/config.ts`**
+> - **Issue polling:** `publish.github.issues` defaults to `{ enabled: true, everyMinutes: 10 }`. An `everyMinutes` value below 1, above 1440, or not a number fails with "publish.github.issues.everyMinutes must be a number from 1 to 1440". A non-true/false `enabled` also fails.
+
+## T010: Publish the Docker image to ghcr.io on each release
+
+Files: `README.md`, `.github/workflows/release-image.yml`, `test/release-image.test.ts`
+
+> Each published GitHub release now builds the image and pushes it to `ghcr.io/vinicius3333/agent-team` with the release tag and `latest`. The README shows a one-line `docker run` to start it. The last `verify` run passed: typecheck is clean and all 6 tests pass. No image has been built or run here, so the command is untested against a real container.
+> **`.github/workflows/release-image.yml`**
+> - Runs when a release is published, with `contents: read` and `packages: write`.
+
+## T011: Make docker run the first install step on the marketing site
+
+Files: `site/src/sections/install-section.tsx`
+
+> The first step in `#install` is now a `docker run` of `ghcr.io/vinicius3333/agent-team:latest`. It uses the existing code block and copy button, and the three old steps follow as steps 2–4. Lint and build both pass; lint shows one warning in `motion.tsx`, which I didn't touch. I haven't run the command against a real image (none is published yet), so "it starts the dashboard" comes from reading the `Dockerfile`, `docker/entrypoint.sh` and the server code.
+> The command shown on the site:
+> ```
+
+## T013: Deploy when deploy is enabled and show why a deploy failed
+
+Files: `src/deploy.ts`, `src/improve.ts`, `src/pipeline.ts`, `src/ui/server.ts`, `test/dashboard.test.ts`, `test/deploy.test.ts`, `test/sprint.test.ts`, `web/src/api/types.ts`, `web/src/components/project/deploy-card.tsx`
+
+> `ensureDeployed` is in place and the dashboard now shows why a deploy failed. The full verify command passes: typecheck is clean, the 4 test files pass (38 of 38), web lint reports only warnings that were already there, and the web build succeeds. I didn't run the whole `npm test` suite or the clean-install start check. The web build first failed because the web packages weren't installed, so I ran `npm --prefix web ci` and it passed after that.
+> **What changed:**
+> - **Deploy on demand** (`src/pipeline.ts`): `ensureDeployed(context)` does nothing when deploy is off, or when there is a URL and the app container is running. Otherwise it resets an approved deploy phase to pending and calls `runDeployPhase`. Tests can swap in a fake deploy and a fake container check. It runs on the docs-only change path and before the normal deploy step, so a resume with nothing to build also brings the app up.
+
+## T015: Poll GitHub issues labeled agent-team into the backlog
+
+Files: `src/doctor.ts`, `src/store.ts`, `web/src/api/types.ts`, `web/src/components/operate/next-steps.tsx`, `web/src/components/operate/shared.tsx`, `src/operate/issues.ts`, `test/issues.test.ts`
+
+> I added GitHub issue polling. Open issues labeled `agent-team` now become open backlog items with source `github`, and each issue gets one comment linking to its item. The last verify run passed: typecheck is clean, the tests in `issues`, `doctor` and `sprint` all pass, web lint shows warnings only, and the web build succeeds. I didn't load the page in a browser; the orchestrator's check will be the first real look.
+> **What changed**
+> - **`src/operate/issues.ts` (new):**
+
+## T014: Make sprints and routines run on this project and report what blocks them
+
+Files: `src/cli.ts`, `src/config.ts`, `src/project.ts`, `src/routines.ts`, `src/sprint.ts`, `src/ui/server.ts`, `test/routines.test.ts`, `test/sprint.test.ts`, `web/src/components/operate/routines.tsx`, `web/src/components/operate/sprints.tsx`, `test/fixtures/imported-project/state.json`
+
+> Sprints and routines now run on imported projects, and when something blocks them the CLI and the dashboard say what it is. The full `verify` command passes: typecheck and 44 tests pass, lint shows only warnings in files I didn't touch, and the web build succeeds. I didn't run `sprint --check` or `routines --check` against a real project; only the tests exercise the new code.
+> The last attempt failed only because the web packages weren't installed (`oxlint: not found`). I ran `npm --prefix web ci` and then reapplied the earlier diff.
+> **What changed**
+
+## T016: Let the Codex runner use an OpenAI-compatible base URL
+
+Files: `src/harness/docker.ts`, `src/harness/harness.ts`, `src/harness/network.ts`, `src/lead.ts`, `src/operate/agents.ts`, `src/pipeline.ts`, `src/routines.ts`, `src/runners/codex.ts`, `src/runners/types.ts`, `test/harness.test.ts`, `test/network.test.ts`, `test/runners.test.ts`
+
+> The Codex runner can now use an OpenAI-compatible base URL. The last `verify` run passed: typecheck is clean and all 27 tests pass. I also ran `test/pipeline.test.ts` because I changed `src/pipeline.ts`, and it passes. I didn't run the whole `npm test` suite, and nothing ran against a real Codex, endpoint or Docker.
+> **What changed**
+> - **`RunRequest`** (`src/runners/types.ts`): gains `codex?: { baseUrl; apiKeyEnv }`. It is filled from `config.runners.codex` in `src/lead.ts`, `src/operate/agents.ts` and `src/routines.ts`. For pipeline runs, `runAgent` in `src/pipeline.ts` sets it on the job and `src/harness/harness.ts` copies it into the request. I went through the job because `createHarness` is called from `run.ts` and `doctor.ts`, which are outside the allowed paths.

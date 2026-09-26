@@ -41,6 +41,108 @@
     "change": "C002"
   },
   {
+    "id": "T009",
+    "title": "Add config for GitHub issue polling and the Codex base URL",
+    "story": "US-03",
+    "phase": "foundation",
+    "dependsOn": [],
+    "allowedPaths": [
+      "src/config.ts",
+      "test/config.test.ts",
+      "pipeline.example.yaml"
+    ],
+    "readPaths": [
+      "docs/changes/C003/spec.md",
+      "docs/changes/C003/architecture.md",
+      "docs/adr/0010-poll-labeled-issues-into-the-backlog.md",
+      "docs/adr/0011-custom-endpoint-for-the-codex-runner.md"
+    ],
+    "acceptance": [
+      "loadConfig reads publish.github.issues.enabled (default true) and publish.github.issues.everyMinutes (default 10). everyMinutes outside 1 to 1440 fails with a plain message.",
+      "loadConfig reads an optional runners.codex block with baseUrl and apiKeyEnv, exposed on the config as runners.codex ({ baseUrl, apiKeyEnv } or null when unset).",
+      "A baseUrl that does not parse as an http: or https: URL (for example ftp://x or \"not a url\") fails with \"Set codex base URL to a full http or https URL.\"",
+      "apiKeyEnv must match ^[A-Za-z_][A-Za-z0-9_]*$ (the same rule as operate.posthog.apiKeyEnv), so \"sk-123 abc\" fails with a plain message. apiKeyEnv without baseUrl fails with a plain message.",
+      "A pipeline.yaml with neither block still loads as before.",
+      "pipeline.example.yaml shows both blocks, commented, with apiKeyEnv as an env var name and never a key.",
+      "test/config.test.ts covers the defaults, a valid block, and each failing value above."
+    ],
+    "verify": "npm run typecheck && node --disable-warning=ExperimentalWarning --test test/config.test.ts",
+    "change": "C003"
+  },
+  {
+    "id": "T012",
+    "title": "Set a stored session secret in the deploy start command",
+    "story": "US-02",
+    "phase": "foundation",
+    "dependsOn": [],
+    "allowedPaths": [
+      "deploy.json",
+      ".env.example",
+      "test/deploy-start.test.ts",
+      "test/auth.test.ts"
+    ],
+    "readPaths": [
+      "docs/changes/C003/spec.md",
+      "docs/changes/C003/architecture.md",
+      "docs/adr/0009-session-secret-from-the-deploy-vault.md",
+      "src/ui/auth.ts",
+      "src/secrets.ts",
+      "src/deploy.ts",
+      "src/cli.ts"
+    ],
+    "acceptance": [
+      "deploy.json start adds AGENT_TEAM_UI_SESSION_SECRET=\"${AGENT_TEAM_UI_SESSION_SECRET:-}\" before the ui command. The hash step, the host list, the ui command, install, and port stay the same, and no secret value is in the file.",
+      ".env.example at the repo root lists AGENT_TEAM_UI_SESSION_SECRET= with an empty value and the comment \"# optional: signs dashboard login cookies, so a login survives a redeploy. Make one with: agent-team session-secret\".",
+      "test/deploy-start.test.ts checks that the start command names AGENT_TEAM_UI_SESSION_SECRET and reads it from $AGENT_TEAM_UI_SESSION_SECRET, that deploy.json holds no 43-character base64url string, and that .env.example lists the name with an empty value.",
+      "test/auth.test.ts checks that a session cookie signed by one createAuth with secret S is accepted by a new createAuth with the same S, and refused by one with a different secret. Offline."
+    ],
+    "verify": "npm run typecheck && node --disable-warning=ExperimentalWarning --test test/deploy-start.test.ts test/auth.test.ts",
+    "change": "C003"
+  },
+  {
+    "id": "T013",
+    "title": "Deploy when deploy is enabled and show why a deploy failed",
+    "story": "US-05",
+    "phase": "foundation",
+    "dependsOn": [],
+    "allowedPaths": [
+      "src/pipeline.ts",
+      "src/deploy.ts",
+      "src/improve.ts",
+      "src/ui/server.ts",
+      "test/pipeline.test.ts",
+      "test/deploy.test.ts",
+      "test/sprint.test.ts",
+      "test/dashboard.test.ts",
+      "web/src/api/types.ts",
+      "web/src/components/project/deploy-card.tsx",
+      "web/src/pages/project.tsx"
+    ],
+    "readPaths": [
+      "docs/changes/C003/spec.md",
+      "docs/changes/C003/architecture.md",
+      "contracts/openapi.yaml",
+      "src/secrets.ts",
+      "src/sprint.ts",
+      "src/store.ts",
+      "design/tokens.css"
+    ],
+    "acceptance": [
+      "src/pipeline.ts exports ensureDeployed(context). When deploy.enabled is true and deploy.url is empty or the app container is not running, it resets a deploy phase that is approved with no URL to pending and calls runDeployPhase. Otherwise it does nothing.",
+      "ensureDeployed runs at the start of a sprint in src/improve.ts, before the evaluator judges the live app, and at the end of a run or change whose tasks were all landed already (the docs-only change path and a resume with nothing to build).",
+      "deployProject saves the last failure in meta deploy.error as one sentence plus the next step, for example \"The app did not answer on port 4400. Check the start command in deploy.json, then run: agent-team deploy <projectDir>.\" A good deploy clears it. The secrets wait sets \"Waiting for secrets: X, Y. Enter or skip them in Settings > Secrets.\"",
+      "Both live-app lines in src/improve.ts treat an empty deploy.url as not deployed and add the reason: \"The live app: not deployed (<deploy.error>)\".",
+      "GET /api/projects/{name} returns deploy.error (string or null). web/src/api/types.ts adds error: string | null to the deploy type, and the project page shows it in one line in the deploy area when there is no URL. It wraps at 360px wide with no sideways scroll.",
+      "Tests with a fake deployProject: with the deploy phase approved, no URL, and deploy.enabled true, ensureDeployed deploys once and sets deploy.url; a fake failure sets deploy.error and leaves the URL empty. test/sprint.test.ts checks that the sprint report holds the live URL after a fake deploy and the reason after a fake failure. No Docker."
+    ],
+    "verify": "npm run typecheck && node --disable-warning=ExperimentalWarning --test test/pipeline.test.ts test/deploy.test.ts test/sprint.test.ts test/dashboard.test.ts && npm --prefix web run lint && npm --prefix web run build",
+    "ui": true,
+    "routes": [
+      "/"
+    ],
+    "change": "C003"
+  },
+  {
     "id": "T001",
     "title": "Pass APP_URL to checker app containers and make the login email field optional",
     "story": "US-02",
@@ -555,5 +657,225 @@
     ],
     "verify": "npm run typecheck && node --disable-warning=ExperimentalWarning --test test/operate.test.ts && npm --prefix web run lint && npm --prefix web run build",
     "ui": true
+  },
+  {
+    "id": "T008",
+    "title": "Remove the old run container and wait for it before resuming",
+    "story": "US-05",
+    "phase": "feature",
+    "dependsOn": [],
+    "allowedPaths": [
+      "src/project.ts",
+      "test/run-container.test.ts"
+    ],
+    "readPaths": [
+      "docs/changes/C003/spec.md",
+      "docs/changes/C003/architecture.md",
+      "src/store.ts"
+    ],
+    "acceptance": [
+      "startRunContainer in src/project.ts takes injectable deps ({ docker, processAlive, sleep }) with real defaults, and is exported (or calls an exported replaceRunContainer(name, deps)). runContainerArgs does not change.",
+      "Before docker run it calls docker inspect on the run's container name. When inspect fails, it goes straight to docker run.",
+      "When the container exists and the store's run.pid is alive, it throws \"A run for this project is still going. Stop it before you resume.\" and calls neither rm nor run.",
+      "Otherwise it calls docker rm -f <name>, then polls docker inspect every 250 ms until it fails, for at most 30 seconds, and only then calls docker run. On timeout it throws \"The old run container <name> did not go away. Remove it with: docker rm -f <name>\".",
+      "test/run-container.test.ts has a fake docker that records calls: with a dead run and inspect finding the container for two polls, the order is inspect, rm -f, inspect (found), inspect (found), inspect (missing), run. A second case with a live run throws and records no rm and no run. No real Docker, and sleep is faked."
+    ],
+    "verify": "npm run typecheck && node --disable-warning=ExperimentalWarning --test test/run-container.test.ts",
+    "change": "C003"
+  },
+  {
+    "id": "T014",
+    "title": "Make sprints and routines run on this project and report what blocks them",
+    "story": "US-07",
+    "phase": "foundation",
+    "dependsOn": [
+      "T008",
+      "T013"
+    ],
+    "allowedPaths": [
+      "src/sprint.ts",
+      "src/routines.ts",
+      "src/project.ts",
+      "src/cli.ts",
+      "src/ui/server.ts",
+      "test/sprint.test.ts",
+      "test/routines.test.ts",
+      "test/dashboard.test.ts",
+      "test/fixtures/imported-project/**",
+      "web/src/components/operate/sprints.tsx",
+      "web/src/components/operate/routines.tsx",
+      "src/config.ts",
+      "test/config.test.ts"
+    ],
+    "readPaths": [
+      "docs/changes/C003/spec.md",
+      "docs/changes/C003/architecture.md",
+      "docs/sprints.md",
+      "docs/routines.md",
+      "src/improve.ts",
+      "src/import.ts",
+      "src/pipeline.ts",
+      "src/store.ts",
+      "src/operate/tick.ts",
+      "web/src/api/client.ts"
+    ],
+    "acceptance": [
+      "agent-team sprint <projectDir> --check and agent-team routines <projectDir> --check print the blocker from sprintBlocker and from routineBlocker for each routine in plain words (or \"ready\"), and exit 0.",
+      "buildComplete in src/project.ts accepts an imported project whose phases the importer marked approved.",
+      "syncSprint closes a change stuck in open with no live run as failed, with a reason, so it no longer blocks sprints.",
+      "When the operator starts a sprint or runs a routine and it is blocked, the API answers 409 { \"error\": \"<blocker>\" }, and the Sprints and Routines screens show that error in a toast. No path returns quietly.",
+      "test/sprint.test.ts: from an imported-project fixture with approved findings and deploy.enabled true, sprintBlocker returns null, and a sprint run with fake runners and a fake deploy creates a sprint row that ends in a final state (done or failed), never planning.",
+      "test/routines.test.ts: runRoutine for monitoring with a fake runner records lastRun and adds its findings; a routine with output: sprint adds a sprint row.",
+      "Tests use temp folders and fakes, and call no agents or Docker."
+    ],
+    "verify": "npm run typecheck && node --disable-warning=ExperimentalWarning --test test/sprint.test.ts test/routines.test.ts test/dashboard.test.ts test/run-container.test.ts && npm --prefix web run lint && npm --prefix web run build",
+    "ui": true,
+    "routes": [
+      "/"
+    ],
+    "change": "C003"
+  },
+  {
+    "id": "T010",
+    "title": "Publish the Docker image to ghcr.io on each release",
+    "story": "US-01",
+    "phase": "feature",
+    "dependsOn": [],
+    "allowedPaths": [
+      ".github/workflows/release-image.yml",
+      "test/release-image.test.ts",
+      "README.md"
+    ],
+    "readPaths": [
+      "docs/changes/C003/spec.md",
+      "docs/changes/C003/architecture.md",
+      "docs/adr/0008-publish-the-image-to-ghcr-on-release.md",
+      "Dockerfile",
+      "docker/entrypoint.sh",
+      ".github/workflows/pages.yml"
+    ],
+    "acceptance": [
+      ".github/workflows/release-image.yml runs on release types [published], with permissions contents: read and packages: write.",
+      "Its steps use actions/checkout@v4, docker/setup-qemu-action@v3, docker/setup-buildx-action@v3, docker/login-action@v3 to ghcr.io with github.actor and secrets.GITHUB_TOKEN, docker/metadata-action@v5 for ghcr.io/vinicius3333/agent-team with tags type=raw,value=${{ github.event.release.tag_name }} and type=raw,value=latest, and docker/build-push-action@v6 with context ., file Dockerfile, push true, platforms linux/amd64,linux/arm64. It runs no tests and uses no other secret.",
+      "README.md shows the one-line docker run start with ghcr.io/vinicius3333/agent-team:latest, using flags the Dockerfile and docker/entrypoint.sh actually support (port, data volume, CLAUDE_CODE_OAUTH_TOKEN, login hash).",
+      "New test/release-image.test.ts parses the workflow with yaml and checks that on.release.types holds published, the file names ghcr.io/vinicius3333/agent-team, and the build step uses Dockerfile with push: true. Offline."
+    ],
+    "verify": "npm run typecheck && node --disable-warning=ExperimentalWarning --test test/release-image.test.ts",
+    "change": "C003"
+  },
+  {
+    "id": "T011",
+    "title": "Make docker run the first install step on the marketing site",
+    "story": "US-01",
+    "phase": "feature",
+    "dependsOn": [],
+    "allowedPaths": [
+      "site/src/sections/install-section.tsx"
+    ],
+    "readPaths": [
+      "docs/changes/C003/spec.md",
+      "docs/changes/C003/architecture.md",
+      "Dockerfile",
+      "docker/entrypoint.sh",
+      "site/src/components/code-block.tsx",
+      "site/src/components/copy-button.tsx"
+    ],
+    "acceptance": [
+      "The first step in the #install section is a docker run command with the image ghcr.io/vinicius3333/agent-team:latest, shown with the existing code block and copy button. The flags match what the Dockerfile and docker/entrypoint.sh support, so the command starts the dashboard.",
+      "The existing install steps stay after it, renumbered if needed.",
+      "The section still fits at 360px wide: the command block scrolls inside itself instead of making the page scroll sideways, and the copy button is at least 24x24 px.",
+      "npm --prefix site run lint and npm --prefix site run build pass."
+    ],
+    "verify": "(test -d site/node_modules || npm --prefix site ci) && npm --prefix site run lint && npm --prefix site run build",
+    "change": "C003"
+  },
+  {
+    "id": "T015",
+    "title": "Poll GitHub issues labeled agent-team into the backlog",
+    "story": "US-07",
+    "phase": "feature",
+    "dependsOn": [
+      "T009",
+      "T013"
+    ],
+    "allowedPaths": [
+      "src/operate/issues.ts",
+      "test/issues.test.ts",
+      "src/doctor.ts",
+      "test/doctor.test.ts",
+      "web/src/components/operate/next-steps.tsx",
+      "web/src/components/operate/shared.tsx",
+      "src/store.ts",
+      "test/store.test.ts",
+      "web/src/api/types.ts"
+    ],
+    "readPaths": [
+      "docs/changes/C003/spec.md",
+      "docs/changes/C003/architecture.md",
+      "docs/adr/0010-poll-labeled-issues-into-the-backlog.md",
+      "src/operate/findings.ts",
+      "src/github.ts",
+      "src/sprint.ts",
+      "src/store.ts",
+      "src/config.ts",
+      "web/src/pages/project.tsx"
+    ],
+    "acceptance": [
+      "src/operate/issues.ts exports issueFingerprint(repo, number) returning github-issue:<owner>/<repo>#<number>, syncIssues({ projectDir, store, config, gh, appUrl, now }) with gh an injected (args) => string, and issuesTick({ runsDir, now }).",
+      "syncIssues skips a project when publish.github.enabled is false, publish.github.issues.enabled is false, or the project has no GitHub repo. Otherwise it runs gh issue list --repo <owner>/<repo> --label agent-team --state open --json number,title,body,url --limit 100.",
+      "Each issue with no finding for its fingerprint becomes one open finding through the existing backlog or findings insert: source github, severity medium, title cut to backlogTitleMaxLength, evidence the issue URL, proposal the body cut to 8,000 characters.",
+      "After the finding exists and meta github.issue.<number>.commented is unset, it runs gh issue comment once with \"agent-team added this issue to the backlog of <project> as item #<id>: <link>\", then sets the meta. The link is <APP_URL without trailing slash> plus the real backlog route with #finding-<id>; with no APP_URL the text ends at \"item #<id>.\" with no link.",
+      "It logs \"[issues] <project>: added N, commented N\". A gh failure logs one line and skips that project until the next poll.",
+      "issuesTick polls each project whose meta github.issues.polledAt is older than publish.github.issues.everyMinutes. The long-lived doctor loop calls it next to sprintTick; --once does not poll.",
+      "Each backlog item in Operate > Backlog renders id=\"finding-<id>\" so the comment link lands on it.",
+      "test/issues.test.ts with a fake gh and a temp store: two issues give two findings with the right title, evidence, and fingerprint, and two comments with the link from appUrl; a second sync adds and comments nothing; a comment that throws once leads to exactly one comment on the next sync; no appUrl gives a comment with no URL; publish.github.enabled false makes no gh call."
+    ],
+    "verify": "npm run typecheck && node --disable-warning=ExperimentalWarning --test test/issues.test.ts test/doctor.test.ts && npm --prefix web run lint && npm --prefix web run build",
+    "ui": true,
+    "routes": [
+      "/"
+    ],
+    "change": "C003"
+  },
+  {
+    "id": "T016",
+    "title": "Let the Codex runner use an OpenAI-compatible base URL",
+    "story": "US-03",
+    "phase": "feature",
+    "dependsOn": [
+      "T009",
+      "T014"
+    ],
+    "allowedPaths": [
+      "src/runners/codex.ts",
+      "src/runners/types.ts",
+      "src/harness/harness.ts",
+      "src/harness/docker.ts",
+      "src/harness/network.ts",
+      "src/lead.ts",
+      "src/operate/agents.ts",
+      "src/routines.ts",
+      "test/runners.test.ts",
+      "test/harness.test.ts",
+      "test/network.test.ts",
+      "src/pipeline.ts",
+      "test/pipeline.test.ts"
+    ],
+    "readPaths": [
+      "docs/changes/C003/spec.md",
+      "docs/changes/C003/architecture.md",
+      "docs/adr/0011-custom-endpoint-for-the-codex-runner.md",
+      "src/config.ts",
+      "src/runners/claude.ts"
+    ],
+    "acceptance": [
+      "RunRequest gains codex?: { baseUrl: string; apiKeyEnv: string | null }, filled from config.runners.codex wherever a RunRequest is built (harness, lead, operate agents, routines).",
+      "With baseUrl set, the Codex runner adds -c model_provider=\"agent-team\" and -c model_providers.agent-team={ name = \"agent-team\", base_url = \"<baseUrl>\", env_key = \"<apiKeyEnv>\", wire_api = \"chat\" }. The key value never goes in the args. Without baseUrl the args are the same as today.",
+      "When apiKeyEnv is named but unset in the environment, the run fails before the agent starts with \"Set <NAME> in the environment for the codex base URL.\"",
+      "In the Docker sandbox a Codex run with apiKeyEnv passes a bare -e <NAME>, like CLAUDE_CODE_OAUTH_TOKEN. The network allowlist adds the baseUrl host and port for the run.",
+      "test/runners.test.ts with a fake executor: with baseUrl and apiKeyEnv the args hold the provider config with that URL and env name, and neither the args, the transcript, nor the events hold the key value; without baseUrl the args equal today's. test/harness.test.ts or test/network.test.ts checks the bare -e flag and the allowed host. Offline, no real agents or Docker."
+    ],
+    "verify": "npm run typecheck && node --disable-warning=ExperimentalWarning --test test/runners.test.ts test/harness.test.ts test/network.test.ts test/routines.test.ts",
+    "change": "C003"
   }
 ]

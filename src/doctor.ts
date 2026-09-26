@@ -17,6 +17,7 @@ import { createExecutor, landingBranch, landTasksFile, runAgent, type PipelineCo
 import { cliPath, installDir as liveInstallDir, listProjects, openProjectStore, processAlive, retryTask, runAlive, runLogPath, startRun, withProjectStore } from "./project.ts"
 import { operateTick } from "./operate/tick.ts"
 import { sprintTick } from "./sprint.ts"
+import { issuesTick } from "./operate/issues.ts"
 import { decideReplan } from "./replan.ts"
 import type { Store } from "./store.ts"
 import { loadTasks, widenTask } from "./tasks.ts"
@@ -1096,6 +1097,7 @@ export async function runDoctor(options: DoctorOptions & { once?: boolean }): Pr
       if (!options.once) {
         await operateTick({ runsDir }).catch((error) => console.error(`[operate] ${errorText(error)}`))
         sprintTick({ runsDir })
+        issuesTick({ runsDir })
       }
       if (options.once || options.signal?.aborted) return
       await sleep(tickMs, undefined, { signal: options.signal }).catch(() => {})

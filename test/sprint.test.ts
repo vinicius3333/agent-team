@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { once } from "node:events"
 import type { AddressInfo } from "node:net"
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { after, test } from "node:test"
@@ -9,6 +9,9 @@ import { defaultSprintConfig, loadConfig, type PipelineConfig } from "../src/con
 import { changeRequestMaxLength, createProject, ProjectError, withProjectStore } from "../src/project.ts"
 import { addBacklogItem, parseEvaluation, parseSprintPlan, sprintBlocker, sprintRequest, sprintSpend, sprintTick, syncSprint } from "../src/sprint.ts"
 import { openStore, type Store } from "../src/store.ts"
+import type { DeployResult } from "../src/deploy.ts"
+import { liveAppLine, startSprint } from "../src/improve.ts"
+import { ensureDeployed, type PipelineContext } from "../src/pipeline.ts"
 import { startUi } from "../src/ui/server.ts"
 
 const scratch = mkdtempSync(join(tmpdir(), "agent-team-sprint-"))
@@ -34,6 +37,39 @@ function spend(store: Store, usd: number): void {
 
 const config = { sprints: { ...defaultSprintConfig, enabled: true }, deploy: { enabled: true } } as PipelineConfig
 const day = 24 * 60 * 60_000
+
+// What a sprint does before the evaluator runs: deploy when the app has no URL, then report the live app.
+async function sprintReportAfterDeploy(name: string, result: DeployResult): Promise<string> {
+  const projectDir = join(scratch, name)
+  createProject(projectDir, "brief")
+  const projectConfig = loadConfig(join(projectDir, "pipeline.yaml"))
+  projectConfig.deploy.enabled = true
+  mkdirSync(join(projectDir, ".agent-team"), { recursive: true })
+  const store = openStore(join(projectDir, ".agent-team", "state.db"))
+  store.setPhase("deploy", "approved")
+  const context = { projectDir, config: projectConfig, store, signal: new AbortController().signal, deploy: async () => result, appRunning: () => false } as unknown as PipelineContext
+  await ensureDeployed(context)
+  return liveAppLine(store)
+}
+
+test("the sprint report holds the live URL after a deploy", async () => {
+  const line = await sprintReportAfterDeploy("sprint-deployed", { url: "https://sprint.trycloudflare.com", error: null })
+  assert.equal(line, "- The live app: https://sprint.trycloudflare.com.")
+})
+
+test("the sprint report holds the reason after a failed deploy", async () => {
+  // A tunnel failure pauses the deploy with no worker fix, so the test needs no runner.
+  const line = await sprintReportAfterDeploy("sprint-deploy-failed", { url: null, error: "tunnel URL https://x.trycloudflare.com did not answer", stage: "tunnel" })
+  assert.match(line, /^- The live app: not deployed \(The app runs, but its public URL did not answer: .+, then run: agent-team deploy .+\)\.$/)
+})
+
+test("the sprint report treats an empty deploy.url as not deployed", () => {
+  const store = freshStore()
+  store.setMeta("deploy.url", "")
+  assert.equal(liveAppLine(store), "- The live app: not deployed.")
+  store.setMeta("deploy.error", "Waiting for secrets: STRIPE_KEY. Enter or skip them in Settings > Secrets.")
+  assert.equal(liveAppLine(store), "- The live app: not deployed (Waiting for secrets: STRIPE_KEY. Enter or skip them in Settings > Secrets).")
+})
 
 function evaluationJson(scores: number[], gaps: unknown[]) {
   const names = ["brief_coverage", "functionality", "monetization", "ux_and_branding", "quality_and_reliability"]
@@ -137,6 +173,50 @@ test("syncSprint closes a building sprint when its change merges, and a dead pla
   assert.equal(closed.status, "done")
   assert.equal(closed.costUsd, 4)
   assert.ok(closed.finishedAt)
+  store.close()
+})
+
+test("syncSprint closes a change stuck open with no live run as failed, so sprints can start again", () => {
+  const store = finishedStore()
+  const building = store.startSprint(0)
+  store.openChange({ id: "C001", request: "r", branch: "change/C001-r", baseCommit: "abc" }, ["plan", "qa", "deploy"])
+  store.updateSprint(building.number, { status: "building", changeId: "C001" })
+  const now = Date.now()
+  syncSprint(store, now)
+  assert.equal(store.change("C001")!.status, "open", "a change just opened waits for its run")
+  syncSprint(store, now + 2 * 60 * 60_000)
+  assert.equal(store.change("C001")!.status, "failed")
+  assert.ok(store.recentEvents(10).some((event) => /C001 was still open with no run in progress/.test(event.message)), "the close has a reason")
+  assert.equal(store.sprint(building.number)!.status, "abandoned")
+  assert.doesNotMatch(sprintBlocker(store, config, { now: now + 2 * 60 * 60_000, early: true }) ?? "", /still open|build is not finished/)
+  store.close()
+})
+
+test("an imported project with approved findings starts a sprint that ends in a final state", async () => {
+  const projectDir = join(scratch, "imported")
+  createProject(projectDir, "brief")
+  const fixture = JSON.parse(readFileSync(new URL("./fixtures/imported-project/state.json", import.meta.url), "utf8"))
+  const projectConfig = loadConfig(join(projectDir, "pipeline.yaml"))
+  projectConfig.deploy.enabled = true
+  projectConfig.sprints.enabled = true
+  projectConfig.harness.isolation = "none"
+  mkdirSync(join(projectDir, ".agent-team"), { recursive: true })
+  const store = openStore(join(projectDir, ".agent-team", "state.db"))
+  for (const [phase, status] of Object.entries(fixture.phases)) store.setPhase(phase, status as "approved")
+  for (const [key, value] of Object.entries(fixture.meta)) store.setMeta(key, value as string)
+  for (const finding of fixture.findings) store.setFindingStatus(store.addFinding(finding).id, "approved")
+  assert.equal(sprintBlocker(store, projectConfig), null)
+
+  const deploys: string[] = []
+  const failed = { status: "failed", summary: "fake runner: no reply", costUsd: 0, tokens: null, durationMs: 1, exitCode: 1, diagnostics: "" }
+  const harness = { run: async () => ({ result: failed, candidate: null, failureClass: "agent_failure" }) }
+  const deploy = async () => (deploys.push("deploy"), { url: "https://imported.trycloudflare.com", error: null })
+  const context = { projectDir, config: projectConfig, store, signal: new AbortController().signal, harness, deploy, appRunning: () => false } as unknown as PipelineContext
+  await startSprint(context, { early: true })
+  const sprint = store.sprints(1)[0]
+  assert.ok(sprint, "the sprint has a row")
+  assert.ok(["done", "failed"].includes(sprint.status), `the sprint ended ${sprint.status}`)
+  assert.deepEqual(deploys, ["deploy"], "the sprint deploys the app first")
   store.close()
 })
 

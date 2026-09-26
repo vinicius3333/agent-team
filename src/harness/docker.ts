@@ -84,6 +84,11 @@ function copyCredentials(credentials: CredentialName[]): { dir: string; mounts: 
   return { dir, mounts, env, rotating }
 }
 
+// The key for a custom codex endpoint, passed by name like CLAUDE_CODE_OAUTH_TOKEN so the value never appears in argv.
+export function codexKeyEnvArgs(credentials: CredentialName[], apiKeyEnv: string | null | undefined): string[] {
+  return credentials.includes("codex") && apiKeyEnv ? ["-e", apiKeyEnv] : []
+}
+
 function writeBackRotatedTokens(rotating: RotatingFile[]): void {
   for (const file of rotating) {
     if (!existsSync(file.copy)) continue
@@ -104,8 +109,11 @@ export function createDockerExecutor(options: {
   readOnlyPaths?: string[]
   // Joins this network and routes traffic through the proxy; absent = Docker's default network.
   network?: { name: string; proxyUrl: string }
+  // Name of the env var that holds the key for runners.codex.baseUrl.
+  codexApiKeyEnv?: string | null
 }): Executor {
-  const { dir: credentialsDir, mounts, env: credentialEnv, rotating } = copyCredentials(options.credentials)
+  const { dir: credentialsDir, mounts, env: copiedEnv, rotating } = copyCredentials(options.credentials)
+  const credentialEnv = [...copiedEnv, ...codexKeyEnvArgs(options.credentials, options.codexApiKeyEnv)]
   let execCount = 0
 
   return {

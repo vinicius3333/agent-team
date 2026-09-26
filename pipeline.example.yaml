@@ -82,6 +82,14 @@ publish:
     owner: null        # user or org; null = the logged-in gh account
     visibility: private
     name: null         # null = project folder name
+    # issues:
+    #   enabled: true      # turn open issues labeled agent-team into backlog items
+    #   everyMinutes: 10   # 1 to 1440
+
+# runners:
+#   codex:
+#     baseUrl: https://openrouter.ai/api/v1   # an OpenAI-compatible endpoint; unset = the normal OpenAI endpoint
+#     apiKeyEnv: OPENROUTER_API_KEY           # name of the env var that holds the key; never the key
 
 roles:
   pm:        { runner: claude, model: opus }

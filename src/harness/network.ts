@@ -43,6 +43,13 @@ export const defaultAllowlist = [
   "images.unsplash.com",
 ]
 
+// The allowlist entry for runners.codex.baseUrl: the host, plus the port when the URL names one.
+export function codexEndpointHosts(codex: { baseUrl: string } | null | undefined): string[] {
+  if (!codex?.baseUrl) return []
+  const url = new URL(codex.baseUrl)
+  return [url.port ? `${url.hostname}:${url.port}` : url.hostname]
+}
+
 async function docker(args: string[]): Promise<string> {
   const { stdout } = await execFileAsync("docker", args, { maxBuffer: 16 * 1024 * 1024 })
   return stdout.trim()

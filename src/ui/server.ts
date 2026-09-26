@@ -666,7 +666,8 @@ async function detail(runsDir: string, name: string) {
     worktrees: worktrees.split("\n").filter(Boolean),
     containers,
     liveAgents: live,
-    deploy,
+    // The cached container state is shared across requests, so the last failure is added here, not cached with it.
+    deploy: { ...deploy, error: meta["deploy.error"] || null },
     access: readDemoAccess(meta[demoAccessMetaKey]),
     qa: { round: meta["qa.round"] ? Number(meta["qa.round"]) : null },
     feedback: pendingFeedback(projectDir),
@@ -1150,7 +1151,7 @@ export function startUi(options: UiOptions) {
     }
     if (parts[3] === "sprints" && parts[4] === "start" && parts.length === 5) {
       const config = loadConfig(join(projectDir, "pipeline.yaml"))
-      const blocker = withProjectStore(projectDir, (store) => sprintBlocker(store, config, { early: true }))
+      const blocker = withProjectStore(projectDir, (store) => (syncSprint(store), sprintBlocker(store, config, { early: true })))
       if (blocker) return send(response, 409, { error: `No sprint can start: ${blocker}.` })
       launchRun(projectDir, runLogPath(runsDir, name), ["sprint", "--now"])
       return send(response, 202, { started: true })

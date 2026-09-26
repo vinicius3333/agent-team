@@ -6,7 +6,7 @@ import { parseArgs } from "node:util"
 import { insightAgents, loadConfig, planningPhases, type InsightAgent } from "./config.ts"
 import { applyGitIdentity, readGitIdentity } from "./git-identity.ts"
 import { runInsightAgent } from "./operate/agents.ts"
-import { routinesSnapshot, runRoutine } from "./routines.ts"
+import { routineBlocker, routinesSnapshot, runRoutine } from "./routines.ts"
 import type { Finding } from "./store.ts"
 import { runDoctor } from "./doctor.ts"
 import { currentTunnelUrl, deployProject, undeployProject } from "./deploy.ts"
@@ -16,7 +16,7 @@ import { compareResults, defaultEvalsDir, evalTiers, formatComparison, hasRegres
 import { approvePhase, createProject, openChange, openProjectStore, retryTask, withProjectStore } from "./project.ts"
 import { importProject } from "./import.ts"
 import { judgeProjectDesign, runProject, runSprint } from "./run.ts"
-import { addBacklogItem } from "./sprint.ts"
+import { addBacklogItem, sprintBlocker, syncSprint } from "./sprint.ts"
 import { generateSessionSecret, hashPassword, passwordMinLength } from "./ui/auth.ts"
 import { listTemplates, templateTargets, type TemplateTarget } from "./templates.ts"
 import { previewHosts } from "./ui/hosts.ts"
@@ -34,10 +34,10 @@ const usage = `Usage:
   agent-team reset-cooldowns <projectDir>
   agent-team deploy <projectDir>
   agent-team operate <projectDir> [--agent monitoring|analytics|research]
-  agent-team routines <projectDir> [--run <id>]
+  agent-team routines <projectDir> [--run <id>] [--check]   (--check prints what blocks each routine)
   agent-team findings <projectDir>
   agent-team backlog <projectDir> [--add <title> [--detail <text>] [--severity high|medium|low]]
-  agent-team sprint <projectDir> [--now]   (--now skips the wait for the next due time)
+  agent-team sprint <projectDir> [--now] [--check]   (--now skips the wait for the next due time; --check prints what blocks a sprint)
   agent-team sprints <projectDir>
   agent-team undeploy <projectDir>
   agent-team ui <runsDir> [--port 4400] [--host 127.0.0.1] [--insecure-no-auth]
@@ -315,6 +315,29 @@ async function routines(projectDir: string, id: string | undefined): Promise<voi
   }
 }
 
+// Prints what keeps a sprint from starting, in plain words, without starting one.
+function sprintCheck(projectDir: string): void {
+  const config = loadConfig(join(projectDir, "pipeline.yaml"))
+  const [scheduled, now] = withProjectStore(projectDir, (store) => {
+    syncSprint(store)
+    return [sprintBlocker(store, config), sprintBlocker(store, config, { early: true })]
+  })
+  console.log(`Scheduled sprint: ${scheduled ?? "ready"}`)
+  console.log(`Start sprint now: ${now ?? "ready"}`)
+}
+
+// Prints what keeps each routine from running, on schedule and by hand, without running one.
+function routinesCheck(projectDir: string): void {
+  const config = loadConfig(join(projectDir, "pipeline.yaml"))
+  withProjectStore(projectDir, (store) => {
+    for (const routine of config.routines.list) {
+      const scheduled = routineBlocker(store, config, routine) ?? "ready"
+      const manual = routineBlocker(store, config, routine, { manual: true }) ?? "ready"
+      console.log(`${routine.id}: scheduled: ${scheduled}; run now: ${manual}`)
+    }
+  })
+}
+
 function findings(projectDir: string): void {
   const open = withProjectStore(projectDir, (store) => store.listFindings({ status: "open" }))
   if (!open.length) return console.log("The backlog is empty.")
@@ -340,7 +363,7 @@ function sprints(projectDir: string): void {
 
 async function main(): Promise<void> {
   if (process.argv[2] === "eval") return evalCommand()
-  const { positionals, values } = parseArgs({ allowPositionals: true, options: { brief: { type: "string" }, request: { type: "string" }, template: { type: "string" }, target: { type: "string" }, port: { type: "string" }, host: { type: "string" }, once: { type: "boolean" }, "insecure-no-auth": { type: "boolean" }, channel: { type: "string" }, agent: { type: "string" }, from: { type: "string" }, url: { type: "string", multiple: true }, github: { type: "string" }, gate: { type: "string", multiple: true }, choice: { type: "string" }, add: { type: "string" }, detail: { type: "string" }, severity: { type: "string" }, now: { type: "boolean" }, run: { type: "string" } } })
+  const { positionals, values } = parseArgs({ allowPositionals: true, options: { brief: { type: "string" }, request: { type: "string" }, template: { type: "string" }, target: { type: "string" }, port: { type: "string" }, host: { type: "string" }, once: { type: "boolean" }, "insecure-no-auth": { type: "boolean" }, channel: { type: "string" }, agent: { type: "string" }, from: { type: "string" }, url: { type: "string", multiple: true }, github: { type: "string" }, gate: { type: "string", multiple: true }, choice: { type: "string" }, add: { type: "string" }, detail: { type: "string" }, severity: { type: "string" }, now: { type: "boolean" }, run: { type: "string" }, check: { type: "boolean" } } })
   const [command, target, extra] = positionals
   if (command === "hash-password") return printPasswordHash()
   if (command === "preview-hosts") return console.log(previewHosts(process.env).join(","))
@@ -360,6 +383,7 @@ async function main(): Promise<void> {
     case "run":
       return run(projectDir)
     case "sprint":
+      if (values.check) return sprintCheck(projectDir)
       return run(projectDir, { early: values.now ?? false })
     case "sprints":
       return sprints(projectDir)
@@ -380,6 +404,7 @@ async function main(): Promise<void> {
     case "operate":
       return operate(projectDir, values.agent)
     case "routines":
+      if (values.check) return routinesCheck(projectDir)
       return routines(projectDir, values.run)
     case "findings":
       return findings(projectDir)

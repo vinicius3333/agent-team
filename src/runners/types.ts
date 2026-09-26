@@ -14,6 +14,8 @@ export interface RunRequest {
   timeoutMs: number
   transcriptPath: string
   signal?: AbortSignal
+  // An OpenAI-compatible endpoint for the codex runner; apiKeyEnv names the env var that holds the key.
+  codex?: { baseUrl: string; apiKeyEnv: string | null }
 }
 
 export interface RunResult {

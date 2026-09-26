@@ -286,7 +286,7 @@ export function OperateSprints() {
               <Plus /> Add to backlog
             </Link>
           </Button>
-          <Button onClick={start} disabled={!snapshot || starting || snapshot.startBlocker !== null} title={snapshot?.startBlocker ?? undefined} className="h-11 sm:h-9">
+          <Button onClick={start} disabled={!snapshot || starting} title={snapshot?.startBlocker ?? undefined} className="h-11 sm:h-9">
             {starting ? <Loader2 className="animate-spin" /> : <Play />} Start sprint now
           </Button>
         </div>

@@ -18,6 +18,29 @@ All roles default to Claude. The illustrator uses Codex, because it generates th
 - Docker (agent sandbox, QA screenshots, and the live preview)
 - The `gh` CLI, logged in with the `project` scope, if you want GitHub publishing
 
+## Start with Docker
+
+Each GitHub release publishes the image `ghcr.io/vinicius3333/agent-team` for amd64 and arm64, tagged with the release and `latest`.
+
+1. Put the secrets in `~/.config/agent-team/doctor.env` (mode 600). The container reads this file at start, so it must exist:
+
+   ```sh
+   CLAUDE_CODE_OAUTH_TOKEN=...
+   AGENT_TEAM_UI_PASSWORD_HASH='scrypt$32768$8$1$...'
+   AGENT_TEAM_UI_SESSION_SECRET='...'
+   ```
+
+   Get the token from `claude setup-token`. Make the hash with `docker run --rm -it --entrypoint node ghcr.io/vinicius3333/agent-team:latest src/cli.ts hash-password`, and the secret with `session-secret` in the same way. Use single quotes: the hash contains `$`.
+2. Start the dashboard:
+
+   ```sh
+   docker run -d --name agent-team -p 4400:4400 -v agent-team-home:/home/opc -v ~/.config/agent-team:/home/opc/.config/agent-team:ro ghcr.io/vinicius3333/agent-team:latest node --disable-warning=ExperimentalWarning src/cli.ts ui /home/opc/agent-team-runs --host 0.0.0.0 --port 4400
+   ```
+
+3. Open `http://localhost:4400` and log in.
+
+The `agent-team-home` volume keeps your projects (`/home/opc/agent-team-runs`) across restarts. `--host 0.0.0.0` makes the port reachable from outside the container; the server allows that only with a login. To use the Docker sandbox and live previews, also mount the host's Docker socket (`-v /var/run/docker.sock:/var/run/docker.sock`); `docker-compose.yml` shows the full host setup. The image holds no tokens.
+
 ## Install
 
 ```sh

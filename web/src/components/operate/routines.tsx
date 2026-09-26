@@ -107,7 +107,7 @@ function RoutineCard({ routine, onEdit, onToggle, onRun }: { routine: Routine; o
             </Badge>
           ))}
           <Badge variant="outline" className="font-normal">
-            {outputLabels[routine.output]}
+            {outputLabels[routine.output] ?? "Sprint"}
           </Badge>
           {routine.builtIn && (
             <Badge variant="outline" className="font-normal text-muted-foreground">
@@ -132,7 +132,7 @@ function RoutineCard({ routine, onEdit, onToggle, onRun }: { routine: Routine; o
             <LastRun routine={routine} />
           </div>
           <span className="tabular-nums text-muted-foreground">{routine.lastRun?.costUsd != null ? formatCost(routine.lastRun.costUsd) : "—"}</span>
-          <Button variant="outline" size="sm" className="h-11 sm:h-8" disabled={routine.runBlocker !== null} title={routine.runBlocker ?? undefined} onClick={onRun}>
+          <Button variant="outline" size="sm" className="h-11 sm:h-8" disabled={routine.running} title={routine.runBlocker ?? undefined} onClick={onRun}>
             <Play /> Run now
           </Button>
         </div>

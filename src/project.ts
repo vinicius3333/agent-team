@@ -280,11 +280,14 @@ export function changePath(id: string, file: string): string {
 }
 
 // Done means the last run got through QA and deploy (deploy counts as approved when it is off) with every task merged.
-// An imported project counts as done with no tasks, once its import finished.
+// An imported project counts as done once the importer approved its phases (import.done, or an approved baseline):
+// nothing was built, and the deploy happens with the first change or sprint, so its deploy phase does not count.
 export function buildComplete(store: Store): boolean {
-  if (!["plan", "qa", "deploy"].every((phase) => store.phaseStatus(phase) === "approved")) return false
   const tasks = store.tasks()
-  return (tasks.length > 0 || store.meta(importDoneKey) === "1") && tasks.every((task) => task.status === "merged")
+  if (!tasks.every((task) => task.status === "merged")) return false
+  const approved = (phases: string[]) => phases.every((phase) => store.phaseStatus(phase) === "approved")
+  if (store.meta(importDoneKey) === "1" || store.phaseStatus("baseline") === "approved") return approved(["plan", "qa"])
+  return tasks.length > 0 && approved(["plan", "qa", "deploy"])
 }
 
 function changeSlug(request: string): string {
@@ -419,13 +422,49 @@ export function runContainerArgs(options: RunContainerOptions): string[] {
 
 // Each run gets its own container, so a redeploy of the dashboard and the doctor does not kill it.
 // The run keeps the image it started with until it finishes.
-function startRunContainer(projectDir: string, logPath: string, image: string, command: RunCommand): number {
-  const docker = (args: string[]) => execFileSync("docker", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim()
-  const name = runContainerName(projectDir)
+export interface RunContainerDeps {
+  docker: (args: string[]) => string
+  processAlive: (pid: number) => boolean
+  sleep: (ms: number) => void
+}
+
+const realRunContainerDeps: RunContainerDeps = {
+  docker: (args) => execFileSync("docker", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim(),
+  processAlive,
+  sleep: (ms) => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms) },
+}
+
+const containerGonePollMs = 250
+const containerGoneTimeoutMs = 30_000
+
+function containerExists(docker: RunContainerDeps["docker"], name: string): boolean {
   try {
-    // Only a stopped container goes; without --force, docker refuses to remove a running one.
-    docker(["rm", name])
+    docker(["inspect", "--format", "{{.State.Pid}}", name])
+    return true
+  } catch {
+    return false
+  }
+}
+
+// A container left by an earlier run (still running, or still being removed by --rm) would clash with the new name,
+// so it goes first, and docker run waits until docker no longer finds it.
+export function replaceRunContainer(name: string, runPid: number, deps: RunContainerDeps): void {
+  if (!containerExists(deps.docker, name)) return
+  if (deps.processAlive(runPid)) throw new Error("A run for this project is still going. Stop it before you resume.")
+  try {
+    deps.docker(["rm", "-f", name])
   } catch {}
+  for (let waited = 0; waited < containerGoneTimeoutMs; waited += containerGonePollMs) {
+    if (!containerExists(deps.docker, name)) return
+    deps.sleep(containerGonePollMs)
+  }
+  throw new Error(`The old run container ${name} did not go away. Remove it with: docker rm -f ${name}`)
+}
+
+export function startRunContainer(projectDir: string, logPath: string, image: string, command: RunCommand, deps: RunContainerDeps = realRunContainerDeps): number {
+  const { docker } = deps
+  const name = runContainerName(projectDir)
+  replaceRunContainer(name, withProjectStore(projectDir, (store) => Number(store.meta("run.pid"))), deps)
   docker(runContainerArgs({ image, command, projectDir, logPath, home: process.env.HOME ?? "/home/opc", uid: process.getuid!(), gid: process.getgid!(), groups: process.getgroups!() }))
   const pid = Number(docker(["inspect", "--format", "{{.State.Pid}}", name]))
   // Recorded now so a second request sees the run before it writes its own pid.

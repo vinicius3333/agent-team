@@ -1,5 +1,5 @@
 {
   "install": "npm ci && npm run build:ui",
-  "start": "AGENT_TEAM_UI_PASSWORD_HASH=\"$(printf %s \"$DEMO_PASSWORD\" | node --disable-warning=ExperimentalWarning src/cli.ts hash-password)\" AGENT_TEAM_UI_HOSTS=\"$(node --disable-warning=ExperimentalWarning src/cli.ts preview-hosts)\" node --disable-warning=ExperimentalWarning src/cli.ts ui .agent-team-runs --host 0.0.0.0 --port \"${PORT:-4400}\"",
+  "start": "AGENT_TEAM_UI_PASSWORD_HASH=\"$(printf %s \"$DEMO_PASSWORD\" | node --disable-warning=ExperimentalWarning src/cli.ts hash-password)\" AGENT_TEAM_UI_HOSTS=\"$(node --disable-warning=ExperimentalWarning src/cli.ts preview-hosts)\" AGENT_TEAM_UI_SESSION_SECRET=\"${AGENT_TEAM_UI_SESSION_SECRET:-}\" node --disable-warning=ExperimentalWarning src/cli.ts ui .agent-team-runs --host 0.0.0.0 --port \"${PORT:-4400}\"",
   "port": 4400
 }
