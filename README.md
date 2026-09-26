@@ -421,7 +421,7 @@ The same stop (same kind and first line, ignoring times and amounts) never gets 
 
 Incidents live in `<project>/.agent-team/incidents/<id>.json`. The dashboard lists them on the Incidents page and shows an open one as a banner on the project page.
 
-On the agent-team repo, the doctor opens one issue per incident (label `incident`), comments when it diagnoses, opens a pull request, resumes, sees the run pass the failing point, merges, or gives up, and closes the issue when the project's run completes.
+On the agent-team repo, the doctor opens one issue per incident (label `incident`), comments when it diagnoses, opens a pull request, resumes, sees the run pass the failing point, merges, or gives up, and closes the issue once the live install runs the merged fix. An incident without a pull request closes when the project's run completes.
 
 ### Settings
 
