@@ -38,6 +38,12 @@ The backlog is the list of open findings. Four sources feed it:
 
 An item with the same source and title as an open item updates that item instead of adding a copy.
 
+### Start picked items without a sprint
+
+You do not have to wait for the next sprint. On the Backlog view, tick the open items you approve, then press **Start development** in the bar that shows "N selected". The dashboard opens one [change request](change-requests.md) for all of them and starts the run. The request lists each item's title and proposal, then a `Backlog items:` trail, so the change keeps its link to the backlog. Each item turns `approved` with the change id.
+
+You can pick up to 20 items at once. The button is off while a run is active. If any item is unknown or no longer open, or a change is already open, nothing changes. The API route is `POST /api/projects/:name/findings/approve` with `{ "ids": [...] }`.
+
 ### When a sprint starts
 
 The doctor checks every project once a minute. It starts a sprint when all of these hold:

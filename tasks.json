@@ -518,5 +518,42 @@
       "test/doctor.test.ts covers: a stop that repeats after a resume-only fix (escalates with no new attempt), a stop that repeats with the same signature (escalates), and a stop that repeats after a different code fix (tries again). It uses temp folders and fakes and does not call agents or GitHub."
     ],
     "verify": "npm run typecheck && node --disable-warning=ExperimentalWarning --test test/doctor.test.ts"
+  },
+  {
+    "id": "L011",
+    "title": "Select backlog items and start building them as one change",
+    "story": "As the project owner, I want to tick the backlog items I approve and start building them in one step, so I do not have to approve them one by one or wait for the next sprint.",
+    "phase": "feature",
+    "dependsOn": [],
+    "allowedPaths": [
+      "src/operate/findings.ts",
+      "src/ui/server.ts",
+      "test/operate.test.ts",
+      "web/src/api/client.ts",
+      "web/src/components/operate/next-steps.tsx",
+      "web/src/components/operate/shared.tsx",
+      "contracts/openapi.yaml",
+      "docs/sprints.md"
+    ],
+    "readPaths": [
+      "src/sprint.ts",
+      "src/project.ts",
+      "src/store.ts",
+      "web/src/components/ui/checkbox.tsx",
+      "web/src/api/types.ts"
+    ],
+    "acceptance": [
+      "src/operate/findings.ts exports approveFindings(projectDir, store, ids) that checks every id first (404 for an unknown id, 409 for an item that is not open, 400 for an empty list or more than 20 ids) and then opens one change through openChange.",
+      "The change request lists each item's title and proposal, then a 'Backlog items:' trail with '- #<id> [<source>, <severity>] <title>'. The request stays within changeRequestMaxLength and trims the item text, not the trail.",
+      "After the change opens, every picked item has status 'approved' and the change id, and the store logs '[operate] findings <ids> approved as change <id>'. If openChange throws (a run is alive, a change is open, the build is not done), no item changes status.",
+      "POST /api/projects/:name/findings/approve with { ids: number[] } answers 201 { changeId, branch, started } and starts the run like the single-item route. It answers 409 when a run is alive and { error } with a 4xx status for bad input. The existing single-item route still works.",
+      "In Operate > Backlog, each open item row has a checkbox with an accessible label. Ticking it does not open the detail panel; clicking the row still does. Dismissed items have no checkbox.",
+      "When one or more items are ticked, a bar shows 'N selected' with 'Start development' and 'Clear'. 'Start development' calls the new route, shows a toast with the change id, clears the selection, and refreshes the list. It is disabled while a run is active, with the same note the detail panel shows.",
+      "The layout works at 360px wide: the bar stays visible (sticky at the bottom on mobile) and the checkboxes are at least 44px tap targets.",
+      "api.approveFindings is added to web/src/api/client.ts, the route is added to contracts/openapi.yaml, and docs/sprints.md explains that you can start picked items without waiting for a sprint.",
+      "test/operate.test.ts covers: several ids open one change and approve all of them; an unknown or dismissed id rejects the call and changes nothing; openChange refusing leaves all items open; and the HTTP route returns 201 and 409. The tests use temp folders and fakes."
+    ],
+    "verify": "npm run typecheck && node --disable-warning=ExperimentalWarning --test test/operate.test.ts && npm --prefix web run lint && npm --prefix web run build",
+    "ui": true
   }
 ]

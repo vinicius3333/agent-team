@@ -127,6 +127,7 @@ export const api = {
   abandonChange: (name: string, id: string) => post<{ abandoned: boolean }>(`${projectPath(name)}/changes/${encodeURIComponent(id)}/abandon`, {}),
   approveChangeMerge: (name: string, id: string) => post<{ started: boolean }>(`${projectPath(name)}/changes/${encodeURIComponent(id)}/merge`, {}),
   approveFinding: (name: string, id: number) => post<{ changeId: string; branch: string; started: boolean }>(`${projectPath(name)}/findings/${id}/approve`, {}),
+  approveFindings: (name: string, ids: number[]) => post<{ changeId: string; branch: string; started: boolean }>(`${projectPath(name)}/findings/approve`, { ids }),
   dismissFinding: (name: string, id: number) => post<{ dismissed: boolean }>(`${projectPath(name)}/findings/${id}/dismiss`, {}),
   addBacklogItem: (name: string, item: NewBacklogItem) => post<Finding>(`${projectPath(name)}/findings`, item),
   saveSprintSettings: (name: string, settings: SprintSettings) => post<{ saved: boolean }>(`${projectPath(name)}/sprint-settings`, settings),

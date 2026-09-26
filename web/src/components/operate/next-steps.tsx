@@ -7,6 +7,7 @@ import type { Finding, FindingSeverity, FindingSource } from "@/api/types"
 import { EmptyState } from "@/components/empty-state"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
@@ -35,14 +36,20 @@ function Chip({ pressed, onClick, children }: { pressed: boolean; onClick: () =>
   )
 }
 
-function FindingRow({ finding, selected, onSelect }: { finding: Finding; selected: boolean; onSelect: () => void }) {
+function FindingRow({ finding, selected, onSelect, picked, onPick }: { finding: Finding; selected: boolean; onSelect: () => void; picked: boolean; onPick: (picked: boolean) => void }) {
+  const pickable = finding.status === "open"
   return (
-    <li>
+    <li className={cn("flex items-stretch hover:bg-muted/60", selected && "bg-primary/5")}>
+      {pickable && (
+        <label className="flex size-11 shrink-0 cursor-pointer items-center justify-center self-center pl-2">
+          <Checkbox checked={picked} onCheckedChange={(value) => onPick(value === true)} aria-label={`Select ${finding.title}`} className="size-6" />
+        </label>
+      )}
       <button
         type="button"
         onClick={onSelect}
         aria-current={selected ? "true" : undefined}
-        className={cn("flex w-full items-start gap-3 px-4 py-3 text-left hover:bg-muted/60 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none sm:items-center", selected && "bg-primary/5")}
+        className={cn("flex min-w-0 flex-1 items-start gap-3 py-3 pr-4 text-left focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none sm:items-center", pickable ? "pl-2" : "pl-4")}
       >
         <SeverityBadge severity={finding.severity} />
         <span className="min-w-0 flex-1">
@@ -178,11 +185,36 @@ function NextSprintBar() {
   )
 }
 
+function SelectionBar({ ids, onClear, onStarted }: { ids: number[]; onClear: () => void; onStarted: () => void }) {
+  const { detail } = useProjectView()
+  const { approveMany, busy } = useFindingActions(onStarted)
+  const start = async () => {
+    if (await approveMany(ids)) onClear()
+  }
+  return (
+    <div className="sticky bottom-[max(0.5rem,env(safe-area-inset-bottom))] z-10 rounded-lg border bg-card px-4 py-3 shadow-md">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="min-w-0 flex-1 text-sm font-medium" aria-live="polite">
+          {ids.length} selected
+        </span>
+        <Button variant="outline" onClick={onClear} disabled={busy !== null} className="h-11 md:h-9">
+          Clear
+        </Button>
+        <Button onClick={start} disabled={busy !== null || detail.active} className="h-11 md:h-9">
+          {busy !== null ? <Loader2 className="animate-spin" /> : <Check />} Start development
+        </Button>
+      </div>
+      {detail.active && <p className="mt-2 text-xs text-muted-foreground">A run is active. Approve once it stops.</p>}
+    </div>
+  )
+}
+
 export function OperateNextSteps() {
   const isMobile = useIsMobile()
   const [searchParams, setSearchParams] = useSearchParams()
   const [filter, setFilter] = useState<Filter>("all")
   const [dismissed, setDismissed] = useState(false)
+  const [picked, setPicked] = useState<number[]>([])
   const { findings, error, refresh } = useFindings(dismissed ? "dismissed" : "open")
   const selectedId = Number(searchParams.get("finding"))
   const adding = searchParams.get("add") === "1"
@@ -216,6 +248,8 @@ export function OperateNextSteps() {
   const visible = rankFindings((findings ?? []).filter((finding) => filter === "all" || finding.source === filter))
   const selected = (findings ?? []).find((finding) => finding.id === selectedId) ?? null
   const panelOpen = adding || selected !== null
+  const pickedIds = (findings ?? []).filter((finding) => finding.status === "open" && picked.includes(finding.id)).map((finding) => finding.id)
+  const pick = (id: number, on: boolean) => setPicked((current) => (on ? [...current.filter((entry) => entry !== id), id] : current.filter((entry) => entry !== id)))
 
   return (
     <div className="flex flex-col gap-4">
@@ -250,7 +284,7 @@ export function OperateNextSteps() {
           ) : visible.length ? (
             <ul className="divide-y">
               {visible.map((finding) => (
-                <FindingRow key={finding.id} finding={finding} selected={finding.id === selected?.id} onSelect={() => select(finding.id)} />
+                <FindingRow key={finding.id} finding={finding} selected={finding.id === selected?.id} onSelect={() => select(finding.id)} picked={pickedIds.includes(finding.id)} onPick={(on) => pick(finding.id, on)} />
               ))}
             </ul>
           ) : (
@@ -279,6 +313,7 @@ export function OperateNextSteps() {
           </Card>
         )}
       </div>
+      {pickedIds.length > 0 && <SelectionBar ids={pickedIds} onClear={() => setPicked([])} onStarted={refresh} />}
       {isMobile && (
         <Sheet open={adding} onOpenChange={(open) => !open && setAdding(false)}>
           <SheetContent side="bottom" className="max-h-[85vh] overflow-y-auto">
