@@ -5,8 +5,9 @@ import { toast } from "sonner"
 import { ApiError, api } from "@/api/client"
 import { useAsync } from "@/api/hooks"
 import { useProjectList } from "@/api/projects-context"
-import { planningPhases, type PlanningPhase, type StackTemplate, type Target } from "@/api/types"
+import { planningPhases, type DesignStyleSummary, type PlanningPhase, type StackTemplate, type Target } from "@/api/types"
 import { PageHeader } from "@/components/page-header"
+import { paletteSwatches, StyleSwatches } from "@/components/style-swatches"
 import { invalidRoles, pickEditable, RoleModelsEditor, type RoleModels } from "@/components/role-models-editor"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -204,6 +205,53 @@ function StackPicker({ templates, loading, target, value, onChange }: { template
   )
 }
 
+const autoStyle = "auto"
+function StylePreview({ style }: { style: DesignStyleSummary }) {
+  return (
+    <div className="flex flex-col items-start gap-3 rounded-lg border p-3 sm:flex-row sm:items-center">
+      <StyleSwatches colors={paletteSwatches(style.palette)} className="shrink-0" />
+      <div className="grid min-w-0 gap-0.5">
+        <span className="flex flex-wrap items-center gap-2 text-sm font-medium">
+          {style.name}
+          {style.webgl && <Badge className="bg-primary/10 text-[0.7rem] text-primary">3D</Badge>}
+        </span>
+        <span className="text-xs text-muted-foreground">{style.description}</span>
+        <span className="text-xs text-muted-foreground">Fits: {style.fitsWhen.slice(0, 2).join("; ")}.</span>
+      </div>
+    </div>
+  )
+}
+
+function StylePicker({ styles, loading, value, onChange, disabledReason }: { styles: DesignStyleSummary[]; loading: boolean; value: string; onChange: (id: string) => void; disabledReason: string | null }) {
+  const selected = styles.find((style) => style.id === value)
+  const hint = disabledReason ?? (value === autoStyle ? "Each concept direction uses a different style from the catalog, picked to fit the brief." : "Every concept direction uses this style, with its own logo, palette, and layout.")
+  return (
+    <div className={cn("grid gap-2", disabledReason && "opacity-60")}>
+      <Label htmlFor="design-style">Visual style</Label>
+      <select
+        id="design-style"
+        value={disabledReason ? autoStyle : value}
+        disabled={Boolean(disabledReason) || loading}
+        onChange={(event) => onChange(event.target.value)}
+        aria-describedby="design-style-help"
+        className="h-11 w-full min-w-0 rounded-md border border-input bg-transparent px-3 text-base shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed sm:h-9 md:text-sm dark:bg-input/30"
+      >
+        <option value={autoStyle}>Auto: picked from the brief</option>
+        {styles.map((style) => (
+          <option key={style.id} value={style.id}>
+            {style.name}
+            {style.webgl ? " (3D)" : ""}
+          </option>
+        ))}
+      </select>
+      {selected && !disabledReason && <StylePreview style={selected} />}
+      <p id="design-style-help" className="text-xs text-muted-foreground">
+        {hint}
+      </p>
+    </div>
+  )
+}
+
 export function NewProjectPage() {
   const navigate = useNavigate()
   const { refresh } = useProjectList()
@@ -224,6 +272,9 @@ export function NewProjectPage() {
   const [submitting, setSubmitting] = useState(false)
   const [template, setTemplate] = useState(customStack)
   const templates = useAsync(api.templates, [])
+  const [designStyle, setDesignStyle] = useState(autoStyle)
+  const designStyles = useAsync(api.designStyles, [])
+  const styleDisabledReason = target === "api" ? "An API has no screens to style." : !branding ? "Turn on Draw branding to choose a style." : null
   const changeTarget = (next: Target) => {
     setTarget(next)
     const chosen = templates.value?.find((option) => option.name === template)
@@ -266,6 +317,7 @@ export function NewProjectPage() {
         sprints,
         autoApproveScope,
         ...(template === customStack ? {} : { template }),
+        ...(styleDisabledReason || designStyle === autoStyle ? {} : { designStyle }),
       })
       toast.success(`Started ${created.name}`)
       void refresh()
@@ -453,6 +505,7 @@ export function NewProjectPage() {
                   </div>
                 ))}
               </fieldset>
+              <StylePicker styles={designStyles.value ?? []} loading={designStyles.loading} value={designStyle} onChange={setDesignStyle} disabledReason={styleDisabledReason} />
               <Separator />
               <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center">
                 <Button type="submit" size="lg" disabled={submitting}>

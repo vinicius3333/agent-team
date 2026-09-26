@@ -1,4 +1,4 @@
-import type { Defaults, GitIdentity, Finding, FindingStatus, InsightAgent, NewBacklogItem, SprintSnapshot, OperateSnapshot, LeadActionState, LeadSettings, NotificationStatus, NotificationTestResult, RoleCandidate, Incident, IncidentDetail, ImportProjectRequest, ConceptsView, NewProjectRequest, PlanningPhase, ProjectDetail, ProjectSummary, QaRound, StackTemplate } from "@/api/types"
+import type { Defaults, GitIdentity, Finding, FindingStatus, InsightAgent, NewBacklogItem, SprintSnapshot, OperateSnapshot, LeadActionState, LeadSettings, NotificationStatus, NotificationTestResult, RoleCandidate, Incident, IncidentDetail, ImportProjectRequest, ConceptsView, NewProjectRequest, PlanningPhase, ProjectDetail, ProjectSummary, QaRound, StackTemplate, DesignStyleSummary } from "@/api/types"
 
 export class ApiError extends Error {
   status: number
@@ -69,6 +69,7 @@ export const api = {
   saveGitIdentity: (identity: GitIdentity) => post<GitIdentity>("/api/git-identity", identity),
   defaults: () => getJson<Defaults>("/api/defaults"),
   templates: () => getJson<StackTemplate[]>("/api/templates"),
+  designStyles: () => getJson<DesignStyleSummary[]>("/api/design-styles"),
   projects: () => getJson<ProjectSummary[]>("/api/projects"),
   project: (name: string) => getJson<ProjectDetail>(projectPath(name)),
   markdownFiles: (name: string) => getJson<string[]>(`${projectPath(name)}/markdown`),

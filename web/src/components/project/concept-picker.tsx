@@ -3,11 +3,13 @@ import { api, urls } from "@/api/client"
 import { useAsync } from "@/api/hooks"
 import { EmptyState } from "@/components/empty-state"
 import { Markdown } from "@/components/markdown"
+import { paletteSwatches, StyleName, StyleSwatches } from "@/components/style-swatches"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
 import { useProjectView } from "./context"
 
-// One card per direction: the landing screen large, the logo small, and the style block. Clicking a card selects it.
+// One card per direction: the landing screen large, the logo small, and its catalog style. Clicking a card selects it.
+// Directions drawn before the style catalog show their raw style block instead.
 export function ConceptPicker({ version, selected, onSelect }: { version: string; selected: string | null; onSelect?: (id: string) => void }) {
   const { name } = useProjectView()
   const { value, loading } = useAsync(() => api.concepts(name), [name, version])
@@ -44,7 +46,16 @@ export function ConceptPicker({ version, selected, onSelect }: { version: string
                   </span>
                 )}
               </span>
-              {concept.style && <Markdown text={concept.style} className="max-h-40 overflow-y-auto border-t px-3 py-2 text-xs text-muted-foreground" />}
+              {concept.catalogStyle ? (
+                <span className="grid gap-2 px-3 pb-3">
+                  <StyleName style={concept.catalogStyle} />
+                  <span className="text-sm text-muted-foreground">{concept.catalogStyle.mood.slice(0, 3).join(", ")}</span>
+                  <StyleSwatches colors={concept.swatches.length ? concept.swatches : paletteSwatches(concept.catalogStyle.palette)} />
+                  <span className="text-xs text-muted-foreground">Fits: {concept.catalogStyle.fitsWhen[0]}</span>
+                </span>
+              ) : (
+                concept.style && <Markdown text={concept.style} className="max-h-40 overflow-y-auto border-t px-3 py-2 text-xs text-muted-foreground" />
+              )}
             </button>
           )
         })}
@@ -53,6 +64,17 @@ export function ConceptPicker({ version, selected, onSelect }: { version: string
         <details className="rounded-md border px-3 py-2 text-sm">
           <summary className="cursor-pointer font-medium">What the illustrator says about each direction</summary>
           <Markdown text={value.readme} className="mt-2" />
+        </details>
+      )}
+      {value.concepts.some((concept) => concept.catalogStyle && concept.style) && (
+        <details className="rounded-md border px-3 py-2 text-sm">
+          <summary className="cursor-pointer font-medium">Style blocks: exact colors, fonts, and radius</summary>
+          {value.concepts.map((concept) => (
+            <section key={concept.id} className="mt-3">
+              <h3 className="font-medium">Direction {concept.id.toUpperCase()}</h3>
+              <Markdown text={concept.style} className="mt-1 text-xs text-muted-foreground" />
+            </section>
+          ))}
         </details>
       )}
     </div>

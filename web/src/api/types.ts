@@ -179,6 +179,16 @@ export interface StackTemplate {
   targets: Target[]
 }
 
+export interface DesignStyleSummary {
+  id: string
+  name: string
+  description: string
+  mood: string[]
+  fitsWhen: string[]
+  webgl: boolean
+  palette: Record<"background" | "surface" | "border" | "ink" | "muted" | "primary" | "onPrimary" | "secondary", string>
+}
+
 // Why the last run stopped. kind "budget" means the run budget was reached.
 export interface RunStop {
   outcome: "awaiting_approval" | "paused" | "failed"
@@ -364,6 +374,10 @@ export interface QaRound {
 export interface Concept {
   id: string
   style: string
+  // The catalog style its style.md names; null for directions drawn before the catalog.
+  catalogStyle: DesignStyleSummary | null
+  // The direction's own colors from its style block, in the order background, surface, ink, primary, secondary.
+  swatches: string[]
   images: string[]
 }
 
@@ -387,6 +401,8 @@ export interface NewProjectRequest {
   autoApproveScope?: boolean
   // Left out for the custom stack.
   template?: string
+  // A style id from GET /api/design-styles, or "auto".
+  designStyle?: string
 }
 
 export type IncidentStatus = "open" | "diagnosing" | "fixed" | "gave_up"
