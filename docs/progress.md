@@ -152,3 +152,11 @@ Files: `src/doctor.ts`, `test/doctor.test.ts`
 > The doctor now hands an incident to a person as soon as the same stop comes back after a fix that didn't work, instead of using up its remaining attempts. The last `verify` run passed: typecheck is clean and all 32 tests in `test/doctor.test.ts` pass.
 > **What changed in `src/doctor.ts`:**
 > - **Fix signature:** each attempt that gets a valid report adds `{ cause, actions, codeFix }` to a new `fixSignatures` list on the incident. `actions` is the sorted list of project actions (for example `resume`, `retry T005`). `codeFix` turns true only when a code fix actually lands; a rejected fix counts as no code change. The list is saved in the incident JSON. Because `src/incidents.ts` was outside my allowed paths, the `Incident` type is only widened locally in `doctor.ts`.
+
+## L011: Select backlog items and start building them as one change
+
+Files: `contracts/openapi.yaml`, `docs/sprints.md`, `src/operate/findings.ts`, `src/ui/server.ts`, `test/operate.test.ts`, `web/src/api/client.ts`, `web/src/components/operate/next-steps.tsx`, `web/src/components/operate/shared.tsx`
+
+> You can now tick several open items in Operate > Backlog and start them all as one change. The full `verify` command passes: typecheck, 25/25 tests in `test/operate.test.ts`, lint (warnings only, all in files I didn't change) and the web build. I haven't viewed the page in a browser, so the orchestrator's phone and desktop check is the first real look at the layout.
+> **Server**
+> - `src/operate/findings.ts`: new `approveFindings(projectDir, store, ids)`.
