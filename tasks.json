@@ -1,0 +1,94 @@
+[
+  {
+    "id": "T001",
+    "title": "Pass APP_URL to checker app containers and make the login email field optional",
+    "story": "US-02",
+    "phase": "feature",
+    "dependsOn": [],
+    "allowedPaths": [
+      "src/screenshots.ts",
+      "docker/qa/screenshot.mjs",
+      "test/screenshots.test.ts"
+    ],
+    "readPaths": [
+      "docs/changes/C001/spec.md",
+      "docs/changes/C001/architecture.md",
+      "docs/architecture.md",
+      "docs/adr/0003-shared-password-or-trusted-proxy-auth.md",
+      "src/deploy.ts",
+      "src/access.ts",
+      "src/ui/server.ts",
+      "deploy.json"
+    ],
+    "acceptance": [
+      "captureApp in src/screenshots.ts starts the app container with env { ...publicUrlEnv(baseUrl), ...demoAccessEnv(...) }, importing the already exported publicUrlEnv from src/deploy.ts, so APP_URL equals http://<alias or container name>:<port>.",
+      "The env building is a small exported pure helper, and test/screenshots.test.ts checks that APP_URL (and the rest of publicUrlEnv) is set to the checker's base URL and that the demo access env is still merged in. No Docker.",
+      "docker/qa/screenshot.mjs fills the email field only when an email or text field exists and login.email is set; it always fills the password field and submits, and the success check (page leaves the login card) is unchanged.",
+      "The email-and-password login flow for generated apps with accounts still works.",
+      "src/ui/server.ts, src/ui/auth.ts, web/, and deploy.json are not changed."
+    ],
+    "verify": "npm run typecheck && node --check docker/qa/screenshot.mjs && node --disable-warning=ExperimentalWarning --test test/screenshots.test.ts",
+    "change": "C001"
+  },
+  {
+    "id": "T002",
+    "title": "Add tests that the APP_URL host serves every dashboard page and unknown hosts get 403",
+    "story": "US-02",
+    "phase": "feature",
+    "dependsOn": [],
+    "allowedPaths": [
+      "test/preview-host.test.ts"
+    ],
+    "readPaths": [
+      "docs/changes/C001/spec.md",
+      "docs/changes/C001/architecture.md",
+      "src/ui/server.ts",
+      "src/ui/auth.ts",
+      "test/dashboard.test.ts",
+      "test/auth.test.ts",
+      "deploy.json"
+    ],
+    "acceptance": [
+      "test/preview-host.test.ts starts the dashboard server on a free loopback port with AGENT_TEAM_UI_HOSTS=app.example and a temp runs folder.",
+      "GET / with Host: app.example answers 200; GET / with Host: evil.example answers 403 with \"This host name is not allowed. Add it to AGENT_TEAM_UI_HOSTS.\"",
+      "When web/dist exists, /, /login, /new, /import, /incidents, /settings, and /not-found with Host: app.example answer 200 with the dashboard shell (index.html); the shell check is skipped when web/dist is missing.",
+      "The test does not change src/ui/server.ts or loosen the Host, Origin, x-agent-team, or auth checks."
+    ],
+    "verify": "npm run typecheck && node --disable-warning=ExperimentalWarning --test test/preview-host.test.ts",
+    "change": "C001"
+  },
+  {
+    "id": "T003",
+    "title": "Make npm test pass in a clean offline node:24-bookworm checkout",
+    "story": "US-02",
+    "phase": "foundation",
+    "dependsOn": [
+      "T001",
+      "T002"
+    ],
+    "allowedPaths": [
+      "test/**",
+      "src/**",
+      "scripts/**"
+    ],
+    "readPaths": [
+      "docs/changes/C001/spec.md",
+      "docs/changes/C001/architecture.md",
+      "docs/spec.md",
+      "docs/architecture.md",
+      "docs/progress.md",
+      "package.json",
+      "test/doctor.test.ts",
+      "test/import.test.ts"
+    ],
+    "acceptance": [
+      "npm test exits 0 after npm ci && npm run build:ui with no network, no git identity, and no claude, gh, or Docker on PATH.",
+      "Tests that commit in temp repos set user.name and user.email themselves (git -c or GIT_AUTHOR_*/GIT_COMMITTER_* env), as test/doctor.test.ts and test/import.test.ts do.",
+      "Tests that relied on docker, gh, claude, $HOME config, the network, or web/dist use fakes or temp folders, or skip only the part that needs web/dist when it is missing.",
+      "Product code changes only where a test shows a real bug; tests that check outdated behavior are updated to match docs/spec.md. No features are added or removed, and the Host, Origin, and auth checks are not loosened.",
+      "npm run typecheck passes."
+    ],
+    "verify": "npm run typecheck && npm test",
+    "change": "C001"
+  }
+]
