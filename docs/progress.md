@@ -89,3 +89,11 @@ Files: `src/pipeline.ts`, `src/qa.ts`, `test/qa.test.ts`
 > A QA round now fails when no page renders, and the message can never be marked as a preexisting import failure. The verify command passes: typecheck is clean and all 18 tests in `test/qa.test.ts` pass.
 > - **`src/qa.ts`**: exports `noPageRenderedMessage` and `noPageRendered(visual)`.
 > - It returns false for a null report, which means an API target with no visual gate.
+
+## T004: Build the preview host list from the environment with an agent-team preview-hosts command
+
+Files: `deploy.json`, `src/cli.ts`, `src/ui/server.ts`, `test/deploy-start.test.ts`, `test/preview-host.test.ts`, `src/ui/hosts.ts`, `test/hash-password.test.ts`, `test/hosts.test.ts`
+
+> The preview start command now builds its allowed host list with a new `agent-team preview-hosts` command, so the container name from `HOSTNAME` is allowed even when `APP_URL` is missing. The last `verify` run passed: typecheck is clean, and 34 of 35 tests pass with 0 failures. The one skip is an existing test that needs `web/dist`, which isn't built in this worktree. For the same reason, the new page test only checked status codes, not the page body.
+> - **`src/ui/hosts.ts` (new):**
+> - `parseHostList(value)` splits on commas, trims, lower-cases, and drops empty values and duplicates.
