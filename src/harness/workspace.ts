@@ -102,9 +102,37 @@ export function mergeInto(workspace: Workspace, ref: string, message: string): s
   }
 }
 
+// Tracked files with local edits (staged or not). Untracked files do not count: git only refuses
+// a merge for them when the merge would overwrite one, and that failure is reported like a conflict.
+function dirtyTrackedFiles(repoDir: string): string[] {
+  return git(repoDir, ["status", "--porcelain", "--untracked-files=no"])
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => line.slice(3).replace(/^.* -> /, ""))
+}
+
 // Merges a branch into the checked-out main of the project folder with a merge commit.
+// Local edits to tracked files are stashed first under a named message and stay in the stash list;
+// if the merge fails, it is aborted and the stash is restored, so the folder is left as it was.
 export function mergeIntoMain(repoDir: string, branch: string, message: string): void {
-  git(repoDir, ["merge", "-q", "--no-ff", "-m", message, branch])
+  const dirty = dirtyTrackedFiles(repoDir)
+  if (dirty.length) {
+    git(repoDir, ["stash", "push", "-q", "-m", `agent-team: auto-stash before merging ${branch}`])
+    console.log(`[merge] stashed local changes: ${dirty.join(", ")}`)
+  }
+  try {
+    git(repoDir, ["merge", "-q", "--no-ff", "-m", message, branch])
+  } catch (error) {
+    const conflicts = git(repoDir, ["diff", "--name-only", "--diff-filter=U"]).split("\n").filter(Boolean)
+    try {
+      git(repoDir, ["merge", "--abort"])
+    } catch {}
+    if (dirty.length) git(repoDir, ["stash", "pop", "-q", "--index"])
+    const detail = (error as { stderr?: string }).stderr?.trim() || (error as Error).message
+    const files = conflicts.length ? ` Conflicting files: ${conflicts.join(", ")}.` : ""
+    const restored = dirty.length ? ` The local changes were restored: ${dirty.join(", ")}.` : ""
+    throw new Error(`Merging ${branch} into main failed.${files}${restored} Git said: ${detail}`)
+  }
 }
 
 export function removeAllWorkspaces(repoDir: string): void {
