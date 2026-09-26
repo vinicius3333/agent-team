@@ -178,7 +178,7 @@ function StackPicker({ templates, loading, target, value, onChange }: { template
                 option.disabled && "cursor-not-allowed bg-muted/40 opacity-60 hover:bg-muted/40",
               )}
             >
-              <input type="radio" name="stack" value={option.name} checked={checked} disabled={option.disabled} onChange={() => onChange(option.name)} className="mt-1 size-4 shrink-0 accent-primary" />
+              <input type="radio" name="stack" value={option.name} checked={checked} disabled={option.disabled} onChange={() => onChange(option.name)} className="size-6 shrink-0 accent-primary sm:mt-1 sm:size-4" />
               <option.icon className={cn("mt-0.5 size-5 shrink-0", checked ? "text-primary" : "text-muted-foreground")} aria-hidden="true" />
               <span className="grid min-w-0 flex-1 gap-0.5">
                 <span className="flex flex-wrap items-center justify-between gap-2">
@@ -435,9 +435,9 @@ export function NewProjectPage() {
                           disabled={disabled}
                           onCheckedChange={(checked) => toggleGate(phase, checked === true)}
                           aria-describedby={`gate-${phase}-help`}
-                          className="mt-0.5"
+                          className="sm:mt-0.5"
                         />
-                        <div className="grid gap-0.5">
+                        <div className="grid gap-0.5 pt-1 sm:pt-0">
                           <Label htmlFor={`gate-${phase}`}>After {stepLabels[phase].toLowerCase()}</Label>
                           <p id={`gate-${phase}-help`} className="text-xs text-muted-foreground">
                             {gateHints[phase]}
@@ -495,7 +495,7 @@ export function NewProjectPage() {
                   },
                 ].map((option) => (
                   <div key={option.id} className="flex items-start gap-3">
-                    <Switch id={option.id} checked={option.checked} onCheckedChange={option.set} aria-describedby={`${option.id}-help`} />
+                    <Switch id={option.id} checked={option.checked} onCheckedChange={option.set} aria-describedby={`${option.id}-help`} className="max-sm:py-[3px] max-sm:shadow-none max-sm:bg-clip-content max-sm:data-[size=default]:h-6" />
                     <div className="grid gap-0.5">
                       <Label htmlFor={option.id}>{option.label}</Label>
                       <p id={`${option.id}-help`} className="text-xs text-muted-foreground">

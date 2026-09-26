@@ -113,3 +113,10 @@ Files: `docs/architecture.md`, `pipeline.yaml`, `src/config.ts`, `src/doctor.ts`
 > I added `autonomy.decide: human | auto`. The default is `human`, and with `human` the pipeline behaves as before. The last run of `npm run typecheck && npm test` passed: typecheck is clean, and 350 of 351 tests passed with 0 failures. The remaining test was probably skipped or marked todo; I didn't confirm which one or why.
 > **One gap:** the criteria ask for "an issue is opened" when a task is skipped. `src/github.ts` has no public way to create an issue, and it is outside `allowedPaths`. So a skipped task instead gets the `blocked` label and a comment with the reason on its existing task issue, through `context.github.taskBlocked`. If a new issue per skip is needed, a follow-up task must add an `openIssue` method to `src/github.ts`.
 > **What `auto` does:**
+## Q201: Make checkboxes at least 24x24 px on phones
+
+Files: `web/src/components/project/gates-card.tsx`, `web/src/components/ui/checkbox.tsx`, `web/src/pages/import-project.tsx`, `web/src/pages/new-project.tsx`
+
+> I made the approval gate checkboxes 24×24 px on phones. They keep their 16 px look at 1440 px. `verify` passes: lint reports warnings in `hooks.ts` and `auth-context.tsx`, files I didn't touch, and no errors, and `npm run build:ui` builds. I didn't run the app in a browser, so the orchestrator's phone check is the first real test of the sizes. I also didn't write tests: the dashboard has no component test setup, so the check rests on `verify` and that browser check.
+> This time I also fixed the other small controls on the two pages, because the previous rejections flagged all of them, not just the gate checkboxes:
+> - **The 16×16 radio buttons:** the stack choices on /new and the GitHub destination on /import.
