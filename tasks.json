@@ -393,7 +393,8 @@
       "web/src/components/ui/checkbox.tsx",
       "web/src/pages/new-project.tsx",
       "web/src/pages/import-project.tsx",
-      "web/src/components/project/gates-card.tsx"
+      "web/src/components/project/gates-card.tsx",
+      "web/src/components/ui/switch.tsx"
     ],
     "readPaths": [
       "docs/design-system.md",
