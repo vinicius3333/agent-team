@@ -1,0 +1,11 @@
+Use case: ui-mockup. The attached image is brand and style reference: agent-team violet/black faceted hexagon logo, Inter typography, rounded white cards with thin #e6e6ec borders, violet primary #7c3aed, light background #f7f7fa, ink text #0b0b10, muted text #62627a, success green #15803d, warning amber #b45309, destructive red #dc2626, Lucide line icons. Flat crisp production dashboard screenshot, precise readable English, restrained borders and very subtle shadows. Generate ONE polished mobile UI prototype screenshot, exactly 390x844 portrait, no device frame.
+
+Top bar 56px: a "panel-left" icon button on the left, then the hexagon logo and "agent-team". The page is scrolled down inside the "New project" form card, which has 16px side gutters and fills the width.
+
+Content from top:
+- The last two switch rows of "Options": "Run sprints" (violet switch on) with muted text "Once the app is live, a sprint runs every 7 days: an evaluator scores the app, the PM picks backlog items, and the team ships them.", and "Approve scope requests automatically" (on) with muted text "When a task needs files outside its scope, it gets them and the build keeps going."
+- NEW FIELD: label "Visual style", then a full-width select box 44px tall showing "Auto: picked from the brief" with a chevron-down.
+- No preview panel is shown, because Auto is selected.
+- Muted helper text under it: "Each concept direction uses a different style from the catalog, picked to fit the brief."
+- A thin divider, then a violet "Start build" button with a play icon, 44px tall, and muted text below "Your agent team writes a spec, then gets to work."
+NOT: no horizontal scroll, no content cut at the sides, no dropdown opened, no lorem ipsum.
