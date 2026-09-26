@@ -111,7 +111,8 @@ function writePipeline(name: string, operateYaml: string): string {
   const dir = join(scratch, name)
   mkdirSync(dir, { recursive: true })
   const path = join(dir, "pipeline.yaml")
-  writeFileSync(path, `${examplePipeline.replace(/^operate:[\s\S]*?\n\n/m, "")}\n${operateYaml}`)
+  // Without the routines block, as in a project from before routines, so operate.schedule still applies.
+  writeFileSync(path, `${examplePipeline.replace(/^operate:[\s\S]*?\n\n/m, "").replace(/^routines:[\s\S]*?\n\n/m, "")}\n${operateYaml}`)
   return path
 }
 

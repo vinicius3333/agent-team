@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { insightAgentRoles, insightAgents, loadConfig, type InsightAgent, type PipelineConfig } from "../config.ts"
+import { insightAgentRoles, insightAgents, insightBudgetUsd, loadConfig, type InsightAgent, type PipelineConfig } from "../config.ts"
 import { containerLogs, projectSlug } from "../deploy.ts"
 import { hostExecutor } from "../harness/executor.ts"
 import { listIncidents } from "../incidents.ts"
@@ -12,7 +12,6 @@ import { healthSummary, projectLive } from "./health.ts"
 import { fetchPosthogData, storePosthogData, type PosthogData } from "./posthog.ts"
 
 export const maxFindingsPerRun = 5
-const insightBudgetUsd = 1
 const insightTimeoutMs = 10 * 60_000
 // A run row still "running" after this long belongs to a process that died.
 const staleRunMs = insightTimeoutMs + 5 * 60_000
@@ -80,10 +79,11 @@ export function insightRunActive(run: InsightRun | null, now = Date.now()): bool
 }
 
 // Agents whose last run started longer ago than their schedule. None while the project is not live,
-// Operate is off, or a build run is alive; an agent with a run in progress is never due.
+// Operate is off, a build run is alive, or routines reached routines.monthlyUsd; an agent with a run in progress is never due.
 export function dueAgents(store: Store, config: PipelineConfig, now = Date.now()): InsightAgent[] {
   if (!config.operate.enabled || !projectLive(store)) return []
   if (processAlive(Number(store.meta("run.pid")))) return []
+  if (store.routineSpend(new Date(now - 30 * 24 * hourMs).toISOString(), insightBudgetUsd) + insightBudgetUsd > config.routines.monthlyUsd) return []
   return insightAgents.filter((agent) => {
     const hours = config.operate.schedule[agent]
     if (!hours) return false
@@ -93,7 +93,7 @@ export function dueAgents(store: Store, config: PipelineConfig, now = Date.now()
   })
 }
 
-function readBrief(projectDir: string): string {
+export function readBrief(projectDir: string): string {
   for (const file of ["docs/spec.md", "input.md"]) {
     const path = join(projectDir, file)
     if (existsSync(path)) return readFileSync(path, "utf8").slice(0, briefMaxLength)

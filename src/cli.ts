@@ -6,6 +6,7 @@ import { parseArgs } from "node:util"
 import { insightAgents, loadConfig, planningPhases, type InsightAgent } from "./config.ts"
 import { applyGitIdentity, readGitIdentity } from "./git-identity.ts"
 import { runInsightAgent } from "./operate/agents.ts"
+import { routinesSnapshot, runRoutine } from "./routines.ts"
 import type { Finding } from "./store.ts"
 import { runDoctor } from "./doctor.ts"
 import { currentTunnelUrl, deployProject, undeployProject } from "./deploy.ts"
@@ -32,6 +33,7 @@ const usage = `Usage:
   agent-team reset-cooldowns <projectDir>
   agent-team deploy <projectDir>
   agent-team operate <projectDir> [--agent monitoring|analytics|research]
+  agent-team routines <projectDir> [--run <id>]
   agent-team findings <projectDir>
   agent-team backlog <projectDir> [--add <title> [--detail <text>] [--severity high|medium|low]]
   agent-team sprint <projectDir> [--now]   (--now skips the wait for the next due time)
@@ -293,6 +295,23 @@ async function operate(projectDir: string, agent: string | undefined): Promise<v
   }
 }
 
+async function routines(projectDir: string, id: string | undefined): Promise<void> {
+  if (id) {
+    const outcome = await runRoutine({ projectDir, id })
+    console.log(`${id}: ${outcome.status}: ${outcome.summary}`)
+    if (outcome.status === "failed") process.exitCode = 1
+    return
+  }
+  const config = loadConfig(join(projectDir, "pipeline.yaml"))
+  const snapshot = withProjectStore(projectDir, (store) => routinesSnapshot(store, config))
+  console.log(`Routines spent $${snapshot.spentUsd30d.toFixed(2)} of $${snapshot.monthlyUsd.toFixed(2)} in the last 30 days.`)
+  for (const routine of snapshot.routines) {
+    const when = routine.trigger === "interval" ? `every ${routine.everyDays} days` : routine.trigger === "manual" ? "by hand" : `after each ${routine.trigger}`
+    const last = routine.lastRun ? `last run ${routine.lastRun.status} at ${routine.lastRun.startedAt}` : "not run yet"
+    console.log(`${routine.enabled ? "on " : "off"} ${routine.id} (${routine.role}, ${routine.output}): ${when}; ${last}`)
+  }
+}
+
 function findings(projectDir: string): void {
   const open = withProjectStore(projectDir, (store) => store.listFindings({ status: "open" }))
   if (!open.length) return console.log("The backlog is empty.")
@@ -318,7 +337,7 @@ function sprints(projectDir: string): void {
 
 async function main(): Promise<void> {
   if (process.argv[2] === "eval") return evalCommand()
-  const { positionals, values } = parseArgs({ allowPositionals: true, options: { brief: { type: "string" }, request: { type: "string" }, template: { type: "string" }, target: { type: "string" }, port: { type: "string" }, host: { type: "string" }, once: { type: "boolean" }, "insecure-no-auth": { type: "boolean" }, channel: { type: "string" }, agent: { type: "string" }, from: { type: "string" }, url: { type: "string", multiple: true }, github: { type: "string" }, gate: { type: "string", multiple: true }, choice: { type: "string" }, add: { type: "string" }, detail: { type: "string" }, severity: { type: "string" }, now: { type: "boolean" } } })
+  const { positionals, values } = parseArgs({ allowPositionals: true, options: { brief: { type: "string" }, request: { type: "string" }, template: { type: "string" }, target: { type: "string" }, port: { type: "string" }, host: { type: "string" }, once: { type: "boolean" }, "insecure-no-auth": { type: "boolean" }, channel: { type: "string" }, agent: { type: "string" }, from: { type: "string" }, url: { type: "string", multiple: true }, github: { type: "string" }, gate: { type: "string", multiple: true }, choice: { type: "string" }, add: { type: "string" }, detail: { type: "string" }, severity: { type: "string" }, now: { type: "boolean" }, run: { type: "string" } } })
   const [command, target, extra] = positionals
   if (command === "hash-password") return printPasswordHash()
   if (command === "session-secret") return console.log(generateSessionSecret())
@@ -356,6 +375,8 @@ async function main(): Promise<void> {
       return deploy(projectDir)
     case "operate":
       return operate(projectDir, values.agent)
+    case "routines":
+      return routines(projectDir, values.run)
     case "findings":
       return findings(projectDir)
     case "undeploy":

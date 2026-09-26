@@ -151,14 +151,14 @@ export function dropTask(projectDir: string, store: Store, taskId: string): void
 }
 
 // The dashboard's switch for autonomy.autoApproveScope; a running build reads it at its next decision.
-function savePipelineSetting(projectDir: string, key: string[], value: unknown, message: string, replaces: string[] = []): void {
+export function savePipelineSetting(projectDir: string, key: string[], value: unknown, message: string, replaces: string[][] = []): void {
   const path = join(projectDir, "pipeline.yaml")
   const original = readFileSync(path, "utf8")
   const document = parseDocument(original)
   const node = document.createNode(value)
   if (isSeq(node)) node.flow = true
   document.setIn(key, node)
-  for (const legacy of replaces) document.deleteIn([legacy])
+  for (const legacy of replaces) document.deleteIn(legacy)
   writeFileSync(path, document.toString())
   try {
     loadConfig(path)
@@ -193,7 +193,7 @@ export function parseGates(value: unknown): PlanningPhase[] {
 // The doctor reads sprints on every tick, so a new interval moves the next due time at once. The whole block is
 // written, and a legacy evolve block goes away because sprints would override it anyway.
 export function saveSprintSettings(projectDir: string, settings: SprintConfig): void {
-  savePipelineSetting(projectDir, ["sprints"], settings, `chore: run sprints ${settings.enabled ? `every ${settings.everyDays} days` : "no more"}`, ["evolve"])
+  savePipelineSetting(projectDir, ["sprints"], settings, `chore: run sprints ${settings.enabled ? `every ${settings.everyDays} days` : "no more"}`, [["evolve"]])
 }
 
 export function parseSprintSettings(value: unknown): SprintConfig {
