@@ -327,7 +327,7 @@
       "worker"
     ],
     "stacks": [],
-    "rule": "Keep config that changes between deploys in environment variables, and fail at startup with a clear message when a required one is missing.",
+    "rule": "Keep config that changes between deploys in environment variables, and fail at startup with a clear message when a required one is missing. Third-party keys listed in .env.example are the exception: without them, log a warning and use the fake provider, because smoke checks and QA run without them.",
     "source": "https://12factor.net/config",
     "sourceTitle": "The Twelve-Factor App",
     "license": "MIT",
