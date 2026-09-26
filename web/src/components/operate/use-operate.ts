@@ -6,7 +6,7 @@ import { useProjectView } from "@/components/project/context"
 const pollMs = 30_000
 
 // Loads on mount, every 30 s while the tab is visible, when it becomes visible again, and when the project stream reports a new event.
-function usePolled<T>(load: () => Promise<T>, key: string) {
+export function usePolled<T>(load: () => Promise<T>, key: string) {
   const { detail } = useProjectView()
   const [value, setValue] = useState<T | null>(null)
   const [error, setError] = useState<Error | null>(null)

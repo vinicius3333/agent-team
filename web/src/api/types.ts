@@ -645,3 +645,36 @@ export interface GitIdentity {
   name: string
   email: string
 }
+
+export type SecretScope = "project" | "global"
+
+export interface SecretsKeyStatus {
+  state: "ready" | "missing" | "invalid"
+  error: string | null
+}
+
+export interface ProjectSecret {
+  name: string
+  description: string
+  optional: boolean
+  // False for a value the project added that .env.example does not list.
+  declared: boolean
+  source: SecretScope | null
+  skipped: boolean
+  updatedAt: string | null
+}
+
+export interface ProjectSecrets {
+  key: SecretsKeyStatus
+  secrets: ProjectSecret[]
+  missing: string[]
+  deployWaiting: boolean
+  live: boolean
+  url: string | null
+}
+
+export interface SharedSecrets {
+  key: SecretsKeyStatus
+  secrets: { name: string; updatedAt: string; usedBy: string[] }[]
+  wanted: { name: string; usedBy: string[] }[]
+}

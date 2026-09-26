@@ -26,6 +26,8 @@ import { DetailsSheet } from "@/components/project/details-sheet"
 import { DocsTab } from "@/components/project/docs-tab"
 import { EventsCard } from "@/components/project/events"
 import { GatePanel } from "@/components/project/gate-panel"
+import { SecretsGateCard } from "@/components/project/secrets-gate-card"
+import { SecretsView } from "@/components/project/secrets-view"
 import { MarketingPieces } from "@/components/project/marketing-tab"
 import { ChatTab } from "@/components/project/chat-tab"
 import { GithubCard } from "@/components/project/github-card"
@@ -146,6 +148,8 @@ function ProjectViewContent({ phase, view, detail, stream, document, selectDocum
           <GithubCard />
         </div>
       )
+    case "launch/secrets":
+      return <SecretsView />
     case "launch/marketing":
       return <MarketingPieces version={detail.phases.find((entry) => entry.name === "marketing")?.updatedAt ?? ""} />
     case "operate/overview":
@@ -283,7 +287,7 @@ function ProjectBody({ name, phase, view, detail, stream }: { name: string; phas
         }
       />
       <div className="flex min-w-0 flex-col gap-4">
-        {gate && <GatePanel phase={gate} />}
+        {gate === "deploy" ? view !== "secrets" && <SecretsGateCard /> : gate && <GatePanel phase={gate} />}
         <ChangeMergeCard />
         <IncidentBanner />
         {!gate && !humanNeeded && <StopBanner />}

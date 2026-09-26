@@ -8,6 +8,7 @@ import {
   FileText,
   GitPullRequest,
   House,
+  KeyRound,
   ListChecks,
   ListTodo,
   MessagesSquare,
@@ -51,6 +52,7 @@ export const phaseViews: Record<ProjectPhase, ViewDefinition[]> = {
   launch: [
     { id: "overview", label: "Overview", icon: House },
     { id: "marketing", label: "Marketing", icon: Megaphone },
+    { id: "secrets", label: "Secrets", icon: KeyRound },
   ],
   operate: [
     { id: "overview", label: "Overview", icon: House },

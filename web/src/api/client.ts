@@ -1,4 +1,4 @@
-import type { Defaults, GitIdentity, Finding, FindingStatus, InsightAgent, NewBacklogItem, SprintSnapshot, OperateSnapshot, LeadActionState, LeadSettings, NotificationStatus, NotificationTestResult, RoleCandidate, Incident, IncidentDetail, ImportProjectRequest, ConceptsView, NewProjectRequest, PlanningPhase, ProjectDetail, ProjectSummary, QaRound, StackTemplate, DesignStyleSummary } from "@/api/types"
+import type { Defaults, GitIdentity, Finding, FindingStatus, InsightAgent, NewBacklogItem, SprintSnapshot, OperateSnapshot, LeadActionState, LeadSettings, NotificationStatus, NotificationTestResult, RoleCandidate, Incident, IncidentDetail, ImportProjectRequest, ConceptsView, NewProjectRequest, PlanningPhase, ProjectDetail, ProjectSummary, QaRound, StackTemplate, DesignStyleSummary, ProjectSecrets, SharedSecrets } from "@/api/types"
 
 export class ApiError extends Error {
   status: number
@@ -84,12 +84,20 @@ export const api = {
   operate: (name: string) => getJson<OperateSnapshot>(`${projectPath(name)}/operate`),
   findings: (name: string, status: FindingStatus | "all" = "open") => getJson<Finding[]>(`${projectPath(name)}/findings?status=${status}`),
   sprints: (name: string) => getJson<SprintSnapshot>(`${projectPath(name)}/sprints`),
+  secrets: (name: string) => getJson<ProjectSecrets>(`${projectPath(name)}/secrets`),
+  sharedSecrets: () => getJson<SharedSecrets>("/api/secrets"),
 
   createProject: (body: NewProjectRequest) => post<{ name: string }>("/api/projects", body),
   importProject: (body: ImportProjectRequest) => post<{ name: string }>("/api/projects/import", body),
   startCleanup: (name: string) => post<{ id: string; branch: string; started: boolean }>(`${projectPath(name)}/cleanup/start`, {}),
   dismissCleanup: (name: string) => post<{ dismissed: boolean }>(`${projectPath(name)}/cleanup/dismiss`, {}),
   run: (name: string) => post<{ started: boolean }>(`${projectPath(name)}/run`, {}),
+  saveSecret: (name: string, secret: string, value: string) => post<{ started: boolean }>(`${projectPath(name)}/secrets`, { name: secret, value }),
+  deleteSecret: (name: string, secret: string) => post<{ started: boolean }>(`${projectPath(name)}/secrets/delete`, { name: secret }),
+  skipSecret: (name: string, secret: string, skipped: boolean) => post<{ started: boolean }>(`${projectPath(name)}/secrets/skip`, { name: secret, skipped }),
+  redeploy: (name: string) => post<{ started: boolean }>(`${projectPath(name)}/secrets/redeploy`, {}),
+  saveSharedSecret: (secret: string, value: string) => post<{ resumed: string[] }>("/api/secrets", { name: secret, value }),
+  deleteSharedSecret: (secret: string) => post<{ resumed: string[] }>("/api/secrets/delete", { name: secret }),
   approve: (name: string, phase: string, choice?: string) => post<{ started: boolean }>(`${projectPath(name)}/approve`, choice ? { phase, choice } : { phase }),
   feedback: (name: string, phase: string, message: string) => post<{ started: boolean }>(`${projectPath(name)}/feedback`, { phase, message }),
   approveTaskBudget: (name: string, taskId: string) => post<{ budgetUsd: number; started: boolean }>(`${projectPath(name)}/approve-task-budget`, { taskId }),

@@ -2,6 +2,7 @@ import { useProjectList } from "@/api/projects-context"
 import { GitIdentityCard } from "@/components/git-identity-card"
 import { NotificationsCard } from "@/components/notifications-card"
 import { PageHeader } from "@/components/page-header"
+import { SharedSecretsCard } from "@/components/shared-secrets-card"
 import { themeOptions } from "@/components/theme-toggle"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
@@ -29,6 +30,7 @@ export function SettingsPage() {
             </ToggleGroup>
           </CardContent>
         </Card>
+        <SharedSecretsCard />
         <GitIdentityCard />
         <NotificationsCard />
         <Card>
