@@ -105,3 +105,11 @@ Files: `src/lead-actions.ts`, `src/ui/server.ts`, `web/src/api/types.ts`, `web/s
 > Saving the Lead settings now keeps `lead.access`, and the form has an Access field with Limited and Full. The full `verify` command passes.
 > The web dependencies weren't installed at first, so `oxlint` wasn't found. I installed them with `npm --prefix web ci` and ran the web steps again. I did not open the page in a browser; that check is left to the orchestrator.
 > **Saving (`src/lead-actions.ts`)**
+
+## Q201: Make checkboxes at least 24x24 px on phones
+
+Files: `web/src/components/project/gates-card.tsx`, `web/src/components/ui/checkbox.tsx`, `web/src/pages/import-project.tsx`, `web/src/pages/new-project.tsx`
+
+> I made the approval gate checkboxes 24×24 px on phones. They keep their 16 px look at 1440 px. `verify` passes: lint reports warnings in `hooks.ts` and `auth-context.tsx`, files I didn't touch, and no errors, and `npm run build:ui` builds. I didn't run the app in a browser, so the orchestrator's phone check is the first real test of the sizes. I also didn't write tests: the dashboard has no component test setup, so the check rests on `verify` and that browser check.
+> This time I also fixed the other small controls on the two pages, because the previous rejections flagged all of them, not just the gate checkboxes:
+> - **The 16×16 radio buttons:** the stack choices on /new and the GitHub destination on /import.
