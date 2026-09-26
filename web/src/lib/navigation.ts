@@ -13,6 +13,7 @@ import {
   MessagesSquare,
   Megaphone,
   Palette,
+  Repeat,
   ShieldCheck,
   SlidersHorizontal,
   Swords,
@@ -59,6 +60,7 @@ export const phaseViews: Record<ProjectPhase, ViewDefinition[]> = {
     { id: "competitors", label: "Competitors", icon: Swords },
     { id: "next-steps", label: "Backlog", icon: ListTodo },
     { id: "sprints", label: "Sprints", icon: CalendarClock },
+    { id: "routines", label: "Routines", icon: Repeat },
     { id: "changes", label: "Changes", icon: GitPullRequest },
   ],
   system: [

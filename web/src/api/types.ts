@@ -491,8 +491,8 @@ export interface NotificationTestResult {
 
 export const insightAgents = ["monitoring", "analytics", "research"] as const
 export type InsightAgent = (typeof insightAgents)[number]
-// The backlog: the Operate agents' findings, the evaluator's gaps, the PM's feature ideas, and items added by hand.
-export type FindingSource = InsightAgent | "evaluator" | "product" | "manual"
+// The backlog: the Operate agents' findings, the evaluator's gaps, the PM's feature ideas, items added by hand, and custom routines' findings.
+export type FindingSource = InsightAgent | "evaluator" | "product" | "manual" | "routine"
 export type FindingSeverity = "high" | "medium" | "low"
 export type FindingStatus = "open" | "approved" | "dismissed"
 
@@ -628,4 +628,57 @@ export interface ImportProjectRequest {
 export interface GitIdentity {
   name: string
   email: string
+}
+
+export const routineTriggers = ["interval", "sprint", "deploy", "manual"] as const
+export type RoutineTrigger = (typeof routineTriggers)[number]
+export const routineOutputs = ["marketing", "backlog", "report"] as const
+export type RoutineOutput = (typeof routineOutputs)[number]
+export const routineRoles = ["marketer", "researcher", "pm", "designer"] as const
+
+export interface RoutineConfig {
+  // Empty for a routine that is not saved yet; the server derives it from the name.
+  id: string
+  name: string
+  role: string
+  instructions: string
+  trigger: RoutineTrigger
+  everyDays: number
+  output: RoutineOutput
+  budgetUsd: number
+  enabled: boolean
+}
+
+export interface RoutineFile {
+  file: string
+  caption: string
+}
+
+export interface RoutineLastRun {
+  status: "running" | "done" | "failed"
+  startedAt: string
+  finishedAt: string | null
+  summary: string
+  costUsd: number | null
+  findings: number
+  files: RoutineFile[]
+}
+
+export interface Routine extends RoutineConfig {
+  builtIn: boolean
+  runner: string
+  model: string
+  capabilities: string[]
+  lastRun: RoutineLastRun | null
+  running: boolean
+  nextDueAt: string | null
+  runBlocker: string | null
+}
+
+export interface RoutinesSnapshot {
+  monthlyUsd: number
+  spentUsd30d: number
+  live: boolean
+  routines: Routine[]
+  roles: { role: string; runner: string; model: string; capabilities: string[] }[]
 }

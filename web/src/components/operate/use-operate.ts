@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { api } from "@/api/client"
-import type { Finding, FindingStatus, OperateSnapshot, SprintSnapshot } from "@/api/types"
+import type { Finding, FindingStatus, OperateSnapshot, RoutinesSnapshot, SprintSnapshot } from "@/api/types"
 import { useProjectView } from "@/components/project/context"
 
 const pollMs = 30_000
@@ -63,5 +63,11 @@ export function useFindings(status: FindingStatus | "all" = "open") {
 export function useSprints() {
   const { name } = useProjectView()
   const { value, error, refresh } = usePolled<SprintSnapshot>(() => api.sprints(name), name)
+  return { snapshot: value, error, refresh }
+}
+
+export function useRoutines() {
+  const { name } = useProjectView()
+  const { value, error, refresh } = usePolled<RoutinesSnapshot>(() => api.routines(name), name)
   return { snapshot: value, error, refresh }
 }

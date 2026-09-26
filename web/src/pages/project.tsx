@@ -13,6 +13,7 @@ import { OperateCompetitors } from "@/components/operate/competitors"
 import { OperateHealth } from "@/components/operate/health"
 import { OperateNextSteps } from "@/components/operate/next-steps"
 import { OperateSprints } from "@/components/operate/sprints"
+import { OperateRoutines } from "@/components/operate/routines"
 import { OperateOverview } from "@/components/operate/overview"
 import { PageHeader } from "@/components/page-header"
 import { AttemptsTab } from "@/components/project/attempts-tab"
@@ -160,6 +161,8 @@ function ProjectViewContent({ phase, view, detail, stream, document, selectDocum
       return <OperateNextSteps />
     case "operate/sprints":
       return <OperateSprints />
+    case "operate/routines":
+      return <OperateRoutines />
     case "operate/changes":
       return <OperateChanges />
     case "system/calls":

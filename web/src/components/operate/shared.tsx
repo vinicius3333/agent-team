@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react"
 import { Link } from "react-router"
-import { Bot, Gauge, Loader2, Play, Sparkles, UserRound, type LucideIcon } from "lucide-react"
+import { Bot, Gauge, Loader2, Play, Repeat, Sparkles, UserRound, type LucideIcon } from "lucide-react"
 import { toast } from "sonner"
 import { api, ApiError } from "@/api/client"
 import type { Finding, FindingSeverity, FindingSource, InsightAgent, InsightRun, MetricPoint, OperateSnapshot } from "@/api/types"
@@ -31,6 +31,7 @@ const sourceIcons: Record<FindingSource, LucideIcon> = {
   evaluator: Gauge,
   product: Sparkles,
   manual: UserRound,
+  routine: Repeat,
 }
 
 export function SourceLabel({ source, className }: { source: FindingSource; className?: string }) {

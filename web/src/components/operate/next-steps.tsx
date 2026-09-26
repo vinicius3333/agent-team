@@ -23,7 +23,7 @@ import { useStartSprint } from "./sprints"
 import { useFindings, useOperateSnapshot, useSprints } from "./use-operate"
 
 type Filter = "all" | FindingSource
-const filters: Filter[] = ["all", "monitoring", "analytics", "research", "evaluator", "product", "manual"]
+const filters: Filter[] = ["all", "monitoring", "analytics", "research", "evaluator", "product", "manual", "routine"]
 const titleMaxLength = 200
 const detailMaxLength = 2000
 

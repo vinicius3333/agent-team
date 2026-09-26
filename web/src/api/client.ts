@@ -1,4 +1,4 @@
-import type { Defaults, GitIdentity, Finding, FindingStatus, InsightAgent, NewBacklogItem, SprintSettings, SprintSnapshot, OperateSnapshot, LeadActionState, LeadSettings, NotificationStatus, NotificationTestResult, RoleCandidate, Incident, IncidentDetail, ImportProjectRequest, ConceptsView, NewProjectRequest, PlanningPhase, ProjectDetail, ProjectSummary, QaRound, StackTemplate } from "@/api/types"
+import type { Defaults, GitIdentity, Finding, FindingStatus, InsightAgent, NewBacklogItem, RoutineConfig, RoutinesSnapshot, SprintSettings, SprintSnapshot, OperateSnapshot, LeadActionState, LeadSettings, NotificationStatus, NotificationTestResult, RoleCandidate, Incident, IncidentDetail, ImportProjectRequest, ConceptsView, NewProjectRequest, PlanningPhase, ProjectDetail, ProjectSummary, QaRound, StackTemplate } from "@/api/types"
 
 export class ApiError extends Error {
   status: number
@@ -83,6 +83,9 @@ export const api = {
   operate: (name: string) => getJson<OperateSnapshot>(`${projectPath(name)}/operate`),
   findings: (name: string, status: FindingStatus | "all" = "open") => getJson<Finding[]>(`${projectPath(name)}/findings?status=${status}`),
   sprints: (name: string) => getJson<SprintSnapshot>(`${projectPath(name)}/sprints`),
+  routines: (name: string) => getJson<RoutinesSnapshot>(`${projectPath(name)}/routines`),
+  saveRoutines: (name: string, monthlyUsd: number, list: RoutineConfig[]) => post<{ saved: boolean }>(`${projectPath(name)}/routines`, { monthlyUsd, list }),
+  runRoutine: (name: string, id: string) => post<{ accepted: boolean }>(`${projectPath(name)}/routines/run`, { id }),
 
   createProject: (body: NewProjectRequest) => post<{ name: string }>("/api/projects", body),
   importProject: (body: ImportProjectRequest) => post<{ name: string }>("/api/projects/import", body),
