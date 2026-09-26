@@ -1,9 +1,14 @@
 import assert from "node:assert/strict"
+import { execFileSync } from "node:child_process"
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { test } from "node:test"
 import type { HarnessConfig, RoleConfig } from "../src/config.ts"
 import { classifyFailure } from "../src/harness/classify.ts"
 import { hostExecutor } from "../src/harness/executor.ts"
 import { createHarness } from "../src/harness/harness.ts"
+import { commitAndRebase, createWorkspace, fastForward, removeWorkspace } from "../src/harness/workspace.ts"
 import type { AgentRunner, RunResult } from "../src/runners/types.ts"
 import { openStore } from "../src/store.ts"
 import { filesOutsideScope, orderTasks, type Task } from "../src/tasks.ts"
@@ -108,4 +113,22 @@ test("orders tasks and checks scope", () => {
   assert.deepEqual(orderTasks([task("T2", ["T1"]), task("T1", [], "foundation")]).map((t) => t.id), ["T1", "T2"])
   assert.throws(() => orderTasks([task("A", ["B"]), task("B", ["A"])]), /cycle/)
   assert.deepEqual(filesOutsideScope(["src/a.ts", "package.json"], ["src/**"]), ["package.json"])
+})
+
+test("fast-forwards a change branch that is checked out in the project folder", () => {
+  const dir = mkdtempSync(join(tmpdir(), "agent-team-ff-"))
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: dir, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim()
+  git("init", "-q", "-b", "main")
+  git("config", "user.name", "Test")
+  git("config", "user.email", "test@example.com")
+  git("commit", "-q", "--allow-empty", "-m", "start")
+  git("checkout", "-q", "-b", "change/C001")
+  const workspace = createWorkspace(dir, "T001-1", "change/C001")
+  writeFileSync(join(workspace.path, "a.txt"), "a\n")
+  commitAndRebase(workspace, "feat: a")
+  fastForward(dir, workspace.branch, "change/C001")
+  assert.equal(git("rev-parse", "change/C001"), git("rev-parse", workspace.branch))
+  assert.equal(readFileSync(join(dir, "a.txt"), "utf8"), "a\n")
+  removeWorkspace(dir, workspace)
+  rmSync(dir, { recursive: true, force: true })
 })
