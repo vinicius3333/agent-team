@@ -65,3 +65,11 @@ Files: `deploy.json`, `docs/architecture.md`, `test/deploy-start.test.ts`
 > The preview's start command now always adds the `APP_URL` host to `AGENT_TEAM_UI_HOSTS`, even when that list is already set. Before, the host was only used when the list was empty. `npm run typecheck` passed, and `npm test` ran 307 tests: 306 passed, 0 failed, and the last one did not count as a pass, most likely a skip.
 > - **`deploy.json`:** a small `node -p` step builds the list. It splits the existing value on commas, adds the `APP_URL` host name (only if `APP_URL` parses as a URL), trims each name, drops empty ones and joins them with commas. So the result never has a leading, trailing or doubled comma. It also works when either value is empty or unset, or when `APP_URL` is not a valid URL.
 > - **`test/deploy-start.test.ts` (new):** reads the host-list part of the start command from `deploy.json` and runs it in `sh`, offline and without Docker. With `other.example` and `https://app.example` it gets `other.example,app.example`. It also covers:
+
+## L006: Let the project lead run with full access when lead.access is full
+
+Files: `docs/architecture.md`, `prompts/lead.md`, `src/config.ts`, `src/lead.ts`, `src/runners/claude.ts`, `test/lead.test.ts`, `test/config.test.ts`, `test/runners.test.ts`
+
+> Setting `lead.access: full` in `pipeline.yaml` now lets the lead chat edit any file in the project and run any command there. The default is `read`, which keeps the current behaviour. `npm run typecheck && npm test` passes: typecheck is clean, and 315 of 316 tests pass with 0 failures and 1 skipped. That skipped test was already in the suite.
+> **One gap to fix in a follow-up:** saving the lead settings from the dashboard drops `lead.access`, so the project goes back to `read`. The cause is in `src/lead-actions.ts`, which is outside this task's allowed paths: `parseLeadSettings` builds the settings without `access`, and `saveLeadSettings` replaces the whole `lead:` block. Because of that, `access` is optional in the `LeadConfig` type, and anything that doesn't set it counts as `read`. `loadConfig` always sets it. The fix is to keep `access` in those two functions.
+> **What changed**
