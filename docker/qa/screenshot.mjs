@@ -62,7 +62,8 @@ function measureLayout({ maxListed, minimumTarget, comfortableTarget }) {
   }
 }
 
-// Fills the first email (or text) field and the password field, submits, and keeps the session cookies.
+// Fills the first email (or text) field when the form has one, then the password field, submits, and keeps the session cookies.
+// A password-only form (one shared password) has no email field, so the email is optional.
 async function signIn(browser) {
   const context = await browser.newContext({ viewport })
   const page = await context.newPage()
@@ -70,7 +71,9 @@ async function signIn(browser) {
     await page.goto(new URL(login.route, baseUrl).href, { waitUntil: "load", timeout: 30_000 })
     const email = page.locator('input[type=email], input[name*=email i], input[autocomplete=username], input[type=text]').first()
     const password = page.locator("input[type=password]").first()
-    await email.fill(login.email, { timeout: 10_000 })
+    // Wait for the form to render before checking whether it has an email field.
+    await password.waitFor({ state: "visible", timeout: 10_000 })
+    if (login.email && (await email.count())) await email.fill(login.email, { timeout: 10_000 })
     await password.fill(login.password, { timeout: 10_000 })
     const submit = page.locator('button[type=submit], input[type=submit], form button').first()
     await Promise.all([page.waitForLoadState("load").catch(() => {}), (await submit.count()) ? submit.click() : password.press("Enter")])
