@@ -104,7 +104,25 @@ export function useFindingActions(onChange: () => void) {
     }
   }
 
-  return { approve, dismiss, busy }
+  // Opens one change for every picked item; resolves true once the change opened.
+  const approveMany = async (ids: number[]) => {
+    setBusy(-1)
+    try {
+      const { changeId, started } = await api.approveFindings(name, ids)
+      if (started) toast.success(`Change ${changeId} opened. The team is planning it.`)
+      else toast.warning(`Change ${changeId} opened, but a run is still active. Resume the run once it stops.`)
+      onChange()
+      return true
+    } catch (reason) {
+      toast.error(reason instanceof Error ? reason.message : "Could not start the picked items.")
+      if (reason instanceof ApiError && reason.status === 409) onChange()
+      return false
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  return { approve, approveMany, dismiss, busy }
 }
 
 export function RunNowButton({ agent, run, onStarted }: { agent: InsightAgent; run: InsightRun | null; onStarted: () => void }) {
