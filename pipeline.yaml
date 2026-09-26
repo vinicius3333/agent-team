@@ -1,0 +1,125 @@
+target: web # web | api | web+api
+template: custom # custom (the architect chooses the stack) or a stack template from `agent-team templates`
+
+autonomy:
+  gates: []
+  changeMerge: auto # auto | manual: manual waits for Approve before a change request merges into main
+  autoApproveScope: false # true: a task blocked on files outside its scope gets them without stopping (at most twice per task)
+
+budget:
+  perTaskUsd: 2
+  runUsd: 150 # the run stops for approval when the project's reported agent cost reaches this; codex reports none
+
+parallelTasks: 5 # tasks built at once; tasks whose allowedPaths overlap never run together
+
+branding:
+  enabled: false # the illustrator draws the logo and desktop screens before the design phase
+  count: 4 # total images, logo included (2 to 6). The old key "mockups:" still works
+  mobile: true # also draw a phone version of every desktop screen
+  variations: 3 # concepts phase: logo and style directions to choose from before branding (0 or 1 skips it)
+  dark: true # also redraw the landing in a dark theme; the designer takes the dark tokens from it
+
+marketing:
+  enabled: false # after the design phase: launch images with copy, stock or generated art, rendered with the brand
+  pieces: 3 # 1 to 6
+  formats: [ og, square, story, x ] # 1200x630, 1080x1080, 1080x1920, 1600x900
+
+qa:
+  enabled: true # after the build: run the tests, screenshot every route, and compare them with the branding
+  maxRounds: 3 # fix rounds before the run stops for a human
+  resolveAll: false # true: a pass may not list findings, so every finding, minor ones included, gets a fix task
+
+sprints:
+  # once the app is live, the doctor runs a sprint on a schedule: evaluate, pick backlog items, ship them as a change
+  enabled: true # needs deploy.enabled and a running doctor (agent-team doctor)
+  everyDays: 7 # days from the end of one sprint to the start of the next
+  budgetUsd: 25 # the most one sprint may spend; budget.runUsd is raised to make room when a sprint starts
+  monthlyUsd: 100 # the most all sprints of the last 30 days may spend together; no sprint starts past it
+  maxItems: 5 # backlog items per sprint
+  newFeatures: true # the PM may propose features the brief does not ask for
+
+learning:
+  # lessons from reviews, QA, evaluations, and incidents, shared by every project in the runs folder
+  enabled: true # the curator updates <runs folder>/.agent-team-lessons/lessons.json; set AGENT_TEAM_LESSONS to move it
+  maxLessonsPerRole: 20 # lessons added to each role's system prompt, strongest first; lessons tied to other stacks are skipped
+  memory: true # every merged task goes to a shared search index (SQLite FTS5) next to the lessons
+  maxSimilarTasks: 2 # similar solutions from other projects shown to each worker
+
+deploy:
+  enabled: false # after the build, run the app in a container and expose it at a random https://*.trycloudflare.com URL
+
+operate:
+  # after deploy: agents watch the live app and write findings; a person approves each one as a change
+  enabled: true # false turns off every Operate agent and the health probe
+  healthPath: / # probed on the live URL every 5 minutes
+  schedule:
+    # hours between runs; 0 turns an agent off
+    monitoring: 24
+    analytics: 24
+    research: 168
+  # posthog:           # analytics; without it the analytics agent asks you to set it up
+  #   host: https://us.posthog.com
+  #   projectId: "12345"
+  #   publicKey: phc_xxx          # passed to the app as POSTHOG_KEY and VITE_POSTHOG_KEY
+  #   apiKeyEnv: POSTHOG_API_KEY  # name of the env var with the personal API key; never the key itself
+  competitors: [] # e.g. [https://example.com]; the research agent compares the app with them
+
+publish:
+  github:
+    enabled: true
+      # repo, issues per task, a pull request per phase and task, and a Projects board
+      # host setup: gh auth login; gh auth refresh -s project; gh auth setup-git
+    owner: vinicius3333 # user or org; null = the logged-in gh account
+    visibility: private
+    name: agent-team # null = project folder name
+    board: false
+
+roles:
+  pm: { runner: claude, model: opus }
+  architect: { runner: claude, model: opus }
+  illustrator: { runner: codex, model: gpt-6-astra } # image generation needs codex
+  designer: { runner: claude, model: claude-opus-5-5 }
+  marketer: { runner: codex, model: gpt-6-astra } # searches stock photos and generates images
+  planner: { runner: claude, model: opus }
+  worker:
+    runner: claude
+    model: claude-opus-5-5
+    maxRetries: 3
+    fallbacks: [] # tried in order when the primary hits a limit, auth error, or timeout
+  reviewer:
+    runner: claude
+    model: opus # a stronger model than the worker, since both use claude
+    fallbacks: []
+  design-reviewer: { runner: claude, model: opus } # approves branding, design, and UI task screenshots; read-only
+  qa: { runner: claude, model: opus } # reads screenshots and branding images; read-only
+  lead: { runner: claude, model: opus } # answers the project chat; read-only, suggests actions
+  monitor: { runner: claude, model: claude-opus-5-5 } # Operate: reads health checks, logs, and incidents; writes findings
+  analyst: { runner: claude, model: claude-opus-5-5 } # Operate: reads PostHog numbers; writes findings
+  researcher: { runner: claude, model: claude-opus-5-5 } # Operate: searches the web for competitors; writes findings
+  evaluator: { runner: claude, model: claude-opus-5-5 } # sprints: scores the live app against the brief; its gaps join the backlog; read-only
+  curator: { runner: claude, model: claude-opus-5-5 } # learning: turns failures into lessons for later tasks and projects; read-only
+  importer:
+    runner: claude
+    model: opus
+
+allowSameVendorReview: true # worker and reviewer both run on claude
+
+stackHints:
+  # optional; empty = architect chooses
+  prefer: []
+  avoid: []
+
+harness:
+  isolation: docker # docker | none. none runs agents directly on the host
+  docker: { cpus: 2, memory: 4g, pidsLimit: 512 }
+  network:
+    allowlist: true # agents reach the internet only through an egress proxy with a domain allowlist
+    extraDomains: [] # e.g. ["api.stripe.com"]; defaults cover Claude, OpenAI, npm, PyPI, GitHub
+  transientRetries: 2 # retries on the same runner for network or overload errors
+  backoffMs: 15000 # doubles on each retry
+  cooldownMs: 900000 # runner rest after a rate limit (x4 after an auth error)
+  agentTimeoutMs: 1800000
+import:
+  source: https://github.com/vinicius3333/agent-team
+  urls: []
+  github: source
