@@ -141,6 +141,7 @@ node src/cli.ts retry ~/projects/my-app T007              # retry a blocked task
 node src/cli.ts deploy ~/projects/my-app                  # redeploy the live preview
 node src/cli.ts undeploy ~/projects/my-app                # stop the live preview
 node src/cli.ts operate ~/projects/my-app --agent research   # run Operate agents now and print findings
+node src/cli.ts routines ~/projects/my-app --run weekly-social-posts   # run a routine now
 node src/cli.ts findings ~/projects/my-app                # list open findings
 node src/cli.ts backlog ~/projects/my-app --add "Dark mode"   # add your own backlog item
 node src/cli.ts sprint ~/projects/my-app --now            # start a sprint now
@@ -256,7 +257,7 @@ The dashboard's QA tab shows each round: verdict, findings, test output, and eve
 
 A deployed app keeps improving on its own, and every project makes the next one better. See [docs/sprints.md](docs/sprints.md).
 
-- **Sprints** (`sprints.enabled`). Every `sprints.everyDays` (default 7), the doctor starts a sprint on a live app. The `evaluator` scores the app from 0 to 100 against the brief, and its gaps join the backlog. The `pm` picks one goal and up to `sprints.maxItems` backlog items: Operate findings, evaluator gaps, its own feature ideas (`sprints.newFeatures`), and items you added. They ship as one change request, with QA, a merge, and a redeploy. `sprints.budgetUsd` caps one sprint and `sprints.monthlyUsd` caps 30 days. **Operate > Sprints** shows the plan and the history; **Start sprint now** skips the wait.
+- **Sprints** (`sprints.enabled`). Set them on **Operate > Sprints > Sprint settings**, or in `pipeline.yaml`. Every `sprints.everyDays` (default 7), the doctor starts a sprint on a live app. The `evaluator` scores the app from 0 to 100 against the brief, and its gaps join the backlog. The `pm` picks one goal and up to `sprints.maxItems` backlog items: Operate findings, evaluator gaps, its own feature ideas (`sprints.newFeatures`), and items you added. They ship as one change request, with QA, a merge, and a redeploy. `sprints.budgetUsd` caps one sprint and `sprints.monthlyUsd` caps 30 days. **Operate > Sprints** shows the plan and the history; **Start sprint now** skips the wait.
 - **Learning** (`learning.enabled`). After each run and each sprint, the `curator` role reads the new rejection reasons, QA findings, evaluation gaps, and incident diagnoses. It turns them into lessons in `<runs folder>/.agent-team-lessons/lessons.json`. Every agent call gets the strongest lessons for its role in its system prompt. A lesson that comes back gains weight, an unused one fades (30-day half-life), and a harmful one is retired. Lessons tied to a stack (for example `next`) reach only projects that use it.
 - **Solution memory** (`learning.memory`). Every merged task goes into a shared search index (SQLite FTS5). Each worker gets the closest solutions from other projects, with their summary and diff.
 
@@ -326,7 +327,18 @@ After deploy, three agents watch the live app and write **findings**: a problem,
 
 The doctor (`agent-team doctor`) probes each live app every 5 minutes and runs due agents. **Run now** in the dashboard, or `agent-team operate <projectDir>`, runs one at once. Findings join the backlog. With [sprints](#sprints-and-learning) on, the next sprint picks from it; **Approve as change** turns one finding into a change request at once. Configure it under `operate:` in `pipeline.yaml`; `enabled: false` turns it off.
 
+The three agents are built-in [routines](#routines). Set their schedules on **Operate > Routines**.
+
 For analytics, create a PostHog project, set `operate.posthog` (`projectId`, `publicKey`, and `apiKeyEnv`, the name of the env var that holds a personal API key), and redeploy. The `react-vite` and `fullstack` templates send page views and `track()` events only when the key is set. To try the views with demo data, run `node scripts/seed-operate.ts <projectDir>`.
+
+## Routines
+
+A routine is a recurring job for one agent: the `marketer` makes social images every week, or the `researcher` scans search terms every two weeks. You create them on **Operate > Routines**, from a template or from scratch. See [docs/routines.md](docs/routines.md).
+
+- **When:** every N days, after each sprint, after each deploy, or by hand.
+- **Output:** findings for the backlog, a report in `docs/routines/`, or images in `marketing/routines/`. Routines write only inside the project.
+- **Tools** come from the role. The `marketer` runs on codex, so it can generate images.
+- **Money:** `budgetUsd` caps one run, and `routines.monthlyUsd` caps 30 days of all routines.
 
 ## GitHub
 

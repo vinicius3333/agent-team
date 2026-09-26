@@ -1,5 +1,7 @@
 # Project hierarchy and the Operate phase: spec
 
+> The Operate agents are now built-in [routines](routines.md). Their schedules live in the `routines` block, and `operate.schedule` below is the older format, still read for old projects.
+
 Today the project page has ten flat tabs, and a project's story ends at deploy. This spec does two things:
 
 1. **Hierarchy.** The app sidebar becomes a project tree: project → phase (Build, Launch, Operate, System) → view. The flat tab bar goes away. The sidebar can collapse to an icon rail. On mobile it opens as a sheet.
