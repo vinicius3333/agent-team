@@ -120,3 +120,11 @@ Files: `web/src/components/project/gates-card.tsx`, `web/src/components/ui/check
 > I made the approval gate checkboxes 24×24 px on phones. They keep their 16 px look at 1440 px. `verify` passes: lint reports warnings in `hooks.ts` and `auth-context.tsx`, files I didn't touch, and no errors, and `npm run build:ui` builds. I didn't run the app in a browser, so the orchestrator's phone check is the first real test of the sizes. I also didn't write tests: the dashboard has no component test setup, so the check rests on `verify` and that browser check.
 > This time I also fixed the other small controls on the two pages, because the previous rejections flagged all of them, not just the gate checkboxes:
 > - **The 16×16 radio buttons:** the stack choices on /new and the GitHub destination on /import.
+
+## Q201: Make checkboxes at least 24x24 px on phones
+
+Files: `web/src/components/project/gates-card.tsx`, `web/src/components/ui/switch.tsx`, `web/src/pages/import-project.tsx`, `web/src/pages/new-project.tsx`
+
+> The gate checkboxes were already 24×24 px on phones and 16 px at 1440 px, from an earlier run of this task (commit `abca968`). This run fixes how the label lines up with the box, and moves the switch's phone sizing into the shared switch component. `verify` passes: lint has only warnings in files I didn't touch, and `npm run build:ui` builds. I didn't open the pages in a browser, and there's no component test setup, so the orchestrator's phone check is the first real check of the sizes and alignment.
+> **Already in place:** `checkbox.tsx` uses `size-6 sm:size-4`. Radix's hidden input copies the box's measured size, so it is also 24×24 on phones. The focus ring is still there. Space checks the box, and clicking the label works through `htmlFor`.
+> **What I changed:**
