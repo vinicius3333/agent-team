@@ -494,5 +494,29 @@
       "test/workspace.test.ts covers: a clean main, a dirty main (the merge works and the stash exists), and a merge conflict (the stash is restored). It uses temp git repos and sets user.name and user.email."
     ],
     "verify": "npm run typecheck && node --disable-warning=ExperimentalWarning --test test/workspace.test.ts"
+  },
+  {
+    "id": "L010",
+    "title": "Make the doctor escalate early when the same stop repeats",
+    "story": "As an operator, I want the doctor to hand an incident to me as soon as it repeats a fix that did not work, so it does not spend all its attempts and budget on the same stop.",
+    "phase": "feature",
+    "dependsOn": [],
+    "allowedPaths": [
+      "src/doctor.ts",
+      "test/doctor.test.ts"
+    ],
+    "readPaths": [
+      "src/store.ts",
+      "src/pipeline.ts"
+    ],
+    "acceptance": [
+      "Each doctor attempt records a fix signature on the incident: the diagnosed cause, the sorted list of project actions, and whether it landed a code fix.",
+      "When the same stop comes back after a fix that had no code fix (only a resume or project actions), incidentFor gives up at once with the reason 'the same stop came back and the last fix changed no code', and it does not start a new attempt.",
+      "When the same stop comes back and the last fix signature matches an earlier attempt on the same incident, the doctor gives up at once with a reason that says the fix repeated.",
+      "On an early give-up, the doctor opens a 'Decision needed' notice (or comments on the incident issue) that lists the earlier attempts and their actions, and logs '[doctor] incident <id>: escalated early: <reason>'.",
+      "Other incidents still use maxAttempts and maxUsdPerIncident as before.",
+      "test/doctor.test.ts covers: a stop that repeats after a resume-only fix (escalates with no new attempt), a stop that repeats with the same signature (escalates), and a stop that repeats after a different code fix (tries again). It uses temp folders and fakes and does not call agents or GitHub."
+    ],
+    "verify": "npm run typecheck && node --disable-warning=ExperimentalWarning --test test/doctor.test.ts"
   }
 ]
