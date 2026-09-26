@@ -41,6 +41,13 @@ function issueNumberFromUrl(url: string): number {
   return number
 }
 
+// gh answers "could not add label: 'x' not found" when the repository lacks a label.
+function missingLabel(error: unknown): boolean {
+  const failure = error as { stderr?: string; message?: string }
+  const text = `${failure.stderr ?? ""} ${failure.message ?? ""}`
+  return /label/i.test(text) && /not found/i.test(text)
+}
+
 export function createGitHub(context: GitHubContext) {
   const { projectDir, config, store } = context
   const settings = config.publish.github
@@ -77,13 +84,27 @@ export function createGitHub(context: GitHubContext) {
     }
   }
 
+  function createLabels(): void {
+    for (const [name, color, description] of labels) {
+      run("gh", ["label", "create", name, "--color", color, "--description", description, "--force", "-R", repo()], projectDir)
+    }
+    store.setMeta("github.labels", "1")
+  }
+
+  // An existing or imported repository may lack our labels; create them once per project.
+  function ensureLabels(): void {
+    if (store.meta("github.labels")) return
+    attempt("create labels", createLabels)
+  }
+
   function ensureRepository(): boolean {
-    if (hasOrigin()) return true
+    if (hasOrigin()) {
+      ensureLabels()
+      return true
+    }
     const created = attempt("create repository", () => {
       run("gh", ["repo", "create", repo(), `--${settings.visibility}`, "--source", projectDir, "--remote", "origin", "--push"], projectDir)
-      for (const [name, color, description] of labels) {
-        run("gh", ["label", "create", name, "--color", color, "--description", description, "--force", "-R", repo()], projectDir)
-      }
+      createLabels()
       store.log("github", `created ${settings.visibility} repository https://github.com/${repo()}`)
       return true
     })
@@ -134,10 +155,18 @@ export function createGitHub(context: GitHubContext) {
     return `https://github.com/${repo()}/issues/${number}`
   }
 
+  // When a label is missing on GitHub, gh refuses the whole issue; retry without labels so the issue still exists.
   function createIssue(title: string, body: string, issueLabels: string[]): number | null {
-    return attempt(`create issue "${title}"`, () =>
-      issueNumberFromUrl(run("gh", ["issue", "create", "-R", repo(), "--title", title, "--body-file", "-", ...issueLabels.flatMap((label) => ["--label", label])], projectDir, body)),
-    )
+    const args = ["issue", "create", "-R", repo(), "--title", title, "--body-file", "-"]
+    return attempt(`create issue "${title}"`, () => {
+      try {
+        return issueNumberFromUrl(run("gh", [...args, ...issueLabels.flatMap((label) => ["--label", label])], projectDir, body))
+      } catch (error) {
+        if (!issueLabels.length || !missingLabel(error)) throw error
+        store.log("github", `a label is missing; creating issue "${title}" without labels`)
+        return issueNumberFromUrl(run("gh", args, projectDir, body))
+      }
+    })
   }
 
   function comment(issue: number, body: string): void {
