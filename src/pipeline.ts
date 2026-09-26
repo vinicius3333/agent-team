@@ -1450,6 +1450,18 @@ async function runTask(context: PipelineContext, task: Task): Promise<TaskOutcom
 
 async function handleBlock(context: PipelineContext, task: Task, block: Block): Promise<TaskOutcome> {
   const { store } = context
+  // A scope block for files the task already owns means a tool call was refused, not that the plan is wrong.
+  // A replan cannot fix that, so the task retries once with a note instead of spending its replan or a human gate.
+  if (block.kind === "scope" && block.needPaths.length && !filesOutsideScope(block.needPaths, task.allowedPaths).length) {
+    const key = `task.${task.id}.inScopeRetry`
+    if (!store.meta(key)) {
+      store.setMeta(key, "1")
+      const note = "Every file listed is already inside allowedPaths, so this is not a scope problem. Edit those files with the Edit and Write tools, not through Bash."
+      store.updateTask(task.id, "pending", `${formatBlock(block)}\n${note}`)
+      store.log("task", `${task.id}: asked for files it already owns; retrying with a note instead of replanning`)
+      return "replanned"
+    }
+  }
   if (store.task(task.id).replans >= maxReplansPerTask) {
     const reason = `${task.id} was already replanned once and is blocked again. ${formatBlock(block)}`
     return (await autoApproveScope(context, task, reason)) ?? requireHuman(context, task, reason)
