@@ -132,7 +132,7 @@ routines:
   monthlyUsd: 40
   list:
     - id: monitoring
-      enabled: false
+      enabled: true
       trigger: interval
       everyDays: 1
     - id: analytics
