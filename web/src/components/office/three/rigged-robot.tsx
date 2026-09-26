@@ -86,7 +86,12 @@ function layerableClips(clips: AnimationClip[], scene: Object3D): AnimationClip[
       }
       return false
     })
-    return new AnimationClip(clip.name, clip.duration, tracks)
+    // Blender exports from frame 1, and the last frame repeats the first. Starting at time 0
+    // makes the loop close on that repeated frame instead of holding it twice.
+    const start = Math.min(...tracks.map((track) => track.times[0]))
+    if (!Number.isFinite(start) || start <= 0) return new AnimationClip(clip.name, clip.duration, tracks)
+    const shifted = tracks.map((track) => track.clone().shift(-start))
+    return new AnimationClip(clip.name, clip.duration - start, shifted)
   })
 }
 
