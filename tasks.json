@@ -140,5 +140,31 @@
       "test/lessons.test.ts covers weaken, merge, and bad ids, offline. npm run typecheck and npm test pass."
     ],
     "verify": "npm run typecheck && npm test"
+  },
+  {
+    "id": "L003",
+    "title": "Pick lessons by relevance to the task, fused with lesson weight",
+    "story": "As the project owner, I want each agent call to get the lessons that match its task, not only the heaviest lessons for its role, so the prompt carries rules that apply to the work at hand.",
+    "phase": "feature",
+    "dependsOn": [],
+    "allowedPaths": [
+      "src/lessons.ts",
+      "src/pipeline.ts",
+      "test/lessons.test.ts"
+    ],
+    "readPaths": [
+      "src/memory.ts",
+      "src/improve.ts",
+      "docs/architecture.md"
+    ],
+    "acceptance": [
+      "lessonsFor accepts an optional query string. With a query, it scores each candidate lesson's rule and evidence against the query with an in-memory keyword score (BM25 or similar, Node built-ins only), then orders lessons by reciprocal rank fusion of the relevance rank and the lessonWeight rank (k = 60).",
+      "Without a query, or when no lesson matches the query, the order is exactly the current order by lessonWeight, so existing callers do not change.",
+      "The role and stack filters still apply before ranking, and the limit still applies after ranking.",
+      "withLessons in src/pipeline.ts passes the task prompt as the query; if ranking throws, the agent call still runs without lessons, as today.",
+      "test/lessons.test.ts covers relevance winning over a slightly heavier unrelated lesson, the no-query fallback, and the stack filter, offline.",
+      "npm run typecheck and npm test pass."
+    ],
+    "verify": "npm run typecheck && npm test"
   }
 ]
