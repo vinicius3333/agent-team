@@ -30,13 +30,12 @@ qa:
   resolveAll: false # true: a pass may not list findings, so every finding, minor ones included, gets a fix task
 
 sprints:
-  # once the app is live, the doctor runs a sprint on a schedule: evaluate, pick backlog items, ship them as a change
-  enabled: true # needs deploy.enabled and a running doctor (agent-team doctor)
-  everyDays: 7 # days from the end of one sprint to the start of the next
-  budgetUsd: 25 # the most one sprint may spend; budget.runUsd is raised to make room when a sprint starts
-  monthlyUsd: 100 # the most all sprints of the last 30 days may spend together; no sprint starts past it
-  maxItems: 5 # backlog items per sprint
-  newFeatures: true # the PM may propose features the brief does not ask for
+  enabled: true
+  everyDays: 0.5
+  budgetUsd: 100
+  monthlyUsd: 300
+  maxItems: 5
+  newFeatures: true
 
 learning:
   # lessons from reviews, QA, evaluations, and incidents, shared by every project in the runs folder
