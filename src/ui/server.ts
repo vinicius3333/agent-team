@@ -31,7 +31,7 @@ import { trackedFiles } from "../git.ts"
 import { insightAgents, type InsightAgent, type PipelineConfig } from "../config.ts"
 import { insightRunActive, runInsightAgent } from "../operate/agents.ts"
 import { parseRoutines, routineBlocker, routinesSnapshot, runRoutine, saveRoutines } from "../routines.ts"
-import { approveFinding, dismissFinding } from "../operate/findings.ts"
+import { approveFinding, approveFindings, dismissFinding } from "../operate/findings.ts"
 import { operateSnapshot } from "../operate/snapshot.ts"
 import { findingStatuses, type FindingStatus, type Store } from "../store.ts"
 import { summarizeActivity } from "../activity.ts"
@@ -1095,6 +1095,11 @@ export function startUi(options: UiOptions) {
         return send(response, 200, { started: startRunIfIdle(name) })
       }
       return send(response, 404, { error: "not found" })
+    }
+    if (parts[3] === "findings" && parts[4] === "approve" && parts.length === 5) {
+      if (runAlive(projectDir)) return send(response, 409, { error: "A run is already in progress." })
+      const change = withProjectStore(projectDir, (store) => approveFindings(projectDir, store, body.ids))
+      return send(response, 201, { changeId: change.id, branch: change.branch, started: startRunIfIdle(name) })
     }
     if (parts[3] === "findings" && parts.length === 6) {
       if (!findingIdPattern.test(parts[4])) return send(response, 404, { error: "unknown finding" })

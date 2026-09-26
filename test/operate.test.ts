@@ -11,8 +11,8 @@ import { healthSummary, percentile, probe, probeProject } from "../src/operate/h
 import { fetchPosthogData, posthogMetrics, PosthogError } from "../src/operate/posthog.ts"
 import { dueAgents, parseInsightReply, runInsightAgent } from "../src/operate/agents.ts"
 import { operateTick } from "../src/operate/tick.ts"
-import { approveFinding, dismissFinding } from "../src/operate/findings.ts"
-import { createProject, ProjectError, withProjectStore } from "../src/project.ts"
+import { approveFinding, approveFindings, dismissFinding } from "../src/operate/findings.ts"
+import { changeRequestMaxLength, createProject, ProjectError, withProjectStore } from "../src/project.ts"
 import { toClaudeTools } from "../src/runners/claude.ts"
 import { downsampleChecks } from "../src/operate/snapshot.ts"
 import { openStore } from "../src/store.ts"
@@ -353,6 +353,82 @@ test("approveFinding opens a change from the finding and refuses like openChange
     assert.equal(store.finding(other)?.status, "dismissed")
     assert.throws(() => dismissFinding(store, other), rejectsWith(409, /already dismissed/))
   })
+})
+
+test("approveFindings opens one change for several items and approves all of them", () => {
+  const projectDir = finishedProject("approve-many")
+  withProjectStore(projectDir, (store) => {
+    const first = store.addFinding({ source: "analytics", severity: "medium", title: "Shorten signup", evidence: "62% drop", proposal: "Let users vote first." }).id
+    const second = store.addFinding({ ...finding, proposal: "x".repeat(5000) }).id
+    const change = approveFindings(projectDir, store, [first, second])
+    assert.ok(change.request.length <= changeRequestMaxLength)
+    assert.match(change.request, /^Shorten signup\n\nLet users vote first\.\n\nFix vote API errors\n\nxxx/)
+    assert.ok(change.request.endsWith(`Backlog items:\n- #${first} [analytics, medium] Shorten signup\n- #${second} [monitoring, high] Fix vote API errors`))
+    for (const id of [first, second]) assert.deepEqual([store.finding(id)?.status, store.finding(id)?.changeId], ["approved", change.id])
+    assert.ok(store.recentEvents(5).some((event) => event.message === `findings ${first}, ${second} approved as change ${change.id}`))
+  })
+})
+
+test("approveFindings checks every id first and changes nothing when it refuses", () => {
+  const projectDir = finishedProject("approve-many-refused")
+  withProjectStore(projectDir, (store) => {
+    const open = store.addFinding(finding).id
+    const dismissed = store.addFinding({ ...finding, title: "Dismissed" }).id
+    dismissFinding(store, dismissed)
+    assert.throws(() => approveFindings(projectDir, store, []), rejectsWith(400, /at least one/))
+    assert.throws(() => approveFindings(projectDir, store, Array.from({ length: 21 }, (_, index) => index + 1)), rejectsWith(400, /at most 20/))
+    assert.throws(() => approveFindings(projectDir, store, [open, 999]), rejectsWith(404, /unknown finding/))
+    assert.throws(() => approveFindings(projectDir, store, [open, dismissed]), rejectsWith(409, /already dismissed/))
+    assert.equal(store.finding(open)?.status, "open")
+    assert.equal(store.changes().length, 0)
+
+    const other = store.addFinding({ ...finding, title: "Other" }).id
+    store.setMeta("run.pid", String(process.pid))
+    assert.throws(() => approveFindings(projectDir, store, [open, other]), rejectsWith(409, /run is in progress/))
+    assert.deepEqual([store.finding(open)?.status, store.finding(other)?.status], ["open", "open"])
+    store.setMeta("run.pid", "")
+  })
+})
+
+test("POST findings/approve opens one change and answers 409 when it cannot", async (t) => {
+  const runsDir = join(scratch, "approve-many-runs")
+  const projectDir = join(runsDir, "dad-jokes")
+  createProject(projectDir, "Dad jokes")
+  const ids = withProjectStore(projectDir, (store) => {
+    for (const phase of ["spec", "architecture", "branding", "design", "marketing", "plan", "qa", "deploy"]) store.setPhase(phase, "approved")
+    store.syncTasks(["T001"])
+    store.updateTask("T001", "merged")
+    return [store.addFinding(finding).id, store.addFinding({ ...finding, title: "Second" }).id, store.addFinding({ ...finding, title: "Third" }).id]
+  })
+  const started: string[] = []
+  const server = startUi({ runsDir, port: 0, auth: { mode: "none" }, notifications: false, startRun: (name) => void started.push(name) })
+  await once(server, "listening")
+  t.after(() => server.close())
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/projects`
+  const post = (path: string, body: unknown = {}) => fetch(`${base}${path}`, { method: "POST", headers: { "content-type": "application/json", "x-agent-team": "1" }, body: JSON.stringify(body) })
+
+  assert.equal((await post("/dad-jokes/findings/approve", { ids: [] })).status, 400)
+  assert.equal((await post("/dad-jokes/findings/approve", { ids: "1" })).status, 400)
+  assert.equal((await post("/dad-jokes/findings/approve", { ids: [ids[0], 999] })).status, 404)
+
+  withProjectStore(projectDir, (store) => store.setMeta("run.pid", String(process.pid)))
+  assert.equal((await post("/dad-jokes/findings/approve", { ids: [ids[0], ids[1]] })).status, 409)
+  withProjectStore(projectDir, (store) => store.setMeta("run.pid", ""))
+
+  const created = await post("/dad-jokes/findings/approve", { ids: [ids[0], ids[1]] })
+  assert.equal(created.status, 201)
+  const reply = await created.json()
+  assert.match(reply.changeId, /^C\d+$/)
+  assert.equal(typeof reply.branch, "string")
+  assert.equal(typeof reply.started, "boolean")
+  withProjectStore(projectDir, (store) => {
+    assert.deepEqual(ids.map((id) => store.finding(id)?.status), ["approved", "approved", "open"])
+  })
+
+  const again = await post("/dad-jokes/findings/approve", { ids: [ids[2]] })
+  assert.equal(again.status, 409)
+  assert.ok((await again.json()).error)
+  withProjectStore(projectDir, (store) => assert.equal(store.finding(ids[2])?.status, "open"))
 })
 
 test("operateTick probes live projects and runs due agents one at a time", async () => {

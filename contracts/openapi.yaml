@@ -616,6 +616,34 @@ paths:
                 detail: { type: string }
                 severity: { type: string }
       responses: { "201": { $ref: "#/components/responses/Json" }, "400": { $ref: "#/components/responses/Error" } }
+  /api/projects/{name}/findings/approve:
+    post:
+      summary: Approve several open backlog items at once, which opens one change for all of them
+      parameters: [{ $ref: "#/components/parameters/name" }, { $ref: "#/components/parameters/csrf" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids]
+              properties:
+                ids: { type: array, minItems: 1, maxItems: 20, items: { type: integer } }
+      responses:
+        "201":
+          description: The change opened and every item is approved
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [changeId, branch, started]
+                properties:
+                  changeId: { type: string }
+                  branch: { type: string }
+                  started: { type: boolean }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
   /api/projects/{name}/findings/{id}/approve:
     post:
       summary: Approve a finding, which opens a change for it (US-07)
