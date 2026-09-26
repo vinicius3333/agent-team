@@ -126,7 +126,8 @@ export interface PipelineConfig {
 
 export const routineTriggers = ["interval", "sprint", "deploy", "manual"] as const
 export type RoutineTrigger = (typeof routineTriggers)[number]
-export const routineOutputs = ["backlog", "marketing", "report"] as const
+// sprint: the findings join the backlog, then the routine starts a sprint that builds from it.
+export const routineOutputs = ["backlog", "marketing", "report", "sprint"] as const
 export type RoutineOutput = (typeof routineOutputs)[number]
 // Roles a custom routine may use. The Operate agents are built-in routines instead, because the server gathers
 // their data (health checks, logs, PostHog) before the call.
