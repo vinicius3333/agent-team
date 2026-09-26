@@ -57,3 +57,11 @@ Files: `src/github.ts`, `test/github.test.ts`
 > Task issues are now created on repositories that already have an origin. The labels get created once per project, and if a label is still missing, the issue is created without labels. `npm run typecheck && npm test` passes: typecheck is clean, and 300 of 301 tests pass with 0 failures and 1 skipped. That skip was already in the suite before this change.
 > **Changes in `src/github.ts`:**
 > - **Labels on an existing origin:** when the repository already has an origin, the orchestrator runs `gh label create --force` for each label in the list. It then sets the store meta flag `github.labels`, so later runs skip this step. A new repository still gets its labels when it is created, and now sets the same flag.
+
+## L005: Always allow the APP_URL host in the preview start command
+
+Files: `deploy.json`, `docs/architecture.md`, `test/deploy-start.test.ts`
+
+> The preview's start command now always adds the `APP_URL` host to `AGENT_TEAM_UI_HOSTS`, even when that list is already set. Before, the host was only used when the list was empty. `npm run typecheck` passed, and `npm test` ran 307 tests: 306 passed, 0 failed, and the last one did not count as a pass, most likely a skip.
+> - **`deploy.json`:** a small `node -p` step builds the list. It splits the existing value on commas, adds the `APP_URL` host name (only if `APP_URL` parses as a URL), trims each name, drops empty ones and joins them with commas. So the result never has a leading, trailing or doubled comma. It also works when either value is empty or unset, or when `APP_URL` is not a valid URL.
+> - **`test/deploy-start.test.ts` (new):** reads the host-list part of the start command from `deploy.json` and runs it in `sh`, offline and without Docker. With `other.example` and `https://app.example` it gets `other.example,app.example`. It also covers:
