@@ -176,3 +176,11 @@ Files: `src/project.ts`, `test/run-container.test.ts`
 > Before it starts a new run container, `startRunContainer` now removes the old one and waits until it is gone. The verify command passes: typecheck is clean and all 6 tests in `test/run-container.test.ts` pass.
 > **`src/project.ts`**
 > - `startRunContainer` is now exported. It takes optional deps `{ docker, processAlive, sleep }`, and the defaults are the real ones: `execFileSync("docker", …)`, the existing `processAlive`, and a blocking sleep. The sleep has to block because `startRun` stays synchronous, so its callers don't change.
+
+## T009: Add config for GitHub issue polling and the Codex base URL
+
+Files: `pipeline.example.yaml`, `src/config.ts`, `test/config.test.ts`
+
+> I added both config blocks. `loadConfig` now reads GitHub issue polling settings and an optional custom endpoint for the Codex runner. The last `verify` run passed: typecheck is clean and all 14 tests in `test/config.test.ts` pass. I didn't run the full test suite, but no other test or source file compares the whole publish config, so the new field shouldn't break anything.
+> **`src/config.ts`**
+> - **Issue polling:** `publish.github.issues` defaults to `{ enabled: true, everyMinutes: 10 }`. An `everyMinutes` value below 1, above 1440, or not a number fails with "publish.github.issues.everyMinutes must be a number from 1 to 1440". A non-true/false `enabled` also fails.
