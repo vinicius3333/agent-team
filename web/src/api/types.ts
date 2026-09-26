@@ -513,6 +513,8 @@ export const insightAgents = ["monitoring", "analytics", "research"] as const
 export type InsightAgent = (typeof insightAgents)[number]
 // The backlog: the Operate agents' findings, the evaluator's gaps, the PM's feature ideas, items added by hand, and custom routines' findings.
 export type FindingSource = InsightAgent | "evaluator" | "product" | "manual" | "routine"
+// A backlog item can also come from a GitHub issue labeled agent-team; the server sends source "github".
+export type BacklogSource = FindingSource | "github"
 export type FindingSeverity = "high" | "medium" | "low"
 export type FindingStatus = "open" | "approved" | "dismissed"
 

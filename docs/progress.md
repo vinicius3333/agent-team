@@ -208,3 +208,11 @@ Files: `src/deploy.ts`, `src/improve.ts`, `src/pipeline.ts`, `src/ui/server.ts`,
 > `ensureDeployed` is in place and the dashboard now shows why a deploy failed. The full verify command passes: typecheck is clean, the 4 test files pass (38 of 38), web lint reports only warnings that were already there, and the web build succeeds. I didn't run the whole `npm test` suite or the clean-install start check. The web build first failed because the web packages weren't installed, so I ran `npm --prefix web ci` and it passed after that.
 > **What changed:**
 > - **Deploy on demand** (`src/pipeline.ts`): `ensureDeployed(context)` does nothing when deploy is off, or when there is a URL and the app container is running. Otherwise it resets an approved deploy phase to pending and calls `runDeployPhase`. Tests can swap in a fake deploy and a fake container check. It runs on the docs-only change path and before the normal deploy step, so a resume with nothing to build also brings the app up.
+
+## T015: Poll GitHub issues labeled agent-team into the backlog
+
+Files: `src/doctor.ts`, `src/store.ts`, `web/src/api/types.ts`, `web/src/components/operate/next-steps.tsx`, `web/src/components/operate/shared.tsx`, `src/operate/issues.ts`, `test/issues.test.ts`
+
+> I added GitHub issue polling. Open issues labeled `agent-team` now become open backlog items with source `github`, and each issue gets one comment linking to its item. The last verify run passed: typecheck is clean, the tests in `issues`, `doctor` and `sprint` all pass, web lint shows warnings only, and the web build succeeds. I didn't load the page in a browser; the orchestrator's check will be the first real look.
+> **What changed**
+> - **`src/operate/issues.ts` (new):**

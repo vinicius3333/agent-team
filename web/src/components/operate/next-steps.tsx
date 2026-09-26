@@ -1,9 +1,9 @@
-import { useState, type ReactNode } from "react"
+import { useEffect, useState, type ReactNode } from "react"
 import { useSearchParams } from "react-router"
 import { ArrowRight, CalendarClock, Check, ChevronRight, Loader2, Plus, X } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@/api/client"
-import type { Finding, FindingSeverity, FindingSource } from "@/api/types"
+import type { BacklogSource, Finding, FindingSeverity } from "@/api/types"
 import { EmptyState } from "@/components/empty-state"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -17,14 +17,14 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { useProjectView } from "@/components/project/context"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { formatRelative } from "@/lib/format"
-import { agentLabels, rankFindings, sourceLabels } from "@/lib/operate"
+import { rankFindings, sourceLabels } from "@/lib/operate"
 import { cn } from "@/lib/utils"
-import { FunnelBars, SeverityBadge, SourceLabel, useFindingActions } from "./shared"
+import { backlogSourceLabel, FunnelBars, githubIssueLabel, SeverityBadge, SourceLabel, useFindingActions } from "./shared"
 import { useStartSprint } from "./sprints"
 import { useFindings, useOperateSnapshot, useSprints } from "./use-operate"
 
-type Filter = "all" | FindingSource
-const filters: Filter[] = ["all", "monitoring", "analytics", "research", "evaluator", "product", "manual", "routine"]
+type Filter = "all" | BacklogSource
+const filters: Filter[] = ["all", "monitoring", "analytics", "research", "evaluator", "product", "manual", "routine", "github"]
 const titleMaxLength = 200
 const detailMaxLength = 2000
 
@@ -39,7 +39,7 @@ function Chip({ pressed, onClick, children }: { pressed: boolean; onClick: () =>
 function FindingRow({ finding, selected, onSelect, picked, onPick }: { finding: Finding; selected: boolean; onSelect: () => void; picked: boolean; onPick: (picked: boolean) => void }) {
   const pickable = finding.status === "open"
   return (
-    <li className={cn("flex items-stretch hover:bg-muted/60", selected && "bg-primary/5")}>
+    <li id={`finding-${finding.id}`} className={cn("flex scroll-mt-20 items-stretch hover:bg-muted/60", selected && "bg-primary/5")}>
       {pickable && (
         <label className="flex size-11 shrink-0 cursor-pointer items-center justify-center self-center pl-2">
           <Checkbox checked={picked} onCheckedChange={(value) => onPick(value === true)} aria-label={`Select ${finding.title}`} className="size-6" />
@@ -75,7 +75,7 @@ function FindingDetail({ finding, onChange }: { finding: Finding; onChange: () =
     <div className="flex flex-col gap-4 text-sm">
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <SeverityBadge severity={finding.severity} />
-        <span>{agentLabels[finding.source]}</span>
+        <span>{backlogSourceLabel(finding.source)}</span>
         <span>· updated {formatRelative(finding.updatedAt)}</span>
       </div>
       <section className="flex flex-col gap-1">
@@ -245,6 +245,13 @@ export function OperateNextSteps() {
     select(item.id)
   }
 
+  // A link from a GitHub issue comment ends in #finding-<id>; the list loads after the page, so scroll once it is there.
+  const loaded = findings !== undefined && findings !== null
+  useEffect(() => {
+    if (!loaded || !/^#finding-\d+$/.test(window.location.hash)) return
+    document.getElementById(window.location.hash.slice(1))?.scrollIntoView({ block: "center" })
+  }, [loaded])
+
   const visible = rankFindings((findings ?? []).filter((finding) => filter === "all" || finding.source === filter))
   const selected = (findings ?? []).find((finding) => finding.id === selectedId) ?? null
   const panelOpen = adding || selected !== null
@@ -266,7 +273,7 @@ export function OperateNextSteps() {
       <div className="flex flex-wrap gap-2" role="group" aria-label="Filter the backlog">
         {filters.map((entry) => (
           <Chip key={entry} pressed={filter === entry} onClick={() => setFilter(entry)}>
-            {entry === "all" ? "All" : sourceLabels[entry]}
+            {entry === "all" ? "All" : entry === "github" ? githubIssueLabel : sourceLabels[entry]}
           </Chip>
         ))}
         <Chip pressed={dismissed} onClick={() => setDismissed((value) => !value)}>
@@ -334,7 +341,7 @@ export function OperateNextSteps() {
               <>
                 <SheetHeader>
                   <SheetTitle>{selected.title}</SheetTitle>
-                  <SheetDescription>{agentLabels[selected.source]}</SheetDescription>
+                  <SheetDescription>{backlogSourceLabel(selected.source)}</SheetDescription>
                 </SheetHeader>
                 <div className="px-4 pb-6">
                   <FindingDetail finding={selected} onChange={refresh} />
