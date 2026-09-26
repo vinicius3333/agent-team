@@ -57,7 +57,7 @@ export async function askLead(options: AskLeadOptions): Promise<number> {
     systemPrompt,
     taskPrompt,
     executor: hostExecutor(projectDir),
-    allowedTools: ["read"],
+    allowedTools: ["read", "web_search", "web_fetch"],
     budgetUsd: config.lead.chatBudgetUsd,
     timeoutMs: leadTimeoutMs,
     transcriptPath,
