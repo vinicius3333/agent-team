@@ -435,10 +435,9 @@ export function NewProjectPage() {
                           disabled={disabled}
                           onCheckedChange={(checked) => toggleGate(phase, checked === true)}
                           aria-describedby={`gate-${phase}-help`}
-                          className="sm:mt-0.5"
                         />
-                        <div className="grid gap-0.5 pt-1 sm:pt-0">
-                          <Label htmlFor={`gate-${phase}`}>After {stepLabels[phase].toLowerCase()}</Label>
+                        <div className="grid gap-0.5">
+                          <Label htmlFor={`gate-${phase}`} className="min-h-6 sm:min-h-4">After {stepLabels[phase].toLowerCase()}</Label>
                           <p id={`gate-${phase}-help`} className="text-xs text-muted-foreground">
                             {gateHints[phase]}
                           </p>
@@ -495,7 +494,7 @@ export function NewProjectPage() {
                   },
                 ].map((option) => (
                   <div key={option.id} className="flex items-start gap-3">
-                    <Switch id={option.id} checked={option.checked} onCheckedChange={option.set} aria-describedby={`${option.id}-help`} className="max-sm:py-[3px] max-sm:shadow-none max-sm:bg-clip-content max-sm:data-[size=default]:h-6" />
+                    <Switch id={option.id} checked={option.checked} onCheckedChange={option.set} aria-describedby={`${option.id}-help`} />
                     <div className="grid gap-0.5">
                       <Label htmlFor={option.id}>{option.label}</Label>
                       <p id={`${option.id}-help`} className="text-xs text-muted-foreground">

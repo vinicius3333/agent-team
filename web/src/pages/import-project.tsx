@@ -269,9 +269,9 @@ export function ImportProjectPage() {
                 <div className="grid gap-3 sm:grid-cols-2">
                   {importGates.map((gate) => (
                     <div key={gate} className="flex items-start gap-3">
-                      <Checkbox id={`import-gate-${gate}`} checked={gates.includes(gate)} onCheckedChange={(checked) => toggleGate(gate, checked === true)} aria-describedby={`import-gate-${gate}-help`} className="sm:mt-0.5" />
-                      <div className="grid gap-0.5 pt-1 sm:pt-0">
-                        <Label htmlFor={`import-gate-${gate}`}>After {stepLabels[gate].toLowerCase()}</Label>
+                      <Checkbox id={`import-gate-${gate}`} checked={gates.includes(gate)} onCheckedChange={(checked) => toggleGate(gate, checked === true)} aria-describedby={`import-gate-${gate}-help`} />
+                      <div className="grid gap-0.5">
+                        <Label htmlFor={`import-gate-${gate}`} className="min-h-6 sm:min-h-4">After {stepLabels[gate].toLowerCase()}</Label>
                         <p id={`import-gate-${gate}-help`} className="text-xs text-muted-foreground">
                           {gateHints[gate]}
                         </p>
@@ -281,7 +281,7 @@ export function ImportProjectPage() {
                 </div>
               </fieldset>
               <div className="flex items-start gap-3">
-                <Switch id="import-deploy" checked={deploy} onCheckedChange={setDeploy} aria-describedby="import-deploy-help" className="max-sm:py-[3px] max-sm:shadow-none max-sm:bg-clip-content max-sm:data-[size=default]:h-6" />
+                <Switch id="import-deploy" checked={deploy} onCheckedChange={setDeploy} aria-describedby="import-deploy-help" />
                 <div className="grid gap-0.5">
                   <Label htmlFor="import-deploy">Deploy changes</Label>
                   <p id="import-deploy-help" className="text-xs text-muted-foreground">
