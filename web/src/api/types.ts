@@ -169,6 +169,8 @@ export interface LeadSettings {
   actions: LeadActionKind[]
   autoApply: LeadActionKind[]
   chatBudgetUsd: number
+  // "read" shows as Limited. Absent on servers from before the access field.
+  access?: "read" | "full"
 }
 
 export interface StackTemplate {

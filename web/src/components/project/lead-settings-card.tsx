@@ -9,10 +9,18 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useProjectView } from "./context"
 
-const defaults: LeadSettings = { actions: [...leadActionKinds], autoApply: [], chatBudgetUsd: 2 }
+const defaults: LeadSettings = { actions: [...leadActionKinds], autoApply: [], chatBudgetUsd: 2, access: "read" }
 const maxChatBudgetUsd = 20
+
+type LeadAccess = NonNullable<LeadSettings["access"]>
+
+const accessChoices: { value: LeadAccess; label: string }[] = [
+  { value: "read", label: "Limited" },
+  { value: "full", label: "Full" },
+]
 
 const kindDescriptions: Record<LeadActionKind, { label: string; effect: string }> = {
   retry: { label: "Retry a task", effect: "Resets a blocked task so it runs again." },
@@ -30,7 +38,9 @@ function sameSettings(first: LeadSettings, second: LeadSettings): boolean {
 
 export function LeadSettingsCard() {
   const { name, detail } = useProjectView()
-  const saved = detail.config?.lead ?? defaults
+  const current = detail.config?.lead ?? defaults
+  // Unset access means limited, the stored value "read".
+  const saved: LeadSettings = { ...current, access: current.access ?? "read" }
   const [draft, setDraft] = useState<LeadSettings>(saved)
   const [budgetText, setBudgetText] = useState(String(saved.chatBudgetUsd))
   const [saving, setSaving] = useState(false)
@@ -75,10 +85,28 @@ export function LeadSettingsCard() {
       <CardHeader>
         <CardTitle>Project lead permissions</CardTitle>
         <CardDescription>
-          What the lead may suggest in the chat, and what applies without a click. The lead never edits files itself; code changes go through tasks. Saved to pipeline.yaml for this project only.
+          What the lead may suggest in the chat, and what applies without a click. With limited access, the lead never edits files itself; code changes go through tasks. Saved to pipeline.yaml for this project only.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4 px-0 sm:px-6">
+        <div className="flex flex-col gap-1.5 px-6 sm:px-0">
+          <Label id="lead-access">Access</Label>
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            value={draft.access ?? "read"}
+            onValueChange={(value) => value && setDraft((current) => ({ ...current, access: value as LeadAccess }))}
+            aria-labelledby="lead-access"
+            className="w-full sm:w-fit"
+          >
+            {accessChoices.map((choice) => (
+              <ToggleGroupItem key={choice.value} value={choice.value} className="h-11 flex-1 sm:h-9 sm:flex-none sm:px-4">
+                {choice.label}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+          <p className="text-xs text-muted-foreground">Full access lets the lead edit any file and run any command in the project folder, with no review.</p>
+        </div>
         <Table>
           <TableHeader>
             <TableRow>
