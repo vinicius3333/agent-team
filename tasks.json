@@ -41,6 +41,108 @@
     "change": "C002"
   },
   {
+    "id": "T009",
+    "title": "Add config for GitHub issue polling and the Codex base URL",
+    "story": "US-03",
+    "phase": "foundation",
+    "dependsOn": [],
+    "allowedPaths": [
+      "src/config.ts",
+      "test/config.test.ts",
+      "pipeline.example.yaml"
+    ],
+    "readPaths": [
+      "docs/changes/C003/spec.md",
+      "docs/changes/C003/architecture.md",
+      "docs/adr/0010-poll-labeled-issues-into-the-backlog.md",
+      "docs/adr/0011-custom-endpoint-for-the-codex-runner.md"
+    ],
+    "acceptance": [
+      "loadConfig reads publish.github.issues.enabled (default true) and publish.github.issues.everyMinutes (default 10). everyMinutes outside 1 to 1440 fails with a plain message.",
+      "loadConfig reads an optional runners.codex block with baseUrl and apiKeyEnv, exposed on the config as runners.codex ({ baseUrl, apiKeyEnv } or null when unset).",
+      "A baseUrl that does not parse as an http: or https: URL (for example ftp://x or \"not a url\") fails with \"Set codex base URL to a full http or https URL.\"",
+      "apiKeyEnv must match ^[A-Za-z_][A-Za-z0-9_]*$ (the same rule as operate.posthog.apiKeyEnv), so \"sk-123 abc\" fails with a plain message. apiKeyEnv without baseUrl fails with a plain message.",
+      "A pipeline.yaml with neither block still loads as before.",
+      "pipeline.example.yaml shows both blocks, commented, with apiKeyEnv as an env var name and never a key.",
+      "test/config.test.ts covers the defaults, a valid block, and each failing value above."
+    ],
+    "verify": "npm run typecheck && node --disable-warning=ExperimentalWarning --test test/config.test.ts",
+    "change": "C003"
+  },
+  {
+    "id": "T012",
+    "title": "Set a stored session secret in the deploy start command",
+    "story": "US-02",
+    "phase": "foundation",
+    "dependsOn": [],
+    "allowedPaths": [
+      "deploy.json",
+      ".env.example",
+      "test/deploy-start.test.ts",
+      "test/auth.test.ts"
+    ],
+    "readPaths": [
+      "docs/changes/C003/spec.md",
+      "docs/changes/C003/architecture.md",
+      "docs/adr/0009-session-secret-from-the-deploy-vault.md",
+      "src/ui/auth.ts",
+      "src/secrets.ts",
+      "src/deploy.ts",
+      "src/cli.ts"
+    ],
+    "acceptance": [
+      "deploy.json start adds AGENT_TEAM_UI_SESSION_SECRET=\"${AGENT_TEAM_UI_SESSION_SECRET:-}\" before the ui command. The hash step, the host list, the ui command, install, and port stay the same, and no secret value is in the file.",
+      ".env.example at the repo root lists AGENT_TEAM_UI_SESSION_SECRET= with an empty value and the comment \"# optional: signs dashboard login cookies, so a login survives a redeploy. Make one with: agent-team session-secret\".",
+      "test/deploy-start.test.ts checks that the start command names AGENT_TEAM_UI_SESSION_SECRET and reads it from $AGENT_TEAM_UI_SESSION_SECRET, that deploy.json holds no 43-character base64url string, and that .env.example lists the name with an empty value.",
+      "test/auth.test.ts checks that a session cookie signed by one createAuth with secret S is accepted by a new createAuth with the same S, and refused by one with a different secret. Offline."
+    ],
+    "verify": "npm run typecheck && node --disable-warning=ExperimentalWarning --test test/deploy-start.test.ts test/auth.test.ts",
+    "change": "C003"
+  },
+  {
+    "id": "T013",
+    "title": "Deploy when deploy is enabled and show why a deploy failed",
+    "story": "US-05",
+    "phase": "foundation",
+    "dependsOn": [],
+    "allowedPaths": [
+      "src/pipeline.ts",
+      "src/deploy.ts",
+      "src/improve.ts",
+      "src/ui/server.ts",
+      "test/pipeline.test.ts",
+      "test/deploy.test.ts",
+      "test/sprint.test.ts",
+      "test/dashboard.test.ts",
+      "web/src/api/types.ts",
+      "web/src/components/project/deploy-card.tsx",
+      "web/src/pages/project.tsx"
+    ],
+    "readPaths": [
+      "docs/changes/C003/spec.md",
+      "docs/changes/C003/architecture.md",
+      "contracts/openapi.yaml",
+      "src/secrets.ts",
+      "src/sprint.ts",
+      "src/store.ts",
+      "design/tokens.css"
+    ],
+    "acceptance": [
+      "src/pipeline.ts exports ensureDeployed(context). When deploy.enabled is true and deploy.url is empty or the app container is not running, it resets a deploy phase that is approved with no URL to pending and calls runDeployPhase. Otherwise it does nothing.",
+      "ensureDeployed runs at the start of a sprint in src/improve.ts, before the evaluator judges the live app, and at the end of a run or change whose tasks were all landed already (the docs-only change path and a resume with nothing to build).",
+      "deployProject saves the last failure in meta deploy.error as one sentence plus the next step, for example \"The app did not answer on port 4400. Check the start command in deploy.json, then run: agent-team deploy <projectDir>.\" A good deploy clears it. The secrets wait sets \"Waiting for secrets: X, Y. Enter or skip them in Settings > Secrets.\"",
+      "Both live-app lines in src/improve.ts treat an empty deploy.url as not deployed and add the reason: \"The live app: not deployed (<deploy.error>)\".",
+      "GET /api/projects/{name} returns deploy.error (string or null). web/src/api/types.ts adds error: string | null to the deploy type, and the project page shows it in one line in the deploy area when there is no URL. It wraps at 360px wide with no sideways scroll.",
+      "Tests with a fake deployProject: with the deploy phase approved, no URL, and deploy.enabled true, ensureDeployed deploys once and sets deploy.url; a fake failure sets deploy.error and leaves the URL empty. test/sprint.test.ts checks that the sprint report holds the live URL after a fake deploy and the reason after a fake failure. No Docker."
+    ],
+    "verify": "npm run typecheck && node --disable-warning=ExperimentalWarning --test test/pipeline.test.ts test/deploy.test.ts test/sprint.test.ts test/dashboard.test.ts && npm --prefix web run lint && npm --prefix web run build",
+    "ui": true,
+    "routes": [
+      "/"
+    ],
+    "change": "C003"
+  },
+  {
     "id": "T001",
     "title": "Pass APP_URL to checker app containers and make the login email field optional",
     "story": "US-02",
@@ -582,32 +684,53 @@
     "change": "C003"
   },
   {
-    "id": "T009",
-    "title": "Add config for GitHub issue polling and the Codex base URL",
-    "story": "US-03",
+    "id": "T014",
+    "title": "Make sprints and routines run on this project and report what blocks them",
+    "story": "US-07",
     "phase": "foundation",
-    "dependsOn": [],
+    "dependsOn": [
+      "T008",
+      "T013"
+    ],
     "allowedPaths": [
-      "src/config.ts",
-      "test/config.test.ts",
-      "pipeline.example.yaml"
+      "src/sprint.ts",
+      "src/routines.ts",
+      "src/project.ts",
+      "src/cli.ts",
+      "src/ui/server.ts",
+      "test/sprint.test.ts",
+      "test/routines.test.ts",
+      "test/dashboard.test.ts",
+      "test/fixtures/imported-project/**",
+      "web/src/components/operate/sprints.tsx",
+      "web/src/components/operate/routines.tsx"
     ],
     "readPaths": [
       "docs/changes/C003/spec.md",
       "docs/changes/C003/architecture.md",
-      "docs/adr/0010-poll-labeled-issues-into-the-backlog.md",
-      "docs/adr/0011-custom-endpoint-for-the-codex-runner.md"
+      "docs/sprints.md",
+      "docs/routines.md",
+      "src/improve.ts",
+      "src/import.ts",
+      "src/pipeline.ts",
+      "src/store.ts",
+      "src/operate/tick.ts",
+      "web/src/api/client.ts"
     ],
     "acceptance": [
-      "loadConfig reads publish.github.issues.enabled (default true) and publish.github.issues.everyMinutes (default 10). everyMinutes outside 1 to 1440 fails with a plain message.",
-      "loadConfig reads an optional runners.codex block with baseUrl and apiKeyEnv, exposed on the config as runners.codex ({ baseUrl, apiKeyEnv } or null when unset).",
-      "A baseUrl that does not parse as an http: or https: URL (for example ftp://x or \"not a url\") fails with \"Set codex base URL to a full http or https URL.\"",
-      "apiKeyEnv must match ^[A-Za-z_][A-Za-z0-9_]*$ (the same rule as operate.posthog.apiKeyEnv), so \"sk-123 abc\" fails with a plain message. apiKeyEnv without baseUrl fails with a plain message.",
-      "A pipeline.yaml with neither block still loads as before.",
-      "pipeline.example.yaml shows both blocks, commented, with apiKeyEnv as an env var name and never a key.",
-      "test/config.test.ts covers the defaults, a valid block, and each failing value above."
+      "agent-team sprint <projectDir> --check and agent-team routines <projectDir> --check print the blocker from sprintBlocker and from routineBlocker for each routine in plain words (or \"ready\"), and exit 0.",
+      "buildComplete in src/project.ts accepts an imported project whose phases the importer marked approved.",
+      "syncSprint closes a change stuck in open with no live run as failed, with a reason, so it no longer blocks sprints.",
+      "When the operator starts a sprint or runs a routine and it is blocked, the API answers 409 { \"error\": \"<blocker>\" }, and the Sprints and Routines screens show that error in a toast. No path returns quietly.",
+      "test/sprint.test.ts: from an imported-project fixture with approved findings and deploy.enabled true, sprintBlocker returns null, and a sprint run with fake runners and a fake deploy creates a sprint row that ends in a final state (done or failed), never planning.",
+      "test/routines.test.ts: runRoutine for monitoring with a fake runner records lastRun and adds its findings; a routine with output: sprint adds a sprint row.",
+      "Tests use temp folders and fakes, and call no agents or Docker."
     ],
-    "verify": "npm run typecheck && node --disable-warning=ExperimentalWarning --test test/config.test.ts",
+    "verify": "npm run typecheck && node --disable-warning=ExperimentalWarning --test test/sprint.test.ts test/routines.test.ts test/dashboard.test.ts test/run-container.test.ts && npm --prefix web run lint && npm --prefix web run build",
+    "ui": true,
+    "routes": [
+      "/"
+    ],
     "change": "C003"
   },
   {
@@ -665,135 +788,13 @@
     "change": "C003"
   },
   {
-    "id": "T012",
-    "title": "Set a stored session secret in the deploy start command",
-    "story": "US-02",
-    "phase": "foundation",
-    "dependsOn": [],
-    "allowedPaths": [
-      "deploy.json",
-      ".env.example",
-      "test/deploy-start.test.ts",
-      "test/auth.test.ts"
-    ],
-    "readPaths": [
-      "docs/changes/C003/spec.md",
-      "docs/changes/C003/architecture.md",
-      "docs/adr/0009-session-secret-from-the-deploy-vault.md",
-      "src/ui/auth.ts",
-      "src/secrets.ts",
-      "src/deploy.ts",
-      "src/cli.ts"
-    ],
-    "acceptance": [
-      "deploy.json start adds AGENT_TEAM_UI_SESSION_SECRET=\"${AGENT_TEAM_UI_SESSION_SECRET:-}\" before the ui command. The hash step, the host list, the ui command, install, and port stay the same, and no secret value is in the file.",
-      ".env.example at the repo root lists AGENT_TEAM_UI_SESSION_SECRET= with an empty value and the comment \"# optional: signs dashboard login cookies, so a login survives a redeploy. Make one with: agent-team session-secret\".",
-      "test/deploy-start.test.ts checks that the start command names AGENT_TEAM_UI_SESSION_SECRET and reads it from $AGENT_TEAM_UI_SESSION_SECRET, that deploy.json holds no 43-character base64url string, and that .env.example lists the name with an empty value.",
-      "test/auth.test.ts checks that a session cookie signed by one createAuth with secret S is accepted by a new createAuth with the same S, and refused by one with a different secret. Offline."
-    ],
-    "verify": "npm run typecheck && node --disable-warning=ExperimentalWarning --test test/deploy-start.test.ts test/auth.test.ts",
-    "change": "C003"
-  },
-  {
-    "id": "T013",
-    "title": "Deploy when deploy is enabled and show why a deploy failed",
-    "story": "US-05",
-    "phase": "foundation",
-    "dependsOn": [],
-    "allowedPaths": [
-      "src/pipeline.ts",
-      "src/deploy.ts",
-      "src/improve.ts",
-      "src/ui/server.ts",
-      "test/pipeline.test.ts",
-      "test/deploy.test.ts",
-      "test/sprint.test.ts",
-      "test/dashboard.test.ts",
-      "web/src/api/types.ts",
-      "web/src/components/project/deploy-card.tsx",
-      "web/src/pages/project.tsx"
-    ],
-    "readPaths": [
-      "docs/changes/C003/spec.md",
-      "docs/changes/C003/architecture.md",
-      "contracts/openapi.yaml",
-      "src/secrets.ts",
-      "src/sprint.ts",
-      "src/store.ts",
-      "design/tokens.css"
-    ],
-    "acceptance": [
-      "src/pipeline.ts exports ensureDeployed(context). When deploy.enabled is true and deploy.url is empty or the app container is not running, it resets a deploy phase that is approved with no URL to pending and calls runDeployPhase. Otherwise it does nothing.",
-      "ensureDeployed runs at the start of a sprint in src/improve.ts, before the evaluator judges the live app, and at the end of a run or change whose tasks were all landed already (the docs-only change path and a resume with nothing to build).",
-      "deployProject saves the last failure in meta deploy.error as one sentence plus the next step, for example \"The app did not answer on port 4400. Check the start command in deploy.json, then run: agent-team deploy <projectDir>.\" A good deploy clears it. The secrets wait sets \"Waiting for secrets: X, Y. Enter or skip them in Settings > Secrets.\"",
-      "Both live-app lines in src/improve.ts treat an empty deploy.url as not deployed and add the reason: \"The live app: not deployed (<deploy.error>)\".",
-      "GET /api/projects/{name} returns deploy.error (string or null). web/src/api/types.ts adds error: string | null to the deploy type, and the project page shows it in one line in the deploy area when there is no URL. It wraps at 360px wide with no sideways scroll.",
-      "Tests with a fake deployProject: with the deploy phase approved, no URL, and deploy.enabled true, ensureDeployed deploys once and sets deploy.url; a fake failure sets deploy.error and leaves the URL empty. test/sprint.test.ts checks that the sprint report holds the live URL after a fake deploy and the reason after a fake failure. No Docker."
-    ],
-    "verify": "npm run typecheck && node --disable-warning=ExperimentalWarning --test test/pipeline.test.ts test/deploy.test.ts test/sprint.test.ts test/dashboard.test.ts && npm --prefix web run lint && npm --prefix web run build",
-    "ui": true,
-    "routes": [
-      "/"
-    ],
-    "change": "C003"
-  },
-  {
-    "id": "T014",
-    "title": "Make sprints and routines run on this project and report what blocks them",
-    "story": "US-07",
-    "phase": "foundation",
-    "dependsOn": [
-      "T008",
-      "T013"
-    ],
-    "allowedPaths": [
-      "src/sprint.ts",
-      "src/routines.ts",
-      "src/project.ts",
-      "src/cli.ts",
-      "src/ui/server.ts",
-      "test/sprint.test.ts",
-      "test/routines.test.ts",
-      "test/dashboard.test.ts",
-      "test/fixtures/imported-project/**",
-      "web/src/components/operate/sprints.tsx",
-      "web/src/components/operate/routines.tsx"
-    ],
-    "readPaths": [
-      "docs/changes/C003/spec.md",
-      "docs/changes/C003/architecture.md",
-      "docs/sprints.md",
-      "docs/routines.md",
-      "src/improve.ts",
-      "src/import.ts",
-      "src/pipeline.ts",
-      "src/store.ts",
-      "src/operate/tick.ts",
-      "web/src/api/client.ts"
-    ],
-    "acceptance": [
-      "agent-team sprint <projectDir> --check and agent-team routines <projectDir> --check print the blocker from sprintBlocker and from routineBlocker for each routine in plain words (or \"ready\"), and exit 0.",
-      "buildComplete in src/project.ts accepts an imported project whose phases the importer marked approved.",
-      "syncSprint closes a change stuck in open with no live run as failed, with a reason, so it no longer blocks sprints.",
-      "When the operator starts a sprint or runs a routine and it is blocked, the API answers 409 { \"error\": \"<blocker>\" }, and the Sprints and Routines screens show that error in a toast. No path returns quietly.",
-      "test/sprint.test.ts: from an imported-project fixture with approved findings and deploy.enabled true, sprintBlocker returns null, and a sprint run with fake runners and a fake deploy creates a sprint row that ends in a final state (done or failed), never planning.",
-      "test/routines.test.ts: runRoutine for monitoring with a fake runner records lastRun and adds its findings; a routine with output: sprint adds a sprint row.",
-      "Tests use temp folders and fakes, and call no agents or Docker."
-    ],
-    "verify": "npm run typecheck && node --disable-warning=ExperimentalWarning --test test/sprint.test.ts test/routines.test.ts test/dashboard.test.ts test/run-container.test.ts && npm --prefix web run lint && npm --prefix web run build",
-    "ui": true,
-    "routes": [
-      "/"
-    ],
-    "change": "C003"
-  },
-  {
     "id": "T015",
     "title": "Poll GitHub issues labeled agent-team into the backlog",
     "story": "US-07",
     "phase": "feature",
     "dependsOn": [
-      "T009"
+      "T009",
+      "T013"
     ],
     "allowedPaths": [
       "src/operate/issues.ts",
@@ -801,7 +802,10 @@
       "src/doctor.ts",
       "test/doctor.test.ts",
       "web/src/components/operate/next-steps.tsx",
-      "web/src/components/operate/shared.tsx"
+      "web/src/components/operate/shared.tsx",
+      "src/store.ts",
+      "test/store.test.ts",
+      "web/src/api/types.ts"
     ],
     "readPaths": [
       "docs/changes/C003/spec.md",
