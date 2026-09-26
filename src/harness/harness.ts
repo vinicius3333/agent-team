@@ -16,6 +16,7 @@ export interface AgentJob {
   writablePaths?: string[]
   budgetUsd: number
   transcriptPath: (candidate: Candidate, attempt: number) => string
+  codex?: RunRequest["codex"]
 }
 
 // An agent call in progress, kept in the meta table under liveAgentPrefix so the dashboard can follow it.
@@ -65,6 +66,7 @@ export function createHarness(options: {
         timeoutMs: config.agentTimeoutMs,
         transcriptPath: job.transcriptPath(candidate, attempt),
         signal,
+        codex: job.codex,
       }
       const liveKey = `${liveAgentPrefix}${basename(request.transcriptPath)}`
       const live: LiveAgent = { subject: job.subject, role: job.role, runner: candidate.runner, model: candidate.model, startedAt: new Date().toISOString(), transcript: basename(request.transcriptPath), hostDir: executor.hostDir }

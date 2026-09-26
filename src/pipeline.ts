@@ -9,7 +9,7 @@ import { baselinePath, cleanupRequest, createBaseline, gateFailures, nextBaselin
 import { changedFiles, commitOf, commitPaths, fileAtRef, isAncestor, restorePaths, stagedDiff, trackedFiles } from "./git.ts"
 import { createDockerExecutor, ensureImage } from "./harness/docker.ts"
 import { hostExecutor, type Executor } from "./harness/executor.ts"
-import { defaultAllowlist, ensureEgressProxy } from "./harness/network.ts"
+import { codexEndpointHosts, defaultAllowlist, ensureEgressProxy } from "./harness/network.ts"
 import type { Harness, HarnessOutcome } from "./harness/harness.ts"
 import { amendCommit, commitAndRebase, createWorkspace, fastForward, mergeInto, mergeIntoMain, removeWorkspace, type Workspace } from "./harness/workspace.ts"
 import { appContainerRunning, appLimitsText, deployErrorKey, deployProject, recordDeployResult } from "./deploy.ts"
@@ -2336,7 +2336,7 @@ export async function createExecutor(context: PipelineContext, hostDir: string, 
   const { config, projectDir } = context
   if (config.harness.isolation === "none") return hostExecutor(hostDir)
   const { allowlist, extraDomains } = config.harness.network
-  if (allowlist) egressProxy ??= ensureEgressProxy([...defaultAllowlist, ...extraDomains])
+  if (allowlist) egressProxy ??= ensureEgressProxy([...defaultAllowlist, ...extraDomains, ...codexEndpointHosts(config.runners.codex)])
   const credentials = [...new Set(Object.values(config.roles).flatMap((role) => [role.runner, ...role.fallbacks.map((fallback) => fallback.runner)]))]
   return createDockerExecutor({
     hostDir,
@@ -2346,6 +2346,7 @@ export async function createExecutor(context: PipelineContext, hostDir: string, 
     credentials,
     readOnlyPaths: readOnlyPaths ?? (hostDir === projectDir ? [] : [join(projectDir, ".git")]),
     network: allowlist ? await egressProxy! : undefined,
+    codexApiKeyEnv: config.runners.codex?.apiKeyEnv,
   })
 }
 
@@ -2575,6 +2576,7 @@ export async function runAgent(context: PipelineContext, executor: Executor, rol
       writablePaths: options.writablePaths,
       budgetUsd: options.budgetUsd ?? config.budget.perTaskUsd,
       transcriptPath: (candidate: Candidate, attempt: number) => transcriptPath(context, `${subject}-${candidate.runner}-${attempt}.log`),
+      codex: config.runners.codex ?? undefined,
     },
     executor,
   )

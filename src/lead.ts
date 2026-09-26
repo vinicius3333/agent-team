@@ -64,6 +64,7 @@ export async function askLead(options: AskLeadOptions): Promise<number> {
     timeoutMs: leadTimeoutMs,
     transcriptPath,
     signal: options.signal,
+    codex: config.runners.codex ?? undefined,
   }
   let result: RunResult
   try {
