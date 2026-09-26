@@ -1,9 +1,9 @@
 import { useState, type ReactNode } from "react"
 import { Link } from "react-router"
-import { Bot, Gauge, Loader2, Play, Repeat, Sparkles, UserRound, type LucideIcon } from "lucide-react"
+import { Bot, CircleDot, Gauge, Loader2, Play, Repeat, Sparkles, UserRound, type LucideIcon } from "lucide-react"
 import { toast } from "sonner"
 import { api, ApiError } from "@/api/client"
-import type { Finding, FindingSeverity, FindingSource, InsightAgent, InsightRun, MetricPoint, OperateSnapshot } from "@/api/types"
+import type { BacklogSource, Finding, FindingSeverity, InsightAgent, InsightRun, MetricPoint, OperateSnapshot } from "@/api/types"
 import { Markdown } from "@/components/markdown"
 import { StatusBadge } from "@/components/status-badge"
 import { Button } from "@/components/ui/button"
@@ -24,7 +24,7 @@ export function SeverityBadge({ severity }: { severity: FindingSeverity }) {
   return <span className={cn("inline-flex w-18 shrink-0 justify-center rounded-full border px-2 py-0.5 text-xs font-medium capitalize", severityClasses[severity])}>{severity}</span>
 }
 
-const sourceIcons: Record<FindingSource, LucideIcon> = {
+const sourceIcons: Record<BacklogSource, LucideIcon> = {
   monitoring: Bot,
   analytics: Bot,
   research: Bot,
@@ -32,13 +32,21 @@ const sourceIcons: Record<FindingSource, LucideIcon> = {
   product: Sparkles,
   manual: UserRound,
   routine: Repeat,
+  github: CircleDot,
 }
 
-export function SourceLabel({ source, className }: { source: FindingSource; className?: string }) {
-  const Icon = sourceIcons[source]
+export const githubIssueLabel = "GitHub issue"
+
+// The long label of a backlog source, including items that came from a GitHub issue.
+export function backlogSourceLabel(source: BacklogSource): string {
+  return source === "github" ? githubIssueLabel : agentLabels[source]
+}
+
+export function SourceLabel({ source, className }: { source: BacklogSource; className?: string }) {
+  const Icon = sourceIcons[source] ?? Bot
   return (
     <span className={cn("items-center gap-1.5 text-xs text-muted-foreground", className)}>
-      <Icon className="size-4" aria-hidden="true" /> {agentLabels[source]}
+      <Icon className="size-4" aria-hidden="true" /> {backlogSourceLabel(source)}
     </span>
   )
 }

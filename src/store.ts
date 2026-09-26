@@ -77,8 +77,8 @@ export const currentChangeKey = "change.current"
 export const insightAgents = ["monitoring", "analytics", "research"] as const
 export type InsightAgent = (typeof insightAgents)[number]
 // The backlog that sprints draw from: the Operate agents' findings, the evaluator's gaps, the product
-// manager's feature proposals, items a person added by hand, and findings of custom routines.
-export const findingSources = [...insightAgents, "evaluator", "product", "manual", "routine"] as const
+// manager's feature proposals, items a person added by hand, findings of custom routines, and labeled GitHub issues.
+export const findingSources = [...insightAgents, "evaluator", "product", "manual", "routine", "github"] as const
 export type FindingSource = (typeof findingSources)[number]
 export const findingSeverities = ["high", "medium", "low"] as const
 export type FindingSeverity = (typeof findingSeverities)[number]
@@ -98,7 +98,8 @@ export interface Finding {
   updatedAt: string
 }
 
-export type NewFinding = Pick<Finding, "source" | "severity" | "title" | "evidence" | "proposal">
+// fingerprint overrides the one built from source and title, for items with a stable outside id (a GitHub issue).
+export type NewFinding = Pick<Finding, "source" | "severity" | "title" | "evidence" | "proposal"> & { fingerprint?: string }
 
 export const sprintStatuses = ["planning", "building", "done", "skipped", "failed", "abandoned"] as const
 export type SprintStatus = (typeof sprintStatuses)[number]
@@ -643,7 +644,7 @@ export function openStore(path: string) {
     },
     // An open finding with the same fingerprint takes the new evidence instead of a duplicate row.
     addFinding(finding: NewFinding): { id: number; created: boolean } {
-      const fingerprint = findingFingerprint(finding.source, finding.title)
+      const fingerprint = finding.fingerprint ?? findingFingerprint(finding.source, finding.title)
       const existing = db.prepare("SELECT id FROM findings WHERE fingerprint = ? AND status = 'open'").get(fingerprint) as { id: number } | undefined
       if (existing) {
         db.prepare("UPDATE findings SET evidence = ?, updated_at = ? WHERE id = ?").run(finding.evidence, now(), existing.id)
@@ -662,6 +663,10 @@ export function openStore(path: string) {
       const params = filters.map(([, value]) => value as string)
       const order = "CASE severity WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END, created_at DESC, id DESC"
       return db.prepare(`SELECT ${findingColumnsSql} FROM findings ${where} ORDER BY ${order}`).all(...params) as unknown as Finding[]
+    },
+    // Any status, newest first: an approved or dismissed item still counts as seen.
+    findingByFingerprint(fingerprint: string): Finding | null {
+      return (db.prepare(`SELECT ${findingColumnsSql} FROM findings WHERE fingerprint = ? ORDER BY id DESC LIMIT 1`).get(fingerprint) as unknown as Finding | undefined) ?? null
     },
     finding(id: number): Finding | null {
       return (db.prepare(`SELECT ${findingColumnsSql} FROM findings WHERE id = ?`).get(id) as unknown as Finding | undefined) ?? null
