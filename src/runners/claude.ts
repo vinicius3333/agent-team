@@ -93,12 +93,15 @@ export const claudeRunner: AgentRunner = {
         diagnostics: output.is_error ? `${claudeErrorText(output)}\n${base.diagnostics}` : base.diagnostics,
       }
     } catch {
+      // No result event means the process died mid-run (killed, crashed, lost its stream), not that the agent failed.
+      const ended = `the Claude process ended without a result event (exit code ${result.exitCode ?? "none"})`
       return {
         status: "failed",
-        summary: (result.stderr || result.stdout).slice(-2000),
+        summary: result.stderr.trim() ? `${ended}: ${result.stderr.slice(-2000)}` : ended,
         costUsd: null,
         tokens: null,
         ...base,
+        diagnostics: `${ended}\n${base.diagnostics}`,
       }
     }
   },

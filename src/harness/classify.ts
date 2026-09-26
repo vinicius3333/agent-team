@@ -15,7 +15,7 @@ const patterns: [FailureClass, RegExp][] = [
   ["auth", /not logged in|please run \/login|failed to authenticate|oauth session expired|invalid api key|api error: 401|refresh token/i],
   ["rate_limit", /rate limit (reached|exceeded)|usage limit|too many requests|api error: 429|quota exceeded|hit your limit|credit balance is too low/i],
   ["missing_binary", /spawn \S+ ENOENT|executable file not found/i],
-  ["unavailable", /overloaded_error|api error: 5\d\d|ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up|stream disconnected/i],
+  ["unavailable", /overloaded_error|api error: 5\d\d|ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up|stream disconnected|process ended without a result event/i],
 ]
 
 // Only runner-level output is scanned (stderr, error events), never the agent's own work, which may mention "401" or "rate limit".
