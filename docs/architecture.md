@@ -51,6 +51,18 @@ agent-team is a self-hosted orchestrator. It turns a plain-text brief into a wor
 - **Public URL and preview hosts:** the dashboard makes no absolute links of its own. The `deploy.json` start command sets `AGENT_TEAM_UI_HOSTS` from `agent-team preview-hosts`, which prints `previewHosts(process.env)` from `src/ui/hosts.ts`: the names already in `AGENT_TEAM_UI_HOSTS`, the host names of `APP_URL` and the other public URL variables, and `HOSTNAME`. `startAppContainer` sets `--hostname` to the container name, so `HOSTNAME` is the name QA and smoke checks use. The list is comma-separated, lower-case, with no empty entries or duplicates, and no hard-coded names. Any other unknown host still gets 403 (ADR 0006).
 - **Checkers:** smoke checks, QA, and the import baseline (`captureApp` in `src/screenshots.ts`) pass `APP_URL` set to the URL their browser uses, as deploy does. The login checker fills an email field only when the form has one, so it can log in to the password-only card with `DEMO_PASSWORD` (ADR 0005).
 
+## Autonomy: decide
+
+`autonomy.decide` in `pipeline.yaml` is `human` (the default) or `auto`. Any other value fails `loadConfig`. With `human`, a task stop that needs a person waits for one, as before. With `auto`, the run never waits for a person at these stops. It decides and logs the reason as an `autonomy` event:
+
+- **Scope block:** the task gets the files it asked for, with no `maxAutoApprovals` limit. If it asks again only for files it already has, or names no files, it is skipped.
+- **Task out of budget:** the task budget goes up by 50%, once, when the run budget still has that much left. Otherwise the task is skipped.
+- **Doctor edit:** an `edit_task` that `decideReplan` would send to a person, such as one that adds a shared file or another task's files, is applied directly. The task then waits for the other owners.
+
+A skipped task is `blocked` with the reason in its last failure, and the reason goes to its GitHub issue with the `blocked` label. The run goes on with the other tasks. Tasks that depend on a skipped task cannot start, so the run ends as `failed` with the skipped tasks named. `agent-team retry` puts a skipped task back in the queue. `budget.runUsd` still stops the run.
+
+Risks: auto can widen a task into shared files or another task's files with no review of the scope change. It can spend up to 50% more on each task. It can leave a feature unbuilt and only record why. Read the `autonomy` events after a run with `decide: auto`.
+
 ## Data model
 
 Each project has its own SQLite file at `<runsDir>/<project>/.agent-team/state.db` (`src/store.ts`). There is no shared database across projects. The project list is the list of folders in `<runsDir>`.

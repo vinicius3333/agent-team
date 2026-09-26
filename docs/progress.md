@@ -105,3 +105,11 @@ Files: `src/lead-actions.ts`, `src/ui/server.ts`, `web/src/api/types.ts`, `web/s
 > Saving the Lead settings now keeps `lead.access`, and the form has an Access field with Limited and Full. The full `verify` command passes.
 > The web dependencies weren't installed at first, so `oxlint` wasn't found. I installed them with `npm --prefix web ci` and ran the web steps again. I did not open the page in a browser; that check is left to the orchestrator.
 > **Saving (`src/lead-actions.ts`)**
+
+## L007: Add autonomy.decide: auto so the run never waits for a human
+
+Files: `docs/architecture.md`, `pipeline.yaml`, `src/config.ts`, `src/doctor.ts`, `src/pipeline.ts`, `test/config.test.ts`, `test/doctor.test.ts`, `test/pipeline.test.ts`
+
+> I added `autonomy.decide: human | auto`. The default is `human`, and with `human` the pipeline behaves as before. The last run of `npm run typecheck && npm test` passed: typecheck is clean, and 350 of 351 tests passed with 0 failures. The remaining test was probably skipped or marked todo; I didn't confirm which one or why.
+> **One gap:** the criteria ask for "an issue is opened" when a task is skipped. `src/github.ts` has no public way to create an issue, and it is outside `allowedPaths`. So a skipped task instead gets the `blocked` label and a comment with the reason on its existing task issue, through `context.github.taskBlocked`. If a new issue per skip is needed, a follow-up task must add an `openIssue` method to `src/github.ts`.
+> **What `auto` does:**
