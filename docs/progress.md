@@ -73,3 +73,11 @@ Files: `docs/architecture.md`, `prompts/lead.md`, `src/config.ts`, `src/lead.ts`
 > Setting `lead.access: full` in `pipeline.yaml` now lets the lead chat edit any file in the project and run any command there. The default is `read`, which keeps the current behaviour. `npm run typecheck && npm test` passes: typecheck is clean, and 315 of 316 tests pass with 0 failures and 1 skipped. That skipped test was already in the suite.
 > **One gap to fix in a follow-up:** saving the lead settings from the dashboard drops `lead.access`, so the project goes back to `read`. The cause is in `src/lead-actions.ts`, which is outside this task's allowed paths: `parseLeadSettings` builds the settings without `access`, and `saveLeadSettings` replaces the whole `lead:` block. Because of that, `access` is optional in the `LeadConfig` type, and anything that doesn't set it counts as `read`. `loadConfig` always sets it. The fix is to keep `access` in those two functions.
 > **What changed**
+
+## T005: Set the app container host name to its container name
+
+Files: `src/deploy.ts`, `test/deploy.test.ts`
+
+> `startAppContainer` now adds `--hostname <name>` to `docker run`, so `HOSTNAME` inside the app matches the container name the checker uses (for example `agent-team-qa-agent-team`). The last `verify` run passed: typecheck is clean and all 11 tests pass.
+> - **`src/deploy.ts`:** the arguments now come from a new exported pure helper, `appRunArgs(options)`. It adds `--hostname <name>` right after `--name <name>`, but only when the name is a valid host label: 1 to 63 letters, digits or hyphens, not starting or ending with a hyphen. The other arguments are unchanged. `startAppContainer` now calls `run("docker", appRunArgs(options), …)` and still passes secrets through the environment. I also added an `AppContainerOptions` type for the options.
+> - **`test/deploy.test.ts` (new, no Docker):** four tests check that:
