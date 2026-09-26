@@ -47,6 +47,43 @@ test("lessonsFor ranks by hits, fades old lessons, and keeps each role's own", (
   assert.equal(formatLessons([]), "")
 })
 
+test("lessonsFor with a query puts a relevant lesson above a slightly heavier unrelated one", () => {
+  const now = Date.parse("2026-09-25T00:00:00.000Z")
+  const lessons = [
+    lesson("L1", { hits: 3, lastSeenAt: "2026-09-24T00:00:00.000Z", rule: "Keep every tap target at least 24px wide on phones." }),
+    lesson("L2", { hits: 2, lastSeenAt: "2026-09-24T00:00:00.000Z", rule: "Hash passwords with Argon2id.", evidence: ["T004 stored the password with sha256"] }),
+    lesson("L3", { hits: 1, lastSeenAt: "2026-09-24T00:00:00.000Z", rule: "Write the changelog entry." }),
+  ]
+  const query = "Add the signup form: store each user's password hash and log them in."
+  assert.deepEqual(lessonsFor(lessons, "worker", 5, [], now, query).map((entry) => entry.id), ["L2", "L1", "L3"])
+  assert.deepEqual(lessonsFor(lessons, "worker", 1, [], now, query).map((entry) => entry.id), ["L2"])
+  assert.ok(lessonsFor(lessons, "worker", 5, [], now, query).every((entry) => entry.roles.includes("worker")))
+})
+
+test("lessonsFor keeps the weight order without a query or when nothing matches", () => {
+  const now = Date.parse("2026-09-25T00:00:00.000Z")
+  const lessons = [
+    lesson("L1", { hits: 1, rule: "Hash passwords with Argon2id." }),
+    lesson("L2", { hits: 5, rule: "Keep tap targets large." }),
+    lesson("L3", { hits: 3, rule: "Write the changelog entry." }),
+  ]
+  const byWeight = ["L2", "L3", "L1"]
+  assert.deepEqual(lessonsFor(lessons, "worker", 5, [], now).map((entry) => entry.id), byWeight)
+  assert.deepEqual(lessonsFor(lessons, "worker", 5, [], now, "").map((entry) => entry.id), byWeight)
+  assert.deepEqual(lessonsFor(lessons, "worker", 5, [], now, "Deploy the Kubernetes cluster").map((entry) => entry.id), byWeight)
+})
+
+test("lessonsFor with a query still applies the stack filter before ranking", () => {
+  const now = Date.parse("2026-09-25T00:00:00.000Z")
+  const lessons = [
+    lesson("L1", { stacks: ["python"], hits: 5, rule: "Hash passwords with Argon2id in Django." }),
+    lesson("L2", { stacks: ["next"], hits: 1, rule: "Hash passwords with bcrypt in route handlers." }),
+    lesson("L3", { hits: 2, rule: "Write the changelog entry." }),
+  ]
+  const ids = lessonsFor(lessons, "worker", 5, ["node", "next"], now, "Store the password hash").map((entry) => entry.id)
+  assert.deepEqual(ids, ["L2", "L3"])
+})
+
 test("the curator confirms, adds, and retires lessons", () => {
   const known = [lesson("L1"), lesson("L7")]
   const result = parseCuratorResult(
