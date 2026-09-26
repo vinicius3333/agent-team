@@ -50,6 +50,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { currentPhase, findView, isPhase, legacyTabs, phaseLabels, projectPath, type ProjectPhase } from "@/lib/navigation"
 import { awaitingPhase, projectStatus, projectStatusLabels, stepLabels, taskCounts } from "@/lib/pipeline"
 import type { PipelineStep, ProjectDetail } from "@/api/types"
+import { cn } from "@/lib/utils"
 
 function ResumeButton({ name }: { name: string }) {
   const [busy, setBusy] = useState(false)
@@ -247,9 +248,10 @@ function ProjectBody({ name, phase, view, detail, stream }: { name: string; phas
   const humanNeeded = detail.tasks.some((entry) => entry.status === "blocked" && entry.needsHuman)
   const badgeStatus = status === "done" ? "done" : status === "idle" ? "stopped" : status
   const viewLabel = findView(phase, view)?.label ?? view
+  // On phones the chat fills the screen below the app top bar, like a messaging app.
+  const fullScreen = phase === "build" && view === "chat"
 
-  return (
-    <ProjectViewContext.Provider value={context}>
+  const header = (
       <PageHeader
         breadcrumbs={[
           { label: name, to: projectPath(name) },
@@ -289,12 +291,23 @@ function ProjectBody({ name, phase, view, detail, stream }: { name: string; phas
           </>
         }
       />
-      <div className="flex min-w-0 flex-col gap-4">
-        {gate === "deploy" ? view !== "secrets" && <SecretsGateCard /> : gate && <GatePanel phase={gate} />}
-        <ChangeMergeCard />
-        <IncidentBanner />
-        {!gate && !humanNeeded && <StopBanner />}
-        <ProblemBanner detail={detail} />
+  )
+  const banners = (
+    <>
+      {gate === "deploy" ? view !== "secrets" && <SecretsGateCard /> : gate && <GatePanel phase={gate} />}
+      <ChangeMergeCard />
+      <IncidentBanner />
+      {!gate && !humanNeeded && <StopBanner />}
+      <ProblemBanner detail={detail} />
+    </>
+  )
+
+  return (
+    <ProjectViewContext.Provider value={context}>
+      {fullScreen ? <div className="hidden sm:block">{header}</div> : header}
+      {/* The negative margins cancel the layout padding and 3.5rem is the phone top bar, so the chat ends at the screen bottom. */}
+      <div className={cn("flex min-w-0 flex-col gap-4", fullScreen && "max-sm:-mx-4 max-sm:-my-6 max-sm:h-[calc(100dvh-3.5rem)] max-sm:gap-0")}>
+        {fullScreen ? <div className="flex max-h-[35dvh] shrink-0 flex-col gap-2 overflow-y-auto p-2 empty:hidden sm:contents">{banners}</div> : banners}
         <ProjectViewContent phase={phase} view={view} detail={detail} stream={stream} document={document} selectDocument={(path) => update((params) => params.set("doc", path))} />
       </div>
       <DetailsSheet panel={panel} />
