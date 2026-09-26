@@ -9,7 +9,7 @@ import { classifyFailure } from "../src/harness/classify.ts"
 import { hostExecutor } from "../src/harness/executor.ts"
 import { createHarness } from "../src/harness/harness.ts"
 import { commitAndRebase, createWorkspace, fastForward, removeWorkspace } from "../src/harness/workspace.ts"
-import type { AgentRunner, RunResult } from "../src/runners/types.ts"
+import type { AgentRunner, RunRequest, RunResult } from "../src/runners/types.ts"
 import { openStore } from "../src/store.ts"
 import { filesOutsideScope, orderTasks, type Task } from "../src/tasks.ts"
 
@@ -73,6 +73,16 @@ test("falls back and cools down the rate-limited runner", async () => {
   const again = await harness.run(role, job, hostExecutor("/tmp"))
   assert.equal(again.candidate?.runner, "claude")
   assert.equal(codex.calls, 1, "cooled-down runner is skipped")
+})
+
+test("passes the job's codex endpoint to the run request", async () => {
+  const store = openStore(":memory:")
+  const seen: RunRequest[] = []
+  const codex: AgentRunner = { name: "codex", run: async (request) => (seen.push(request), result({})) }
+  const harness = createHarness({ config, store, signal: new AbortController().signal, resolveRunner: () => codex })
+  const endpoint = { baseUrl: "https://openrouter.ai/api/v1", apiKeyEnv: "OPENROUTER_API_KEY" }
+  await harness.run(role, { ...job, codex: endpoint }, hostExecutor("/tmp"))
+  assert.deepEqual(seen[0].codex, endpoint)
 })
 
 test("retries the same runner on transient errors", async () => {

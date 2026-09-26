@@ -231,6 +231,7 @@ export async function runInsightAgent(options: { projectDir: string; agent: Insi
     budgetUsd: insightBudgetUsd,
     timeoutMs: insightTimeoutMs,
     transcriptPath,
+    codex: config.runners.codex ?? undefined,
   }
   let result: RunResult
   try {

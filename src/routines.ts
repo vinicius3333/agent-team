@@ -287,6 +287,7 @@ async function runCustomRoutine(projectDir: string, config: PipelineConfig, rout
       budgetUsd: routine.budgetUsd,
       timeoutMs: routineTimeoutMs,
       transcriptPath,
+      codex: config.runners.codex ?? undefined,
     }
     let result: RunResult
     try {
