@@ -136,3 +136,11 @@ Files: `web/src/components/project/chat-tab.tsx`, `web/src/components/project/le
 > I made the Build > Chat screen full screen on phones and stopped it from scrolling sideways. The last `verify` run passed: lint, the dashboard build and typecheck. I didn't open it at 360px or 412px in a browser, and I didn't add tests. So the phone layout, the keyboard and the scroll behaviour are unchecked until the orchestrator's browser check.
 > - **Page (`web/src/pages/project.tsx`):**
 > - Below `sm` on the chat view, the page header (breadcrumb, title, badges) is hidden.
+
+## L009: Stop merges into main from failing on local changes
+
+Files: `src/harness/workspace.ts`, `test/workspace.test.ts`
+
+> Merging into main no longer fails when the main checkout has uncommitted edits. The verify command passes: typecheck is clean and all 4 tests in `test/workspace.test.ts` pass.
+> **`src/harness/workspace.ts`**
+> - Before merging, `mergeIntoMain` runs `git status` and looks only at tracked files, so untracked files don't block the merge.
