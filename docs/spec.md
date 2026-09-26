@@ -31,7 +31,9 @@ Acceptance criteria:
 - When no login is set and the server listens on loopback only, the dashboard opens with no login card.
 - When a trusted proxy sends the configured user header from an allowed IP, the dashboard treats that user as logged in.
 - When the preview starts with `APP_URL` set, a page request whose host is the `APP_URL` host answers 200 and shows the "Log in" card; a request with any other unknown host answers 403 with "This host name is not allowed. Add it to AGENT_TEAM_UI_HOSTS."
-- When the preview starts with `DEMO_PASSWORD` set (12 or more characters), the baseline login check opens `/`, fills the password field with `DEMO_PASSWORD`, submits, and sees the projects list; it does not wait for an email field.
+- When the preview starts from `deploy.json`, the allowed host list is built from the environment: the names in `AGENT_TEAM_UI_HOSTS`, the `APP_URL` host name, and the QA and preview host names the environment provides. Given a QA host such as `agent-team-qa-agent-team` in that environment, a `GET` on `/`, `/login`, `/new`, `/import`, `/incidents`, and `/settings` with that host answers 200. A test checks the built list for a set of example environments, including empty values and duplicates.
+- When the preview starts with `DEMO_PASSWORD` set (12 or more characters), the baseline login check opens `/`, fills the password field with `DEMO_PASSWORD`, submits, and sees the projects list; it does not wait for an email field and does not time out.
+- The password hash the start command builds from `DEMO_PASSWORD` accepts exactly `DEMO_PASSWORD` on the login form, with no extra newline or space.
 
 ### US-03: Create a project from a brief and start a build
 As an operator, I want to type a product brief in a form and start a build so that the agent team plans and builds the app for me.
@@ -62,6 +64,7 @@ Acceptance criteria:
 - When the run stops, a banner shows the reason and the key error lines, and **Resume run** starts it again.
 - When the run hits its budget, a budget banner shows **Raise budget and resume**, which adds 50% to `budget.runUsd` and resumes the run.
 - The QA tab shows findings, test output, and each screenshot; when the app is live, the page shows a **Live** badge and the preview URL.
+- When every checked route in a QA round fails (for example all answer 403 or 5xx, or no page renders), the round's verdict is "fail" with the message "No page rendered. Check the host and start command.", even if the reviewer says "pass" or marks the failures "preexisting". A test in `test/qa.test.ts` covers this case and a case where at least one route renders.
 
 ### US-06: Ask the project lead about a run
 As an operator, I want to chat with a lead agent about my project so that I can understand a problem and fix it quickly.
@@ -70,6 +73,8 @@ Acceptance criteria:
 - In the **Lead** tab, I type a question and get an answer that uses the project's state, docs, and transcripts.
 - When the lead suggests an action (for example retry or resume), clicking it applies the action; the lead never changes the project without that click.
 - I can stop a chat reply that is still running, and chat cost is not added to the run budget.
+- The Lead settings form on `/projects/:name` shows the access level, limited or full, with one sentence that says what full access allows.
+- Saving the Lead settings with access set to full leaves `access: full` under `lead` in `pipeline.yaml`; saving with limited writes `access: limited`. Other `lead` keys the form does not manage stay unchanged. A round-trip test checks this.
 
 ### US-07: Change a finished app
 As a maintainer, I want to send change requests, add backlog items, review findings, and start sprints so that the app keeps improving after the first build.
@@ -108,4 +113,6 @@ Acceptance criteria:
 - **Global lockout.** The README says 30 wrong passwords from any address lock all logins for 15 minutes. Default: this is true, but `US-02` tests only the per-address lockout.
 - **Do `npm test` and `npm run typecheck` pass on `main`?** No CI runs them. The import baseline found that `npm test` failed. Default: change C001 makes `npm test` pass offline.
 - **How does the demo account log in?** The dashboard has no users, so `DEMO_EMAIL` is unused. Default (C001): the login check uses `DEMO_PASSWORD` alone on the password-only card.
+- **Which host names does the preview allow?** Default (C002): the `APP_URL` host, the names in `AGENT_TEAM_UI_HOSTS`, and the QA and preview host names read from the environment. No host name is hard-coded.
+- **What is the default lead access?** Default (C002): limited when `lead.access` is not set in `pipeline.yaml`.
 - **Who uses it?** Real usage is unknown beyond the author. Default: the main user is a single developer who self-hosts it.
