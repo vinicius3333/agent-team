@@ -114,5 +114,79 @@
       "npm test passes."
     ],
     "verify": "npm test"
+  },
+  {
+    "id": "L002",
+    "title": "Let the curator weaken and merge lessons, not only confirm or retire them",
+    "story": "As the project owner, I want wrong lessons to lose weight and duplicate lessons to merge, so the lessons file stays accurate without losing evidence.",
+    "phase": "feature",
+    "dependsOn": [],
+    "allowedPaths": [
+      "src/lessons.ts",
+      "src/improve.ts",
+      "prompts/curator.md",
+      "test/lessons.test.ts"
+    ],
+    "readPaths": [
+      "src/pipeline.ts",
+      "docs/architecture.md"
+    ],
+    "acceptance": [
+      "Lesson has an optional misses count (missing means 0). lessonWeight uses max(0, hits - misses) times the current decay.",
+      "CuratorResult accepts optional weaken: string[] (existing ids; each adds 1 to misses) and merge: { into: string, from: string[] }[] (existing ids). parseCuratorResult rejects unknown ids with a plain error.",
+      "A merge adds the from lessons' hits and misses to the into lesson, appends their evidence (keeping at most maxEvidence), unions roles and stacks, keeps the latest lastSeenAt, removes the from lessons, and records their ids through recordRetired so they do not return.",
+      "prompts/curator.md explains when to use weaken and merge, with an example, and says that weaken, merge, and retire are optional fields.",
+      "Old lessons.json files without misses still load, and old curator answers without weaken or merge still parse.",
+      "test/lessons.test.ts covers weaken, merge, and bad ids, offline. npm run typecheck and npm test pass."
+    ],
+    "verify": "npm run typecheck && npm test"
+  },
+  {
+    "id": "L003",
+    "title": "Pick lessons by relevance to the task, fused with lesson weight",
+    "story": "As the project owner, I want each agent call to get the lessons that match its task, not only the heaviest lessons for its role, so the prompt carries rules that apply to the work at hand.",
+    "phase": "feature",
+    "dependsOn": [],
+    "allowedPaths": [
+      "src/lessons.ts",
+      "src/pipeline.ts",
+      "test/lessons.test.ts"
+    ],
+    "readPaths": [
+      "src/memory.ts",
+      "src/improve.ts",
+      "docs/architecture.md"
+    ],
+    "acceptance": [
+      "lessonsFor accepts an optional query string. With a query, it scores each candidate lesson's rule and evidence against the query with an in-memory keyword score (BM25 or similar, Node built-ins only), then orders lessons by reciprocal rank fusion of the relevance rank and the lessonWeight rank (k = 60).",
+      "Without a query, or when no lesson matches the query, the order is exactly the current order by lessonWeight, so existing callers do not change.",
+      "The role and stack filters still apply before ranking, and the limit still applies after ranking.",
+      "withLessons in src/pipeline.ts passes the task prompt as the query; if ranking throws, the agent call still runs without lessons, as today.",
+      "test/lessons.test.ts covers relevance winning over a slightly heavier unrelated lesson, the no-query fallback, and the stack filter, offline.",
+      "npm run typecheck and npm test pass."
+    ],
+    "verify": "npm run typecheck && npm test"
+  },
+  {
+    "id": "L004",
+    "title": "Create missing GitHub labels on existing repositories",
+    "story": "As the project owner, I want imported repositories to get the agent-team labels, so task issues are created instead of failing on every run.",
+    "phase": "feature",
+    "dependsOn": [],
+    "allowedPaths": [
+      "src/github.ts",
+      "test/github.test.ts"
+    ],
+    "readPaths": [
+      "src/store.ts",
+      "docs/architecture.md"
+    ],
+    "acceptance": [
+      "When the repository already has an origin, the orchestrator creates the labels from the labels list with `gh label create --force` once per project, and records a store meta flag so it does not repeat on every run.",
+      "Label creation stays best effort: a failure is logged through attempt() and the run continues.",
+      "createIssue retries without labels if gh fails because a label is missing, so the issue is still created and its number is stored.",
+      "test/github.test.ts covers label creation for an existing origin and the no-label fallback, offline, with a fake gh on PATH. npm run typecheck and npm test pass."
+    ],
+    "verify": "npm run typecheck && npm test"
   }
 ]

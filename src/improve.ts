@@ -2,7 +2,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, wri
 import { basename, join } from "node:path"
 import { openChange, raiseRunBudget } from "./project.ts"
 import { evaluationDimensions, gapFinding, parseEvaluation, parseSprintPlan, sprintBlocker, sprintRequest, syncSprint, type Evaluation, type EvaluationGap, type SprintPlan } from "./sprint.ts"
-import { applyCuratorResult, collectSignals, curatorPrompt, lessonsPath, loadLessons, parseCuratorResult, projectStacks, recordRetired, saveLessons } from "./lessons.ts"
+import { applyCuratorResult, collectSignals, curatorPrompt, lessonsPath, loadLessons, parseCuratorResult, projectStacks, recordRetired, removedIds, saveLessons } from "./lessons.ts"
 import { createExecutor, isInfrastructureFailure, landingBranch, qaRoundPath, runAgent, type PipelineContext, type RunOutcome } from "./pipeline.ts"
 import { createWorkspace, removeWorkspace } from "./harness/workspace.ts"
 import type { Finding } from "./store.ts"
@@ -285,9 +285,9 @@ export async function learnLessons(context: PipelineContext, options: { force: b
           const result = parseCuratorResult(outcome.result.summary, lessons)
           // Reloaded right before the write, so a lesson another project added meanwhile is kept.
           saveLessons(path, applyCuratorResult(loadLessons(path), result))
-          recordRetired(path, result.retire)
+          recordRetired(path, removedIds(result))
           store.setMeta(learnedAtKey, startedAt)
-          store.log("learning", `${signals.length} signals: ${result.updates.filter((update) => update.id).length} lessons confirmed, ${result.updates.filter((update) => !update.id).length} new, ${result.retire.length} retired`)
+          store.log("learning", `${signals.length} signals: ${result.updates.filter((update) => update.id).length} lessons confirmed, ${result.updates.filter((update) => !update.id).length} new, ${result.weaken?.length ?? 0} weakened, ${(result.merge ?? []).reduce((sum, merge) => sum + merge.from.length, 0)} merged, ${result.retire.length} retired`)
           return
         } catch (error) {
           previousError = (error as Error).message

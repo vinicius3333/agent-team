@@ -33,3 +33,11 @@ Files: `prompts/lead.md`, `src/lead.ts`, `test/lead.test.ts`
 > The lead chat can now search the web and open pages, and `npm test` passes: 253 passed, 0 failed, 1 skipped.
 > - **`src/lead.ts`**: `askLead` now gives the runner the tools `["read", "web_search", "web_fetch"]` instead of `["read"]` alone. The Claude runner turns these into `WebSearch` and `WebFetch`.
 > - **`prompts/lead.md`**: a new "Research on the web" section says three things:
+
+## L002: Let the curator weaken and merge lessons, not only confirm or retire them
+
+Files: `prompts/curator.md`, `src/improve.ts`, `src/lessons.ts`, `test/lessons.test.ts`
+
+> The curator can now weaken and merge lessons, not just confirm or retire them. `npm run typecheck && npm test` passes: typecheck is clean, and 297 of 298 tests pass with 0 failures. The one skipped test is not in `test/lessons.test.ts`, and I didn't track down which one it is.
+> **`src/lessons.ts`**
+> - **Misses:** `Lesson` has an optional `misses` count. `lessonWeight` now uses `max(0, hits - misses)` times the decay. A missing value counts as 0, so old `lessons.json` files still load. The curator's prompt also shows "missed Nx" next to each lesson.
