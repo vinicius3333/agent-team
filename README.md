@@ -393,12 +393,13 @@ The same stop (same kind and first line, ignoring times and amounts) never gets 
 
 1. It prepares a git worktree of the agent-team source clone on branch `doctor/<project>-<incident>`, with a read-only `.incident/` folder: the stop reason, `status` output, the last 300 log lines and events, `tasks.json`, `pipeline.yaml`, and the last 6 transcripts of the failing task or phase.
 2. The doctor agent (role `doctor`, default Claude Opus, prompt `prompts/doctor.md`) runs in the same sandbox as the workers. It answers with a diagnosis, a cause, a code fix or none, and project actions: `retry`, `reset_cooldowns`, `edit_task` (widens `allowedPaths` under the same rules as a replan), or `resume`.
-3. For a code fix, the orchestrator checks that a file under `test/` changed, runs `npm ci`, `npx tsc --noEmit`, and `npm test`, commits, pushes the branch, and opens a pull request with `gh pr create`. When an open doctor pull request changes the same files, the new branch builds on it. The doctor never merges its own pull requests and never force-pushes.
+3. For a code fix, the orchestrator checks that a file under `test/` changed, runs `npm ci`, `npx tsc --noEmit`, and `npm test`, commits, pushes the branch, and opens a pull request with `gh pr create`. When an open doctor pull request changes the same files, the new branch builds on it. The doctor never force-pushes.
 4. It copies the changed files into the live install (the folder `src/cli.ts` runs from), runs the project actions, and resumes the run.
+5. Once the resumed run gets past the failing point, it merges the pull request with a merge commit and deletes the branch. A stacked pull request waits until the one below it merges. When a merge fails, the issue gets one comment and a person merges it. Set `autoMerge: false` to merge by hand.
 
 Incidents live in `<project>/.agent-team/incidents/<id>.json`. The dashboard lists them on the Incidents page and shows an open one as a banner on the project page.
 
-On the agent-team repo, the doctor opens one issue per incident (label `incident`), comments when it diagnoses, opens a pull request, resumes, sees the run pass the failing point, or gives up, and closes the issue when the project's run completes.
+On the agent-team repo, the doctor opens one issue per incident (label `incident`), comments when it diagnoses, opens a pull request, resumes, sees the run pass the failing point, merges, or gives up, and closes the issue when the project's run completes.
 
 ### Settings
 
@@ -410,6 +411,7 @@ maxAttempts: 3            # doctor attempts per incident
 maxUsdPerIncident: 15     # doctor cost per incident; doctor calls do not use the project's run budget
 sourceDir: ~/agent-team-src
 repo: owner/agent-team    # default: the source clone's origin
+autoMerge: true           # merge the fix once the resumed run gets past the failing point
 role: { runner: claude, model: opus }
 ```
 

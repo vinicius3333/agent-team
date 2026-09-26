@@ -38,6 +38,10 @@ export interface Incident {
   resumedAt: string | null
   succeededAt: string | null
   closedAt: string | null
+  // Missing in incidents saved before the doctor merged its own pull requests.
+  mergedAt?: string | null
+  // Why the doctor stopped trying to merge; a person merges from here.
+  mergeError?: string | null
 }
 
 export const incidentIdPattern = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z$/

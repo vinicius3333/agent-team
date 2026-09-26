@@ -74,6 +74,7 @@ function stubDeps(installDir: string, replies: Reply[]) {
   const gh: string[][] = []
   const started: string[] = []
   const jobs: AgentJob[] = []
+  const pullRequest = { state: "OPEN", baseRefName: "main", mergeError: "" }
   let issue = 0
   const deps: Partial<DoctorDeps> = {
     gh: (args) => {
@@ -81,6 +82,8 @@ function stubDeps(installDir: string, replies: Reply[]) {
       if (args[0] === "issue" && args[1] === "create") return `https://github.com/owner/agent-team/issues/${++issue}`
       if (args[0] === "pr" && args[1] === "create") return "https://github.com/owner/agent-team/pull/99"
       if (args[0] === "pr" && args[1] === "list") return "[]"
+      if (args[0] === "pr" && args[1] === "view") return JSON.stringify({ state: pullRequest.state, baseRefName: pullRequest.baseRefName })
+      if (args[0] === "pr" && args[1] === "merge" && pullRequest.mergeError) throw new Error(pullRequest.mergeError)
       return ""
     },
     createHarness: (store) =>
@@ -97,7 +100,7 @@ function stubDeps(installDir: string, replies: Reply[]) {
     startRun: (projectDir) => void started.push(projectDir),
     installDir,
   }
-  return { deps, gh, started, jobs }
+  return { deps, gh, started, jobs, pullRequest }
 }
 
 function report(fields: Record<string, unknown>): string {
@@ -544,4 +547,83 @@ test("an attempt cut short by the doctor stopping does not count toward the limi
   assert.equal(incident.status, "open", JSON.stringify(incident.actions))
   assert.equal(incident.attempts, 0)
   assert.ok(incident.actions.some((action) => action.action === "interrupted"))
+})
+
+async function landFixAndResume(options: { doctorYaml?: string } = {}) {
+  const { runsDir, projectDir, installDir } = setup(options)
+  const store = openProjectStore(projectDir)
+  store.syncTasks(["T001", "T005"])
+  store.updateTask("T005", "blocked", blockedReason)
+  stop(store, "failed", blockedReason)
+  store.close()
+  const stub = stubDeps(installDir, [
+    (_job, workdir) => {
+      writeFileSync(join(workdir, "src", "json.ts"), "export const version = 2\n")
+      writeFileSync(join(workdir, "test", "json.test.ts"), "// regression test\n")
+      return { summary: report({ projectActions: [{ action: "retry", taskId: "T005" }], codeFix: true, summary: "Prefer the last json block." }) }
+    },
+  ])
+  await checkOnce({ runsDir, deps: stub.deps })
+  const passFailingPoint = () => {
+    const resumed = openProjectStore(projectDir)
+    try {
+      resumed.updateTask("T005", "merged")
+      resumed.setMeta("run.stop", "")
+      resumed.log("run", "finished: completed")
+    } finally {
+      resumed.close()
+    }
+  }
+  return { ...stub, runsDir, projectDir, passFailingPoint }
+}
+
+const merges = (gh: string[][]) => gh.filter((args) => args[0] === "pr" && args[1] === "merge")
+
+test("the doctor merges its pull request only after the resumed run gets past the failing point", async () => {
+  const { runsDir, projectDir, deps, gh, passFailingPoint } = await landFixAndResume()
+  assert.equal(merges(gh).length, 0, "no merge before the run proves the fix")
+
+  passFailingPoint()
+  await checkOnce({ runsDir, deps })
+  assert.deepEqual(merges(gh), [["pr", "merge", "https://github.com/owner/agent-team/pull/99", "--merge", "--delete-branch"]])
+  const [incident] = listIncidents(projectDir)
+  assert.ok(incident.succeededAt)
+  assert.ok(incident.mergedAt)
+  assert.ok(gh.some((args) => args[0] === "issue" && args[1] === "comment" && args.includes("https://github.com/owner/agent-team/issues/1")))
+
+  await checkOnce({ runsDir, deps })
+  assert.equal(merges(gh).length, 1, "a merged pull request is not merged again")
+})
+
+test("a stacked doctor pull request waits until GitHub retargets it to main", async () => {
+  const { runsDir, projectDir, deps, gh, pullRequest, passFailingPoint } = await landFixAndResume()
+  pullRequest.baseRefName = "doctor/earlier"
+  passFailingPoint()
+  await checkOnce({ runsDir, deps })
+  assert.equal(merges(gh).length, 0)
+  assert.equal(listIncidents(projectDir)[0].mergedAt ?? null, null)
+
+  pullRequest.baseRefName = "main"
+  await checkOnce({ runsDir, deps })
+  assert.equal(merges(gh).length, 1)
+})
+
+test("a failed merge is reported once and left to a person", async () => {
+  const { runsDir, projectDir, deps, gh, pullRequest, passFailingPoint } = await landFixAndResume()
+  pullRequest.mergeError = "Pull request is not mergeable: the merge commit cannot be cleanly created."
+  passFailingPoint()
+  await checkOnce({ runsDir, deps })
+  await checkOnce({ runsDir, deps })
+  assert.equal(merges(gh).length, 1)
+  const [incident] = listIncidents(projectDir)
+  assert.match(incident.mergeError ?? "", /not mergeable/)
+  assert.equal(incident.mergedAt ?? null, null)
+})
+
+test("autoMerge: false leaves the pull request open", async () => {
+  const { runsDir, deps, gh, passFailingPoint } = await landFixAndResume({ doctorYaml: "autoMerge: false\n" })
+  passFailingPoint()
+  await checkOnce({ runsDir, deps })
+  assert.equal(merges(gh).length, 0)
+  assert.equal(gh.filter((args) => args[0] === "pr" && args[1] === "view").length, 0)
 })

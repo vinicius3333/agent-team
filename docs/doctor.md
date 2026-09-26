@@ -43,6 +43,7 @@ When `codeFix` is true, the harness (not the agent):
 2. Commits (conventional message, no AI attribution lines), pushes the branch, and opens a PR on the agent-team repo with `gh pr create` (title from the summary, body with diagnosis, incident link, and test output).
 3. Hotfix: copies the changed files into the live install the runs use (the directory `src/cli.ts` runs from), so the resumed run uses the fix. Records the PR URL in the incident.
 4. Runs the project actions, then resumes the run.
+5. When `doctor.autoMerge` is on (default), merges the PR with `gh pr merge --merge --delete-branch` once the resumed run gets past the failing point. A stacked PR waits until GitHub retargets it to `main`. A failed merge gets one issue comment, and a person merges it.
 
 If a later incident's fix touches the same files as an unmerged doctor PR, the new branch is based on that PR's branch.
 
@@ -50,7 +51,7 @@ If a later incident's fix touches the same files as an unmerged doctor PR, the n
 
 - `doctor.maxAttempts` (default 3) per incident, `doctor.maxUsdPerIncident` (default 15). After the limit: status `gave_up`, comment on the issue, stop acting on that fingerprint.
 - One incident is worked at a time across all projects.
-- The doctor never deletes projects, never force-pushes, never touches containers or networks not named `agent-team-*`, and never merges its own PR.
+- The doctor never deletes projects, never force-pushes, never touches containers or networks not named `agent-team-*`, and merges its own PR only after the resumed run gets past the failing point (`autoMerge: false` turns that off).
 
 ## Notifications: GitHub issues
 
@@ -62,7 +63,7 @@ The live install on the VPS (`~/agent-team`) is not a git checkout. The doctor u
 
 ## Config
 
-Doctor settings live in `<runsDir>/doctor.yaml` (not in each project), all optional: `stallMinutes`, `maxAttempts`, `maxUsdPerIncident`, `sourceDir`, `repo` (default: the clone's origin), `role` (runner, model).
+Doctor settings live in `<runsDir>/doctor.yaml` (not in each project), all optional: `stallMinutes`, `maxAttempts`, `maxUsdPerIncident`, `sourceDir`, `repo` (default: the clone's origin), `autoMerge` (default true), `role` (runner, model).
 
 ## Dashboard
 
