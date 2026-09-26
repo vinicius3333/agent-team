@@ -1,7 +1,9 @@
 // Finds the JSON object an agent ended its message with: the last ```json block if there is one,
 // else the last balanced top-level {...} in the text. Throws when neither parses.
+// The closing fence must start a line: a fence inside a JSON string value (say, a ```yaml example
+// in a Markdown reply) never does, because JSON escapes its newlines.
 export function extractJsonObject(text: string): unknown {
-  const fenced = [...text.matchAll(/```json[^\S\n]*\n([\s\S]*?)```/g)].at(-1)
+  const fenced = [...text.matchAll(/```json[^\S\n]*\n([\s\S]*?)\n[^\S\n]*```/g)].at(-1)
   if (fenced) {
     try {
       return JSON.parse(fenced[1])

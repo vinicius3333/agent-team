@@ -31,6 +31,8 @@ test("extractJsonObject prefers the last json fence, else the last balanced obje
   assert.deepEqual(extractJsonObject('{"first":true} then {"second":true}'), { second: true })
   assert.throws(() => extractJsonObject("no json here"), /no ```json block/)
   assert.throws(() => extractJsonObject("```json\n{broken\n```"), /not valid JSON/)
+  const nestedFence = 'Prose.\n```json\n{"reply": "Add:\\n```yaml\\nlead:\\n  access: full\\n```\\nDone.", "actions": []}\n```'
+  assert.deepEqual(extractJsonObject(nestedFence), { reply: "Add:\n```yaml\nlead:\n  access: full\n```\nDone.", actions: [] })
 })
 
 test("parseVerdict reads a fenced verdict after prose that quotes braces", () => {

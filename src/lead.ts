@@ -116,14 +116,14 @@ function failedReply(result: RunResult): LeadReply {
   return { reply: `I could not answer (${result.status}${detail ? `: ${detail}` : ""}). Try again in a moment.`, actions: [], followUps: [] }
 }
 
-// A reply without a valid JSON block is still shown, as plain text with no actions.
+// A reply without a valid JSON block is still shown, as plain text with no actions and without the broken block.
 // Actions the project does not allow are dropped, even when the lead suggests them.
 export function parseLeadReply(text: string, allowed: readonly LeadActionKind[] = leadActionKinds): LeadReply {
   let parsed: any
   try {
     parsed = extractJsonObject(text)
   } catch {
-    return { reply: text.trim() || "(empty reply)", actions: [], followUps: [] }
+    return { reply: text.replace(/```json[\s\S]*$/, "").trim() || "(empty reply)", actions: [], followUps: [] }
   }
   const reply = typeof parsed?.reply === "string" && parsed.reply.trim() ? parsed.reply.trim() : text.replace(/```json[\s\S]*```\s*$/, "").trim()
   const actions = (Array.isArray(parsed?.actions) ? parsed.actions : [])

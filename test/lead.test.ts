@@ -43,6 +43,17 @@ test("parseLeadReply shows a reply without a JSON block as plain text", () => {
   assert.deepEqual(parseLeadReply("Just prose."), { reply: "Just prose.", actions: [], followUps: [] })
 })
 
+test("parseLeadReply keeps actions when the reply holds its own code fence", () => {
+  const reply = { reply: "Add this:\n```yaml\nlead:\n  access: full\n```", actions: [{ kind: "resume", reason: "Build it." }], followUps: [] }
+  const parsed = parseLeadReply(`Draft text.\n\n\`\`\`json\n${JSON.stringify(reply, null, 2)}\n\`\`\``)
+  assert.equal(parsed.reply, reply.reply)
+  assert.deepEqual(parsed.actions.map((action) => action.kind), ["resume"])
+})
+
+test("parseLeadReply hides a broken JSON block", () => {
+  assert.equal(parseLeadReply('Short answer.\n```json\n{"reply": "cut off').reply, "Short answer.")
+})
+
 test("askLead stores both messages and keeps lead cost out of the run budget", async () => {
   const projectDir = join(scratch, "ask")
   createProject(projectDir, "Build a joke app")
