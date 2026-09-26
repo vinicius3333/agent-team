@@ -126,8 +126,16 @@ lead:
     - raise_budget
     - add_task
     - edit_task
-  autoApply: []
+  autoApply:
+    - retry
+    - resume
+    - approve
+    - request_changes
+    - raise_budget
+    - add_task
+    - edit_task
   chatBudgetUsd: 15
+  access: full
 routines:
   monthlyUsd: 40
   list:
