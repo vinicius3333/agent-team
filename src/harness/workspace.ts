@@ -71,10 +71,19 @@ export function amendCommit(workspace: Workspace, message: string): void {
   git(workspace.path, committed ? ["commit", "-q", "--amend", "--no-edit"] : ["commit", "-q", "-m", message])
 }
 
-// main is checked out in the project folder, so it moves by a merge; any other branch moves by a fetch, which refuses non fast-forward updates.
+// The branch checked out in the project folder (usually main) moves by a merge, because git refuses to fetch into it;
+// any other branch moves by a fetch, which refuses non fast-forward updates.
 export function fastForward(repoDir: string, ref: string, base = "main"): void {
-  if (base === "main") git(repoDir, ["merge", "-q", "--ff-only", ref])
+  if (base === "main" || checkedOutBranch(repoDir) === base) git(repoDir, ["merge", "-q", "--ff-only", ref])
   else git(repoDir, ["fetch", "-q", ".", `${ref}:${base}`])
+}
+
+function checkedOutBranch(repoDir: string): string | null {
+  try {
+    return git(repoDir, ["symbolic-ref", "-q", "--short", "HEAD"]).trim() || null
+  } catch {
+    return null
+  }
 }
 
 // Merges ref into the workspace branch with a merge commit (history of a shared branch is never rewritten).
