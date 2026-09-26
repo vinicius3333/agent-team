@@ -1,5 +1,46 @@
 [
   {
+    "id": "T004",
+    "title": "Build the preview host list from the environment with an agent-team preview-hosts command",
+    "story": "US-02",
+    "phase": "foundation",
+    "dependsOn": [],
+    "allowedPaths": [
+      "src/ui/hosts.ts",
+      "src/ui/server.ts",
+      "src/cli.ts",
+      "deploy.json",
+      "test/hosts.test.ts",
+      "test/deploy-start.test.ts",
+      "test/preview-host.test.ts",
+      "test/hash-password.test.ts"
+    ],
+    "readPaths": [
+      "docs/changes/C002/request.md",
+      "docs/changes/C002/spec.md",
+      "docs/changes/C002/architecture.md",
+      "docs/architecture.md",
+      "docs/adr/0006-preview-host-list-from-the-environment.md",
+      "src/ui/auth.ts",
+      "src/screenshots.ts",
+      "test/auth.test.ts",
+      "test/dashboard.test.ts"
+    ],
+    "acceptance": [
+      "New src/ui/hosts.ts exports parseHostList(value) (split on commas, trim, lower-case, drop empty values and duplicates) and previewHosts(env): the union, in order, of parseHostList(env.AGENT_TEAM_UI_HOSTS), the host name of each set and valid URL in APP_URL, PUBLIC_URL, BASE_URL, ORIGIN, NEXTAUTH_URL, NEXT_PUBLIC_APP_URL, and env.HOSTNAME when it is a valid host name. Names are lower-cased, with no port, no empty entries, and no duplicates. No host name is hard-coded.",
+      "src/ui/server.ts uses parseHostList for its extra hosts in place of the inline split, with the same behavior. allowedHost, allowedOrigin, knownHost, and the auth checks do not change.",
+      "New CLI subcommand `agent-team preview-hosts` in src/cli.ts prints previewHosts(process.env).join(\",\") and nothing else, and is listed in the usage text.",
+      "The deploy.json start command sets AGENT_TEAM_UI_HOSTS=\"$(node --disable-warning=ExperimentalWarning src/cli.ts preview-hosts)\" in place of the node -p one-liner. The hash step, the ui command, install, and port stay the same.",
+      "test/hosts.test.ts covers: empty env gives []; AGENT_TEAM_UI_HOSTS=\" a.example, ,A.example\" gives [\"a.example\"]; APP_URL=http://agent-team-qa-agent-team:4400 gives [\"agent-team-qa-agent-team\"]; HOSTNAME=agent-team-qa-agent-team with no APP_URL gives the same; APP_URL=\"not a url\" and HOSTNAME=\"\" are skipped; all set with overlaps gives each name once.",
+      "test/deploy-start.test.ts is updated to the new start command: it runs the host-list part in sh offline and checks the list for example environments.",
+      "test/preview-host.test.ts starts the server with AGENT_TEAM_UI_HOSTS=previewHosts({ HOSTNAME: \"agent-team-qa-agent-team\" }).join(\",\") and a password hash: GET on /, /login, /new, /import, /incidents, and /settings with Host: agent-team-qa-agent-team:4400 answers 200, and GET / with Host: evil.example answers 403 with \"This host name is not allowed. Add it to AGENT_TEAM_UI_HOSTS.\" The shell body check is skipped when web/dist is missing.",
+      "New test/hash-password.test.ts runs `node src/cli.ts hash-password` with execFileSync, stdin set to a 12+ character password with no trailing newline, and checks the login password check from src/ui/auth.ts accepts exactly that password and rejects it with a trailing space. It runs offline.",
+      "The login form, sessions, and lockouts do not change."
+    ],
+    "verify": "npm run typecheck && node --disable-warning=ExperimentalWarning --test test/hosts.test.ts test/deploy-start.test.ts test/preview-host.test.ts test/hash-password.test.ts test/auth.test.ts test/dashboard.test.ts",
+    "change": "C002"
+  },
+  {
     "id": "T001",
     "title": "Pass APP_URL to checker app containers and make the login email field optional",
     "story": "US-02",
@@ -251,47 +292,6 @@
     "verify": "npm run typecheck && npm test"
   },
   {
-    "id": "T004",
-    "title": "Build the preview host list from the environment with an agent-team preview-hosts command",
-    "story": "US-02",
-    "phase": "foundation",
-    "dependsOn": [],
-    "allowedPaths": [
-      "src/ui/hosts.ts",
-      "src/ui/server.ts",
-      "src/cli.ts",
-      "deploy.json",
-      "test/hosts.test.ts",
-      "test/deploy-start.test.ts",
-      "test/preview-host.test.ts",
-      "test/hash-password.test.ts"
-    ],
-    "readPaths": [
-      "docs/changes/C002/request.md",
-      "docs/changes/C002/spec.md",
-      "docs/changes/C002/architecture.md",
-      "docs/architecture.md",
-      "docs/adr/0006-preview-host-list-from-the-environment.md",
-      "src/ui/auth.ts",
-      "src/screenshots.ts",
-      "test/auth.test.ts",
-      "test/dashboard.test.ts"
-    ],
-    "acceptance": [
-      "New src/ui/hosts.ts exports parseHostList(value) (split on commas, trim, lower-case, drop empty values and duplicates) and previewHosts(env): the union, in order, of parseHostList(env.AGENT_TEAM_UI_HOSTS), the host name of each set and valid URL in APP_URL, PUBLIC_URL, BASE_URL, ORIGIN, NEXTAUTH_URL, NEXT_PUBLIC_APP_URL, and env.HOSTNAME when it is a valid host name. Names are lower-cased, with no port, no empty entries, and no duplicates. No host name is hard-coded.",
-      "src/ui/server.ts uses parseHostList for its extra hosts in place of the inline split, with the same behavior. allowedHost, allowedOrigin, knownHost, and the auth checks do not change.",
-      "New CLI subcommand `agent-team preview-hosts` in src/cli.ts prints previewHosts(process.env).join(\",\") and nothing else, and is listed in the usage text.",
-      "The deploy.json start command sets AGENT_TEAM_UI_HOSTS=\"$(node --disable-warning=ExperimentalWarning src/cli.ts preview-hosts)\" in place of the node -p one-liner. The hash step, the ui command, install, and port stay the same.",
-      "test/hosts.test.ts covers: empty env gives []; AGENT_TEAM_UI_HOSTS=\" a.example, ,A.example\" gives [\"a.example\"]; APP_URL=http://agent-team-qa-agent-team:4400 gives [\"agent-team-qa-agent-team\"]; HOSTNAME=agent-team-qa-agent-team with no APP_URL gives the same; APP_URL=\"not a url\" and HOSTNAME=\"\" are skipped; all set with overlaps gives each name once.",
-      "test/deploy-start.test.ts is updated to the new start command: it runs the host-list part in sh offline and checks the list for example environments.",
-      "test/preview-host.test.ts starts the server with AGENT_TEAM_UI_HOSTS=previewHosts({ HOSTNAME: \"agent-team-qa-agent-team\" }).join(\",\") and a password hash: GET on /, /login, /new, /import, /incidents, and /settings with Host: agent-team-qa-agent-team:4400 answers 200, and GET / with Host: evil.example answers 403 with \"This host name is not allowed. Add it to AGENT_TEAM_UI_HOSTS.\" The shell body check is skipped when web/dist is missing.",
-      "New test/hash-password.test.ts runs `node src/cli.ts hash-password` with execFileSync, stdin set to a 12+ character password with no trailing newline, and checks the login password check from src/ui/auth.ts accepts exactly that password and rejects it with a trailing space. It runs offline.",
-      "The login form, sessions, and lockouts do not change."
-    ],
-    "verify": "npm run typecheck && node --disable-warning=ExperimentalWarning --test test/hosts.test.ts test/deploy-start.test.ts test/preview-host.test.ts test/hash-password.test.ts test/auth.test.ts test/dashboard.test.ts",
-    "change": "C002"
-  },
-  {
     "id": "T005",
     "title": "Set the app container host name to its container name",
     "story": "US-02",
@@ -351,7 +351,8 @@
       "src/lead-actions.ts",
       "test/lead-actions.test.ts",
       "web/src/api/types.ts",
-      "web/src/components/project/lead-settings-card.tsx"
+      "web/src/components/project/lead-settings-card.tsx",
+      "src/ui/server.ts"
     ],
     "readPaths": [
       "docs/changes/C002/spec.md",
