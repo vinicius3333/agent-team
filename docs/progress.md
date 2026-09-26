@@ -168,3 +168,11 @@ Files: `deploy.json`, `test/auth.test.ts`, `test/deploy-start.test.ts`, `.env.ex
 > The deploy start command now passes a stored session secret to the dashboard, so a login should survive a redeploy once the secret is saved. The last `verify` run passed: typecheck is clean and all 15 tests pass.
 > **Changes**
 > - **`deploy.json`**: the start command sets `AGENT_TEAM_UI_SESSION_SECRET="${AGENT_TEAM_UI_SESSION_SECRET:-}"` just before the `ui` command. The hash step, host list, `ui` command, install and port are unchanged, and the file holds no secret value. When the variable is empty, `src/ui/auth.ts` still makes a random secret, as it did before.
+
+## T008: Remove the old run container and wait for it before resuming
+
+Files: `src/project.ts`, `test/run-container.test.ts`
+
+> Before it starts a new run container, `startRunContainer` now removes the old one and waits until it is gone. The verify command passes: typecheck is clean and all 6 tests in `test/run-container.test.ts` pass.
+> **`src/project.ts`**
+> - `startRunContainer` is now exported. It takes optional deps `{ docker, processAlive, sleep }`, and the defaults are the real ones: `execFileSync("docker", …)`, the existing `processAlive`, and a blocking sleep. The sleep has to block because `startRun` stays synchronous, so its callers don't change.
