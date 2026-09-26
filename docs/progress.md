@@ -144,3 +144,11 @@ Files: `src/harness/workspace.ts`, `test/workspace.test.ts`
 > Merging into main no longer fails when the main checkout has uncommitted edits. The verify command passes: typecheck is clean and all 4 tests in `test/workspace.test.ts` pass.
 > **`src/harness/workspace.ts`**
 > - Before merging, `mergeIntoMain` runs `git status` and looks only at tracked files, so untracked files don't block the merge.
+
+## L010: Make the doctor escalate early when the same stop repeats
+
+Files: `src/doctor.ts`, `test/doctor.test.ts`
+
+> The doctor now hands an incident to a person as soon as the same stop comes back after a fix that didn't work, instead of using up its remaining attempts. The last `verify` run passed: typecheck is clean and all 32 tests in `test/doctor.test.ts` pass.
+> **What changed in `src/doctor.ts`:**
+> - **Fix signature:** each attempt that gets a valid report adds `{ cause, actions, codeFix }` to a new `fixSignatures` list on the incident. `actions` is the sorted list of project actions (for example `resume`, `retry T005`). `codeFix` turns true only when a code fix actually lands; a rejected fix counts as no code change. The list is saved in the incident JSON. Because `src/incidents.ts` was outside my allowed paths, the `Incident` type is only widened locally in `doctor.ts`.

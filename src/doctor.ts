@@ -690,11 +690,83 @@ function notice(store: Store, name: string, detection: Extract<Detection, { kind
   store.log("doctor", `the run needs a human decision; ${url ? `opened ${url}` : "no issue opened"}`)
 }
 
+// What one doctor attempt did: two attempts with the same signature tried the same fix.
+export interface FixSignature {
+  cause: IncidentCause
+  actions: string[]
+  codeFix: boolean
+}
+
+// Incidents saved before fix signatures have no list.
+type SignedIncident = Incident & { fixSignatures?: FixSignature[] }
+
+export function fixSignature(report: DoctorReport, landedCodeFix: boolean): FixSignature {
+  const actions = report.projectActions.map((action) => {
+    switch (action.action) {
+      case "retry":
+        return `retry ${action.taskId}`
+      case "edit_task":
+        return `edit_task ${action.taskId} ${[...action.allowedPaths].sort().join(",")}`
+      default:
+        return action.action
+    }
+  })
+  return { cause: report.cause, actions: actions.sort(), codeFix: landedCodeFix }
+}
+
+function sameSignature(a: FixSignature, b: FixSignature): boolean {
+  return a.cause === b.cause && a.codeFix === b.codeFix && a.actions.join("\n") === b.actions.join("\n")
+}
+
+export const noCodeFixReason = "the same stop came back and the last fix changed no code"
+export const repeatedFixReason = "the same stop came back and the fix repeated an earlier attempt"
+
+// Why a stop that came back should go to a person now instead of using up the attempts left, or null.
+function earlyEscalation(incident: SignedIncident): string | null {
+  const signatures = incident.fixSignatures ?? []
+  const last = signatures.at(-1)
+  if (!last) return null
+  if (!last.codeFix) return noCodeFixReason
+  if (signatures.slice(0, -1).some((earlier) => sameSignature(earlier, last))) return repeatedFixReason
+  return null
+}
+
+function escalateEarly(projectDir: string, name: string, incident: SignedIncident, store: Store, notifier: Notifier, why: string): void {
+  const attempts = (incident.fixSignatures ?? []).map(
+    (signature, index) => `- Attempt ${index + 1}: cause \`${signature.cause}\`; actions: ${signature.actions.length ? signature.actions.join(", ") : "none"}; code fix: ${signature.codeFix ? "yes" : "no"}`,
+  )
+  const actions = incident.actions.map((action) => `- ${action.action}: ${action.detail.split("\n")[0].slice(0, 300)}`)
+  const body = [
+    `The same stop came back in \`${name}\`, and the doctor hands incident \`${incident.id}\` to a person: ${why}.`,
+    "",
+    "## Stop reason",
+    "",
+    block(incident.reason),
+    "",
+    "## Earlier attempts",
+    "",
+    ...(attempts.length ? attempts : ["- none"]),
+    "",
+    "## Actions",
+    "",
+    ...(actions.length ? actions : ["- none"]),
+  ].join("\n")
+  if (incident.issueUrl) notifier.comment(incident.issueUrl, body)
+  else notifier.openIssue(`Decision needed: ${name}: ${incident.reason.split("\n")[0].slice(0, 80)}`, body)
+  store.log("doctor", `incident ${incident.id}: escalated early: ${why}`)
+  giveUp(projectDir, incident, notifier, why)
+}
+
 function incidentFor(projectDir: string, name: string, store: Store, detection: Extract<Detection, { kind: "incident" }>, config: DoctorConfig, notifierFor: () => Notifier): Incident | null {
-  const previous = listIncidents(projectDir).find((incident) => incident.fingerprint === detection.fingerprint)
+  const previous: SignedIncident | undefined = listIncidents(projectDir).find((incident) => incident.fingerprint === detection.fingerprint)
   if (previous?.status === "gave_up") return null
   if (previous?.status === "open" || previous?.status === "diagnosing") return previous
   if (previous?.status === "fixed") {
+    const escalation = earlyEscalation(previous)
+    if (escalation) {
+      escalateEarly(projectDir, name, previous, store, notifierFor(), escalation)
+      return null
+    }
     if (previous.attempts >= config.maxAttempts || previous.costUsd >= config.maxUsdPerIncident) {
       giveUp(projectDir, previous, notifierFor(), "the same stop came back after the fix, and the attempt limit is reached")
       return null
@@ -923,6 +995,9 @@ async function treat(options: Candidate & { runsDir: string; config: DoctorConfi
     incident.cause = report.cause
     addAction(incident, "diagnosed", `${report.cause}: ${report.diagnosis}`)
     notifier.comment(incident.issueUrl, [`### Diagnosis (attempt ${attempt})`, "", `Cause: \`${report.cause}\``, "", report.diagnosis].join("\n"))
+    const signature = fixSignature(report, false)
+    const signed = incident as SignedIncident
+    signed.fixSignatures = [...(signed.fixSignatures ?? []), signature]
 
     if (report.codeFix) {
       const fix = await landCodeFix({
@@ -943,6 +1018,7 @@ async function treat(options: Candidate & { runsDir: string; config: DoctorConfi
         notifier.comment(incident.issueUrl, [`### Fix rejected (attempt ${attempt})`, "", block(fix.reason)].join("\n"))
         return
       }
+      signature.codeFix = true
       incident.branch = fix.branch
       incident.prUrl = fix.prUrl
       if (fix.hotfixError) {
