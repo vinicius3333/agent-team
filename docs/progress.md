@@ -184,3 +184,11 @@ Files: `pipeline.example.yaml`, `src/config.ts`, `test/config.test.ts`
 > I added both config blocks. `loadConfig` now reads GitHub issue polling settings and an optional custom endpoint for the Codex runner. The last `verify` run passed: typecheck is clean and all 14 tests in `test/config.test.ts` pass. I didn't run the full test suite, but no other test or source file compares the whole publish config, so the new field shouldn't break anything.
 > **`src/config.ts`**
 > - **Issue polling:** `publish.github.issues` defaults to `{ enabled: true, everyMinutes: 10 }`. An `everyMinutes` value below 1, above 1440, or not a number fails with "publish.github.issues.everyMinutes must be a number from 1 to 1440". A non-true/false `enabled` also fails.
+
+## T010: Publish the Docker image to ghcr.io on each release
+
+Files: `README.md`, `.github/workflows/release-image.yml`, `test/release-image.test.ts`
+
+> Each published GitHub release now builds the image and pushes it to `ghcr.io/vinicius3333/agent-team` with the release tag and `latest`. The README shows a one-line `docker run` to start it. The last `verify` run passed: typecheck is clean and all 6 tests pass. No image has been built or run here, so the command is untested against a real container.
+> **`.github/workflows/release-image.yml`**
+> - Runs when a release is published, with `contents: read` and `packages: write`.
