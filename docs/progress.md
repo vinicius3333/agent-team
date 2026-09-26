@@ -192,3 +192,11 @@ Files: `README.md`, `.github/workflows/release-image.yml`, `test/release-image.t
 > Each published GitHub release now builds the image and pushes it to `ghcr.io/vinicius3333/agent-team` with the release tag and `latest`. The README shows a one-line `docker run` to start it. The last `verify` run passed: typecheck is clean and all 6 tests pass. No image has been built or run here, so the command is untested against a real container.
 > **`.github/workflows/release-image.yml`**
 > - Runs when a release is published, with `contents: read` and `packages: write`.
+
+## T011: Make docker run the first install step on the marketing site
+
+Files: `site/src/sections/install-section.tsx`
+
+> The first step in `#install` is now a `docker run` of `ghcr.io/vinicius3333/agent-team:latest`. It uses the existing code block and copy button, and the three old steps follow as steps 2–4. Lint and build both pass; lint shows one warning in `motion.tsx`, which I didn't touch. I haven't run the command against a real image (none is published yet), so "it starts the dashboard" comes from reading the `Dockerfile`, `docker/entrypoint.sh` and the server code.
+> The command shown on the site:
+> ```

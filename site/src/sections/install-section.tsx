@@ -4,8 +4,25 @@ import { PixelCluster } from "@/components/pixel-art"
 import { SectionHeading } from "@/components/section-heading"
 import { repositoryUrl } from "@/components/site-header"
 
+// The image's entrypoint loads ~/.config/agent-team/doctor.env, so the token file must exist before docker run.
+// Port 4400 is published on the host's loopback only, so the dashboard runs without a login, as it does with node.
+const dockerCommand = [
+  "mkdir -p ~/.config/agent-team",
+  'echo "CLAUDE_CODE_OAUTH_TOKEN=..." > ~/.config/agent-team/doctor.env',
+  "docker run -d --name agent-team -p 127.0.0.1:4400:4400 \\",
+  "  -v agent-team-home:/home/opc \\",
+  "  -v ~/.config/agent-team:/home/opc/.config/agent-team:ro \\",
+  "  ghcr.io/vinicius3333/agent-team:latest \\",
+  "  node src/cli.ts ui /home/opc/agent-team-runs --port 4400 --host 0.0.0.0 --insecure-no-auth",
+].join("\n")
+
 const steps = [
-  { title: "Get the code and build the dashboard", command: `git clone ${repositoryUrl}.git\ncd agent-team\nnpm install\nnpm run build:ui` },
+  {
+    title: "Run the dashboard with Docker",
+    command: dockerCommand,
+    note: "Get the token from claude setup-token. Then skip to the last step, or install from source below.",
+  },
+  { title: "Or get the code and build the dashboard", command: `git clone ${repositoryUrl}.git\ncd agent-team\nnpm install\nnpm run build:ui` },
   {
     title: "Start the dashboard",
     command: "CLAUDE_CODE_OAUTH_TOKEN=... node src/cli.ts ui ~/projects --port 4400",
@@ -33,7 +50,7 @@ export function InstallSection() {
     <section id="install" className="relative scroll-mt-8 overflow-hidden border-t border-border py-24 sm:py-32">
       <PixelCluster className="top-12 right-6 hidden sm:block" />
       <div className="relative mx-auto flex max-w-6xl flex-col gap-14 px-4 sm:px-6">
-        <SectionHeading eyebrow="Quick start" title="Your first build in three steps.">
+        <SectionHeading eyebrow="Quick start" title="Your first build in one command.">
           Most work happens in the dashboard. Everything it does also works from the command line, for scripts.
         </SectionHeading>
         <div className="grid grid-cols-1 gap-12 lg:grid-cols-[minmax(0,1fr)_20rem] lg:gap-16">
