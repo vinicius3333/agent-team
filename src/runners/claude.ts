@@ -75,6 +75,9 @@ export const claudeRunner: AgentRunner = {
       command: "claude",
       args,
       input: request.taskPrompt,
+      // Path rules like Edit(./web/src/x.tsx) resolve against the current directory. Without this, one
+      // `cd web` in Bash moves it, and every later write inside allowedPaths is denied.
+      env: { CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR: "1" },
       timeoutMs: request.timeoutMs,
       transcriptPath: request.transcriptPath,
       signal: request.signal,

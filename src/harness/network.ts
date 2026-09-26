@@ -53,8 +53,20 @@ function toPattern(domain: string): string {
   return domain.startsWith("*.") ? `^.+\\.${escaped}$` : `^${escaped}$`
 }
 
+// An entry may name a port ("host.ts.net:4400"); the proxy then also allows CONNECT to that port.
+export function proxyRules(allow: string[]): { filter: string; ports: number[] } {
+  const hosts = new Set<string>()
+  const ports = new Set([443, 80])
+  for (const entry of allow) {
+    const match = /^(.+):(\d{1,5})$/.exec(entry)
+    hosts.add(match ? match[1] : entry)
+    if (match) ports.add(Number(match[2]))
+  }
+  return { filter: `${[...hosts].sort().map(toPattern).join("\n")}\n`, ports: [...ports] }
+}
+
 function renderConfig(allow: string[]): { dir: string; hash: string } {
-  const filter = `${[...new Set(allow)].sort().map(toPattern).join("\n")}\n`
+  const { filter, ports } = proxyRules(allow)
   const config = [
     `Port ${proxyPort}`,
     "Listen 0.0.0.0",
@@ -65,8 +77,7 @@ function renderConfig(allow: string[]): { dir: string; hash: string } {
     "FilterType ere",
     "FilterURLs Off",
     'Filter "/etc/tinyproxy/filter"',
-    "ConnectPort 443",
-    "ConnectPort 80",
+    ...ports.map((port) => `ConnectPort ${port}`),
     "",
   ].join("\n")
   const hash = createHash("sha256").update(config).update(filter).update(readFileSync(join(proxyContext, "Dockerfile"))).digest("hex").slice(0, 12)

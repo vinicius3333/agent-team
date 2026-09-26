@@ -28,7 +28,7 @@ export interface DoctorConfig {
   sourceDir: string
   // owner/name of the agent-team repo; null = read from the source clone's origin.
   repo: string | null
-  // Merge the doctor's pull request once the resumed run gets past the failing point.
+  // Merge the doctor's pull request once the resumed run gets past the failing point. The issue closes once the merged fix is deployed.
   autoMerge: boolean
   role: RoleConfig
 }
@@ -267,11 +267,11 @@ function createNotifier(deps: DoctorDeps, repo: string, cwd: string, store: Stor
     close(issueUrl: string | null, body: string): void {
       if (issueUrl) attempt("close the incident issue", () => deps.gh(["issue", "close", issueUrl, "--comment", body], cwd))
     },
-    pullRequest(url: string): { state: "OPEN" | "CLOSED" | "MERGED"; base: string } | null {
-      const viewed = attempt("read the doctor pull request", () => deps.gh(["pr", "view", url, "--json", "state,baseRefName"], cwd))
+    pullRequest(url: string): { state: "OPEN" | "CLOSED" | "MERGED"; base: string; mergeCommit: string | null } | null {
+      const viewed = attempt("read the doctor pull request", () => deps.gh(["pr", "view", url, "--json", "state,baseRefName,mergeCommit"], cwd))
       try {
-        const { state, baseRefName } = JSON.parse(viewed ?? "") as { state: "OPEN" | "CLOSED" | "MERGED"; baseRefName: string }
-        return { state, base: baseRefName }
+        const { state, baseRefName, mergeCommit } = JSON.parse(viewed ?? "") as { state: "OPEN" | "CLOSED" | "MERGED"; baseRefName: string; mergeCommit?: { oid?: string } | null }
+        return { state, base: baseRefName, mergeCommit: mergeCommit?.oid ?? null }
       } catch {
         return null
       }
@@ -283,6 +283,15 @@ function createNotifier(deps: DoctorDeps, repo: string, cwd: string, store: Stor
         return null
       } catch (error) {
         return errorText(error).slice(0, 500)
+      }
+    },
+    // True once the live install runs the merged fix; the source clone is fetched at the start of every check.
+    fixDeployed(mergeCommit: string): boolean {
+      try {
+        return fixDeployed(cwd, deps.installDir, mergeCommit)
+      } catch (error) {
+        store.log("doctor", `checking whether ${mergeCommit.slice(0, 12)} is deployed failed: ${errorText(error).slice(0, 300)}`)
+        return false
       }
     },
     openDoctorPullRequests(): { branch: string; url: string; files: string[] }[] {
@@ -300,7 +309,26 @@ function createNotifier(deps: DoctorDeps, repo: string, cwd: string, store: Stor
 
 type Notifier = ReturnType<typeof createNotifier>
 
-const silentNotifier: Notifier = { openIssue: () => null, comment: () => {}, close: () => {}, pullRequest: () => null, merge: () => "GitHub is not available", openDoctorPullRequests: () => [] }
+const silentNotifier: Notifier = { openIssue: () => null, comment: () => {}, close: () => {}, pullRequest: () => null, merge: () => "GitHub is not available", fixDeployed: () => false, openDoctorPullRequests: () => [] }
+
+// Every file the merge commit changed must hold, in the live install, its content at that commit or at a later commit on origin/main.
+// A file the fix deleted must be absent. Later commits count, so a deploy of a newer main still counts as deployed.
+export function fixDeployed(sourceDir: string, installDir: string, mergeCommit: string): boolean {
+  const files = git(sourceDir, ["diff", "--name-only", "--no-renames", `${mergeCommit}^1`, mergeCommit]).split("\n").filter(Boolean)
+  const blob = (commit: string, file: string): string => {
+    try {
+      return git(sourceDir, ["rev-parse", "--verify", "-q", `${commit}:${file}`])
+    } catch {
+      return "absent"
+    }
+  }
+  return files.every((file) => {
+    const later = git(sourceDir, ["rev-list", `${mergeCommit}..origin/main`, "--", file]).split("\n").filter(Boolean)
+    const accepted = new Set([mergeCommit, ...later].map((commit) => blob(commit, file)))
+    const installed = join(installDir, file)
+    return accepted.has(existsSync(installed) ? git(sourceDir, ["hash-object", installed]) : "absent")
+  })
+}
 
 function block(text: string, max = 3000): string {
   return ["```", text.trim().slice(0, max), "```"].join("\n")
@@ -477,7 +505,7 @@ async function landCodeFix(options: {
     block(tailLines(outputs.join("\n\n"), 80), 6000),
     "",
     options.autoMerge
-      ? "The fix is already copied into the live install as a hotfix. The doctor merges this pull request once the resumed run gets past the failing point. Pull it into the live install, or the next deploy from a laptop overwrites the hotfix."
+      ? "The fix is already copied into the live install as a hotfix. The doctor merges this pull request once the resumed run gets past the failing point, and closes the incident issue once the live install runs the merged fix. Deploy main, or the next deploy from a laptop overwrites the hotfix."
       : "The fix is already copied into the live install as a hotfix. Merge this pull request and pull it there, or the next deploy from a laptop overwrites the hotfix.",
   ].join("\n")
   let prUrl: string | null = null
@@ -729,52 +757,63 @@ function giveUp(projectDir: string, incident: Incident, notifier: Notifier, why:
   notifier.comment(incident.issueUrl, `The doctor gave up: ${why}. It does not act on this stop again. A person must look.`)
 }
 
-// For fixed incidents: say when the resumed run gets past the failing point, merge the fix, and close the issue when the run completes.
+// For fixed incidents: say when the resumed run gets past the failing point, merge the fix, and close the issue.
+// A fix with a pull request closes once the merged fix is deployed to the live install; any other fix closes when the run completes.
+// A person or the lead may resume the run before the doctor does; the doctor still merges and closes a fix it opened.
 function followUp(projectDir: string, store: Store, notifierFor: () => Notifier, autoMerge: boolean): void {
   for (const incident of listIncidents(projectDir)) {
-    const awaitsMerge = autoMerge && incident.prUrl !== null && !incident.mergedAt && !incident.mergeError
-    if (incident.status !== "fixed" || !incident.resumedAt || (incident.closedAt && !awaitsMerge)) continue
+    if (incident.status !== "fixed" || incident.closedAt || (!incident.resumedAt && !incident.prUrl)) continue
     let changed = false
-    if (!incident.closedAt) {
-      const alive = runAlive(projectDir)
-      const stop = alive ? null : readStop(store)
-      const completed = !alive && !stop && /^finished: completed/.test(store.lastEvent()?.message ?? "")
-      const subjectMerged = incident.subject ? store.task(incident.subject)?.status === "merged" || store.phaseStatus(incident.subject) === "approved" : false
-      const movedOn = completed || subjectMerged || (stop !== null && fingerprint(stop.outcome === "failed" ? "failed" : "paused", stop.reason) !== incident.fingerprint)
-      if (movedOn && !incident.succeededAt) {
-        incident.succeededAt = new Date().toISOString()
-        addAction(incident, "succeeded", "the resumed run got past the failing point")
-        notifierFor().comment(incident.issueUrl, "The resumed run got past the failing point.")
-        store.log("doctor", `incident ${incident.id}: the resumed run got past the failing point`)
-      }
-      if (completed) {
-        incident.closedAt = new Date().toISOString()
-        addAction(incident, "closed", "the project's run completed")
-        notifierFor().close(incident.issueUrl, "The project's run completed after the fix.")
-      }
-      changed = movedOn || completed
+    const alive = runAlive(projectDir)
+    const stop = alive ? null : readStop(store)
+    const completed = !alive && !stop && /^finished: completed/.test(store.lastEvent()?.message ?? "")
+    const subjectMerged = incident.subject ? store.task(incident.subject)?.status === "merged" || store.phaseStatus(incident.subject) === "approved" : false
+    const movedOn = completed || subjectMerged || (stop !== null && fingerprint(stop.outcome === "failed" ? "failed" : "paused", stop.reason) !== incident.fingerprint)
+    if (movedOn && !incident.succeededAt) {
+      incident.succeededAt = new Date().toISOString()
+      addAction(incident, "succeeded", "the resumed run got past the failing point")
+      notifierFor().comment(incident.issueUrl, "The resumed run got past the failing point.")
+      store.log("doctor", `incident ${incident.id}: the resumed run got past the failing point`)
+      changed = true
     }
-    if (awaitsMerge && incident.succeededAt && mergeFix(incident, notifierFor(), store)) changed = true
+    const tracksPullRequest = incident.prUrl !== null && incident.mergeError !== closedWithoutMerge
+    if (tracksPullRequest && incident.succeededAt && !incident.mergeCommit && mergeFix(incident, notifierFor(), store, autoMerge)) changed = true
+    if (tracksPullRequest ? incident.succeededAt && incident.mergeCommit && notifierFor().fixDeployed(incident.mergeCommit) : completed) {
+      incident.closedAt = new Date().toISOString()
+      const why = tracksPullRequest ? `the merged fix (${incident.mergeCommit!.slice(0, 12)}) is deployed to the live install` : "the project's run completed"
+      addAction(incident, "closed", why)
+      notifierFor().close(incident.issueUrl, tracksPullRequest ? `The merged fix (${incident.mergeCommit!.slice(0, 12)}) is deployed to the live install.` : "The project's run completed after the fix.")
+      store.log("doctor", `incident ${incident.id}: closed; ${why}`)
+      changed = true
+    }
     if (changed) saveIncident(projectDir, incident)
   }
 }
 
+const closedWithoutMerge = "the pull request was closed without a merge"
+
 // A stacked pull request waits: once the one below it merges and its branch is deleted, GitHub retargets it to main.
-function mergeFix(incident: Incident, notifier: Notifier, store: Store): boolean {
+// After a failed merge, or with autoMerge off, the doctor only watches for a person to merge it.
+function mergeFix(incident: Incident, notifier: Notifier, store: Store, autoMerge: boolean): boolean {
   const url = incident.prUrl!
   const pullRequest = notifier.pullRequest(url)
   if (!pullRequest) return false
   if (pullRequest.state === "MERGED") {
-    incident.mergedAt = new Date().toISOString()
-    addAction(incident, "merged", `${url} was merged outside the doctor`)
+    if (!pullRequest.mergeCommit) return false
+    incident.mergeCommit = pullRequest.mergeCommit
+    if (!incident.mergedAt) {
+      incident.mergedAt = new Date().toISOString()
+      addAction(incident, "merged", `${url} was merged outside the doctor`)
+      notifier.comment(incident.issueUrl, `${url} is merged. The doctor closes this issue once the live install runs the fix.`)
+    }
     return true
   }
   if (pullRequest.state === "CLOSED") {
-    incident.mergeError = "the pull request was closed without a merge"
+    incident.mergeError = closedWithoutMerge
     addAction(incident, "merge_skipped", `${url}: ${incident.mergeError}`)
     return true
   }
-  if (pullRequest.base !== "main") return false
+  if (!autoMerge || incident.mergeError || incident.mergedAt || pullRequest.base !== "main") return false
   const error = notifier.merge(url)
   if (error) {
     incident.mergeError = error
@@ -785,7 +824,7 @@ function mergeFix(incident: Incident, notifier: Notifier, store: Store): boolean
   }
   incident.mergedAt = new Date().toISOString()
   addAction(incident, "merged", url)
-  notifier.comment(incident.issueUrl, `Merged ${url} into main. Pull it into the live install so the next deploy keeps the fix.`)
+  notifier.comment(incident.issueUrl, `Merged ${url} into main. The doctor closes this issue once the live install runs the fix.`)
   store.log("doctor", `incident ${incident.id}: merged ${url}`)
   return true
 }

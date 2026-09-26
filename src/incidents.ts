@@ -42,6 +42,8 @@ export interface Incident {
   mergedAt?: string | null
   // Why the doctor stopped trying to merge; a person merges from here.
   mergeError?: string | null
+  // The commit on main that carries the fix; the issue closes once the live install matches it.
+  mergeCommit?: string | null
 }
 
 export const incidentIdPattern = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z$/

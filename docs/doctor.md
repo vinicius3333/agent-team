@@ -43,7 +43,8 @@ When `codeFix` is true, the harness (not the agent):
 2. Commits (conventional message, no AI attribution lines), pushes the branch, and opens a PR on the agent-team repo with `gh pr create` (title from the summary, body with diagnosis, incident link, and test output).
 3. Hotfix: copies the changed files into the live install the runs use (the directory `src/cli.ts` runs from), so the resumed run uses the fix. Records the PR URL in the incident.
 4. Runs the project actions, then resumes the run.
-5. When `doctor.autoMerge` is on (default), merges the PR with `gh pr merge --merge --delete-branch` once the resumed run gets past the failing point. A stacked PR waits until GitHub retargets it to `main`. A failed merge gets one issue comment, and a person merges it.
+5. When `doctor.autoMerge` is on (default), merges the PR with `gh pr merge --merge --delete-branch` once the resumed run gets past the failing point. A stacked PR waits until GitHub retargets it to `main`. A failed merge gets one issue comment, and a person merges it. The doctor also follows a fix when a person or the lead resumed the run first.
+6. Closes the incident issue once the merged fix is deployed: every file the merge commit changed must match, in the live install, its content at that commit or at a later commit on `main`. A fix without a pull request closes when the project's run completes.
 
 If a later incident's fix touches the same files as an unmerged doctor PR, the new branch is based on that PR's branch.
 

@@ -109,7 +109,7 @@ harness:
   docker: { cpus: 2, memory: 4g, pidsLimit: 512 }
   network:
     allowlist: true # agents reach the internet only through an egress proxy with a domain allowlist
-    extraDomains: [] # e.g. ["api.stripe.com"]; defaults cover Claude, OpenAI, npm, PyPI, GitHub
+    extraDomains: ["instance-20260610-0909.tailf0d500.ts.net:4400"] # e.g. ["api.stripe.com", "host.ts.net:4400"]; defaults cover Claude, OpenAI, npm, PyPI, GitHub
   transientRetries: 2 # retries on the same runner for network or overload errors
   backoffMs: 15000 # doubles on each retry
   cooldownMs: 900000 # runner rest after a rate limit (x4 after an auth error)

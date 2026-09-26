@@ -41,6 +41,15 @@ The task prompt gives you:
 - Do not hard-code secrets, tokens, or passwords. When your task adds a third-party credential, add it to `.env.example` with the comment format in `docs/architecture.md`, and keep the app working without it through the fake the architecture describes.
 - Follow the stack, layout, and conventions in `docs/architecture.md` and `docs/design.md`.
 
+## Tools
+
+You run without a person to approve prompts, so any command that needs approval is refused.
+
+- Change files only with the Edit and Write tools. Never edit through Bash (`python3`, `sed -i`, `cat >`, `tee`, redirects). Bash edits are refused.
+- Read with Read, Grep, and Glob, not with `cat`, `grep`, or `find` in Bash.
+- You start in the repository root. Keep Bash commands short and simple: one command, no leading `cd`, no `$VAR` or `$?`, and no `;` or `&&` chains. Use `npm --prefix web ...` instead of `cd web && npm ...`.
+- A refused command is not a scope problem. If a file is already inside `allowedPaths`, never report `BLOCKED` with kind `"scope"` for it. Use Edit or Write instead.
+
 ## If the task is impossible
 
 If you cannot finish within scope, stop. Do not work around the limits. Start your final message with `BLOCKED:` followed by one JSON object on the same line:

@@ -48,6 +48,17 @@ test("a Claude process that ends mid-run without a result is retried as unavaila
   assert.equal(classifyFailure(result), "unavailable")
 })
 
+test("Claude keeps Bash in the working directory so ./ path rules keep matching", async () => {
+  let env: Record<string, string> | undefined
+  const executor = fakeExecutor(JSON.stringify({ type: "result", result: "ok" }), "", 0)
+  executor.exec = async (spec) => {
+    env = spec.env
+    return { exitCode: 0, stdout: JSON.stringify({ type: "result", result: "ok" }), stderr: "", timedOut: false, aborted: false, durationMs: 1 }
+  }
+  await claudeRunner.run(request(executor))
+  assert.equal(env?.CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR, "1")
+})
+
 test("a Claude process that ends without a result keeps auth errors from stderr", async () => {
   const result = await claudeRunner.run(request(fakeExecutor("", "Not logged in. Please run /login", 1)))
   assert.equal(classifyFailure(result), "auth")

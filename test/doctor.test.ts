@@ -75,7 +75,7 @@ function stubDeps(installDir: string, replies: Reply[]) {
   const gh: string[][] = []
   const started: string[] = []
   const jobs: AgentJob[] = []
-  const pullRequest = { state: "OPEN", baseRefName: "main", mergeError: "" }
+  const pullRequest = { state: "OPEN", baseRefName: "main", mergeError: "", mergeCommit: "" }
   let issue = 0
   const deps: Partial<DoctorDeps> = {
     gh: (args) => {
@@ -83,7 +83,7 @@ function stubDeps(installDir: string, replies: Reply[]) {
       if (args[0] === "issue" && args[1] === "create") return `https://github.com/owner/agent-team/issues/${++issue}`
       if (args[0] === "pr" && args[1] === "create") return "https://github.com/owner/agent-team/pull/99"
       if (args[0] === "pr" && args[1] === "list") return "[]"
-      if (args[0] === "pr" && args[1] === "view") return JSON.stringify({ state: pullRequest.state, baseRefName: pullRequest.baseRefName })
+      if (args[0] === "pr" && args[1] === "view") return JSON.stringify({ state: pullRequest.state, baseRefName: pullRequest.baseRefName, mergeCommit: pullRequest.mergeCommit ? { oid: pullRequest.mergeCommit } : null })
       if (args[0] === "pr" && args[1] === "merge" && pullRequest.mergeError) throw new Error(pullRequest.mergeError)
       return ""
     },
@@ -576,7 +576,7 @@ test("an attempt cut short by the doctor stopping does not count toward the limi
 })
 
 async function landFixAndResume(options: { doctorYaml?: string } = {}) {
-  const { runsDir, projectDir, installDir } = setup(options)
+  const { runsDir, projectDir, installDir, sourceDir } = setup(options)
   const store = openProjectStore(projectDir)
   store.syncTasks(["T001", "T005"])
   store.updateTask("T005", "blocked", blockedReason)
@@ -600,8 +600,20 @@ async function landFixAndResume(options: { doctorYaml?: string } = {}) {
       resumed.close()
     }
   }
-  return { ...stub, runsDir, projectDir, passFailingPoint }
+  // What GitHub does when the pull request merges: a merge commit on main, reported by gh pr view.
+  const mergeOnGitHub = () => {
+    const [incident] = listIncidents(projectDir)
+    git(sourceDir, ["fetch", "-q", "origin"])
+    git(sourceDir, ["checkout", "-q", "main"])
+    git(sourceDir, ["merge", "-q", "--no-ff", "-m", "Merge pull request #99", `origin/${incident.branch}`])
+    git(sourceDir, ["push", "-q", "origin", "main"])
+    stub.pullRequest.state = "MERGED"
+    stub.pullRequest.mergeCommit = git(sourceDir, ["rev-parse", "HEAD"])
+  }
+  return { ...stub, runsDir, projectDir, installDir, passFailingPoint, mergeOnGitHub }
 }
+
+const closes = (gh: string[][]) => gh.filter((args) => args[0] === "issue" && args[1] === "close")
 
 const merges = (gh: string[][]) => gh.filter((args) => args[0] === "pr" && args[1] === "merge")
 
@@ -646,10 +658,60 @@ test("a failed merge is reported once and left to a person", async () => {
   assert.equal(incident.mergedAt ?? null, null)
 })
 
-test("autoMerge: false leaves the pull request open", async () => {
-  const { runsDir, deps, gh, passFailingPoint } = await landFixAndResume({ doctorYaml: "autoMerge: false\n" })
+test("autoMerge: false leaves the pull request open, and the issue closes once a person merges and deploys it", async () => {
+  const { runsDir, projectDir, deps, gh, passFailingPoint, mergeOnGitHub } = await landFixAndResume({ doctorYaml: "autoMerge: false\n" })
   passFailingPoint()
   await checkOnce({ runsDir, deps })
   assert.equal(merges(gh).length, 0)
-  assert.equal(gh.filter((args) => args[0] === "pr" && args[1] === "view").length, 0)
+  assert.equal(closes(gh).length, 0)
+
+  mergeOnGitHub()
+  await checkOnce({ runsDir, deps })
+  assert.equal(merges(gh).length, 0)
+  const [incident] = listIncidents(projectDir)
+  assert.match(incident.actions.find((action) => action.action === "merged")?.detail ?? "", /merged outside the doctor/)
+  assert.equal(closes(gh).length, 1, "the hotfix already put the merged fix in the live install")
+})
+
+test("the issue stays open after the merge until the live install runs the fix", async () => {
+  const { runsDir, projectDir, installDir, deps, gh, passFailingPoint, mergeOnGitHub } = await landFixAndResume()
+  const hotfix = readFileSync(join(installDir, "src", "json.ts"), "utf8")
+  writeFileSync(join(installDir, "src", "json.ts"), "export const version = 1\n")
+  passFailingPoint()
+  await checkOnce({ runsDir, deps })
+  assert.equal(merges(gh).length, 1)
+  assert.equal(closes(gh).length, 0, "a completed run no longer closes an issue whose fix is not deployed")
+
+  mergeOnGitHub()
+  await checkOnce({ runsDir, deps })
+  assert.equal(closes(gh).length, 0, "the live install still runs the old code")
+  assert.ok(listIncidents(projectDir)[0].mergeCommit)
+
+  writeFileSync(join(installDir, "src", "json.ts"), hotfix)
+  await checkOnce({ runsDir, deps })
+  assert.equal(closes(gh).length, 1)
+  const [incident] = listIncidents(projectDir)
+  assert.ok(incident.closedAt)
+  assert.match(incident.actions.at(-1)?.detail ?? "", /is deployed to the live install/)
+
+  await checkOnce({ runsDir, deps })
+  assert.equal(closes(gh).length, 1, "a closed issue is not closed again")
+})
+
+test("the doctor merges and closes a fix even when someone else resumed the run", async () => {
+  const { runsDir, projectDir, deps, gh, mergeOnGitHub } = await landFixAndResume()
+  const [landed] = listIncidents(projectDir)
+  const incidentPath = join(projectDir, ".agent-team", "incidents", `${landed.id}.json`)
+  writeFileSync(incidentPath, JSON.stringify({ ...landed, resumedAt: null }, null, 2))
+  const store = openProjectStore(projectDir)
+  store.updateTask("T005", "merged")
+  store.setMeta("run.stop", "")
+  store.log("run", "task T005 merged")
+  store.close()
+
+  await checkOnce({ runsDir, deps })
+  assert.equal(merges(gh).length, 1)
+  mergeOnGitHub()
+  await checkOnce({ runsDir, deps })
+  assert.equal(closes(gh).length, 1)
 })
