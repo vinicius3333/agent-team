@@ -7,6 +7,7 @@ import { basename, join } from "node:path"
 import { demoAccessEnv, ensureDemoAccess } from "./access.ts"
 import { loadConfig, type PipelineConfig } from "./config.ts"
 import type { Store } from "./store.ts"
+import { appSecretEnv, SecretError, secretRequirements } from "./secrets.ts"
 import { resolveCommands, type DeployPlan } from "./templates.ts"
 
 export type { DeployPlan }
@@ -27,8 +28,8 @@ const startTimeoutMs = 4 * 60_000
 const tunnelTimeoutMs = 90_000
 const tunnelUrlPattern = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/
 
-function run(command: string, args: string[], cwd?: string): string {
-  return execFileSync(command, args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 64 * 1024 * 1024 }).trim()
+function run(command: string, args: string[], cwd?: string, env?: NodeJS.ProcessEnv): string {
+  return execFileSync(command, args, { cwd, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 64 * 1024 * 1024 }).trim()
 }
 
 // The app's own errors go to stderr, which docker logs replays on its stderr.
@@ -116,7 +117,8 @@ async function waitForTunnelUrl(projectDir: string): Promise<string> {
   throw new Error("tunnel did not report a URL")
 }
 
-export function startAppContainer(options: { name: string; dir: string; plan: DeployPlan; label: string; restart: boolean; env?: Record<string, string> }): void {
+// Secrets go to docker as bare names (-e NAME), which docker fills from its own environment, so no value shows in ps.
+export function startAppContainer(options: { name: string; dir: string; plan: DeployPlan; label: string; restart: boolean; env?: Record<string, string>; secrets?: Record<string, string> }): void {
   const { name, dir, plan } = options
   const command = [plan.install, plan.start].filter(Boolean).join(" && ")
   run("docker", [
@@ -131,9 +133,10 @@ export function startAppContainer(options: { name: string; dir: string; plan: De
     // NODE_ENV=production makes npm skip devDependencies, but the install step usually builds with them (tsc, vite).
     "-e", "HOME=/tmp", "-e", `PORT=${plan.port}`, "-e", "HOST=0.0.0.0", "-e", "NODE_ENV=production", "-e", "NPM_CONFIG_INCLUDE=dev",
     ...Object.entries(options.env ?? {}).flatMap(([key, value]) => ["-e", `${key}=${value}`]),
+    ...Object.keys(options.secrets ?? {}).flatMap((key) => ["-e", key]),
     "-v", `${dir}:/app`, "-w", "/app",
     appImage, "sh", "-c", command,
-  ])
+  ], undefined, options.secrets ? { ...process.env, ...options.secrets } : undefined)
 }
 
 export function commandFailure(error: unknown): string {
@@ -141,8 +144,9 @@ export function commandFailure(error: unknown): string {
   return (failure.stderr || failure.message).trim()
 }
 
-// "tunnel" means the app answered inside Docker but the public URL did not: no code change can fix that.
-export type DeployResult = { url: string; error: null } | { url: null; error: string; stage: "app" | "tunnel" }
+// "tunnel" means the app answered inside Docker but the public URL did not, and "secrets" means the stored
+// secrets could not be read on this host: no code change can fix either.
+export type DeployResult = { url: string; error: null } | { url: null; error: string; stage: "app" | "tunnel" | "secrets" }
 
 // A fresh quick-tunnel hostname can take a few seconds to resolve; wait so the URL we report works.
 // It resolves through public DNS because the first lookup happens before the name exists, and the
@@ -198,6 +202,8 @@ export async function deployProject(projectDir: string, store: Store): Promise<D
       return { url: null, error, stage }
     }
     store.log("deploy", `starting app: ${plan.install ? `${plan.install} && ` : ""}${plan.start} (port ${plan.port})`)
+    const secrets = appSecretEnv(projectDir, secretRequirements(projectDir))
+    if (Object.keys(secrets).length) store.log("deploy", `passing secrets: ${Object.keys(secrets).join(", ")}`)
     ensureNetwork()
     removeContainers(app, tunnel)
     // The tunnel starts first: its URL becomes APP_URL, so links the app builds (invites, payment returns) are public, not localhost.
@@ -213,7 +219,7 @@ export async function deployProject(projectDir: string, store: Store): Promise<D
     ])
     const url = await waitForTunnelUrl(projectDir)
     stage = "app"
-    startAppContainer({ name: app, dir, plan, label: "agent-team-app=1", restart: true, env: { ...publicUrlEnv(url), ...demoAccessEnv(ensureDemoAccess(store)), ...posthogEnv(loadConfig(join(projectDir, "pipeline.yaml"))) } })
+    startAppContainer({ name: app, dir, plan, label: "agent-team-app=1", restart: true, env: { ...publicUrlEnv(url), ...demoAccessEnv(ensureDemoAccess(store)), ...posthogEnv(loadConfig(join(projectDir, "pipeline.yaml"))) }, secrets })
     await waitForApp(app, plan.port)
     stage = "tunnel"
     await waitForPublicUrl(url)
@@ -221,6 +227,10 @@ export async function deployProject(projectDir: string, store: Store): Promise<D
     store.log("deploy", `live at ${url}`)
     return { url, error: null }
   } catch (error) {
+    if (error instanceof SecretError) {
+      store.log("deploy", `failed: ${error.message}`)
+      return { url: null, error: error.message, stage: "secrets" }
+    }
     const reason = commandFailure(error)
     store.log("deploy", `failed: ${reason.slice(0, 500)}`)
     return { url: null, error: reason.slice(0, 4000), stage }

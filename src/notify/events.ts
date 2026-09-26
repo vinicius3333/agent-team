@@ -1,4 +1,5 @@
 import type { RunStop } from "../pipeline.ts"
+import { secretsWaitingText } from "../secrets.ts"
 
 // The pipeline logs these exact phrases, and the notifier matches on them.
 export const gateReadyText = "is ready for review"
@@ -45,7 +46,7 @@ export interface MappingContext {
   interrupted: boolean
 }
 
-const gatePattern = new RegExp(`^phase "([a-z]+)" ${gateReadyText}`)
+const gatePattern = new RegExp(`^phase "([a-z]+)" (?:${gateReadyText}|${secretsWaitingText})`)
 const humanDecisionPattern = new RegExp(`^(\\S+) ${humanDecisionText}`)
 const livePattern = /^live at (\S+?)(?:;|$)/
 const incidentOpenedPattern = new RegExp(`^${incidentOpenedPrefix} (\\S+): (.*)`, "s")

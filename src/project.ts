@@ -10,6 +10,7 @@ import { commitAll, commitOf, commitPaths, createBranch, fileAtRef, initReposito
 import { changeTitle, createGitHub } from "./github.ts"
 import { commitAndRebase, createWorkspace, fastForward, removeWorkspace } from "./harness/workspace.ts"
 import { changeOpenedPrefix } from "./notify/events.ts"
+import { secretsKeyEnv } from "./secrets.ts"
 import { openStore, taskBudgetKey, taskBudgetStopKey, type Change, type Store } from "./store.ts"
 import { applyTemplate, customTemplate, findTemplate, type StackTemplate } from "./templates.ts"
 
@@ -369,7 +370,8 @@ export function runAlive(projectDir: string): boolean {
 }
 
 // "sprint" plans a sprint first (see runSprint); "sprint --now" skips the wait for its due time.
-export type RunCommand = ["run"] | ["sprint"] | ["sprint", "--now"]
+// "deploy" restarts the live app from main, for example after a secret changed.
+export type RunCommand = ["run"] | ["sprint"] | ["sprint", "--now"] | ["deploy"]
 
 export function startRun(projectDir: string, logPath: string, command: RunCommand = ["run"]): number {
   const image = process.env.AGENT_TEAM_RUN_IMAGE
@@ -405,6 +407,8 @@ export function runContainerArgs(options: RunContainerOptions): string[] {
     "--network", "host",
     "--pid", "host",
     "--env", `HOME=${home}`,
+    // A bare name copies the host's value without putting it in the command line.
+    "--env", secretsKeyEnv,
     "--volume", "/var/run/docker.sock:/var/run/docker.sock",
     "--volume", "/tmp:/tmp",
     "--volume", `${home}:${home}`,

@@ -20,7 +20,7 @@ test("a run container mirrors the ui service: host network and PIDs, the same us
   assert.deepEqual(flag("--group-add"), ["989"])
   assert.deepEqual(flag("--network"), ["host"])
   assert.deepEqual(flag("--pid"), ["host"])
-  assert.deepEqual(flag("--env"), ["HOME=/home/opc"])
+  assert.deepEqual(flag("--env"), ["HOME=/home/opc", "AGENT_TEAM_SECRETS_KEY"])
   assert.deepEqual(flag("--volume"), ["/var/run/docker.sock:/var/run/docker.sock", "/tmp:/tmp", "/home/opc:/home/opc"])
   assert.equal(args[args.indexOf("agent-team:latest") + 1], "sh")
   assert.equal(runContainerName("/runs/crm-test"), "agent-team-run-crm-test")

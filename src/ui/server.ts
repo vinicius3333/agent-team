@@ -25,6 +25,7 @@ import { askLead, chatMessageMaxLength, chatUploadsDir } from "../lead.ts"
 import { applyGitIdentity, parseGitIdentity, readGitIdentity, saveGitIdentity } from "../git-identity.ts"
 import { applyLeadAction, approveTaskSuggestion, dropTask, parseGates, parseLeadSettings, saveAutoApproveScope, saveGates, saveLeadSettings } from "../lead-actions.ts"
 import { suggestedPaths } from "../replan.ts"
+import { globalSecretsView, globalVaultPath, projectSecretsView, releaseDeployGate, removeSecret, saveSecret, SecretError, setSecretSkipped, vaultPath } from "../secrets.ts"
 import { trackedFiles } from "../git.ts"
 import { insightAgents, type InsightAgent, type PipelineConfig } from "../config.ts"
 import { insightRunActive, runInsightAgent } from "../operate/agents.ts"
@@ -897,6 +898,8 @@ export interface UiOptions {
   // false keeps the notification loop off (tests); the loop still skips while another process holds the lock.
   notifications?: boolean
   notifyDeps?: Partial<NotifyDeps>
+  // Where the secrets key is read from; tests pass their own.
+  secretsEnv?: NodeJS.ProcessEnv
 }
 
 function sessionCookie(value: string, maxAgeSeconds: number, secure: boolean): string {
@@ -915,6 +918,7 @@ export function startUi(options: UiOptions) {
   const webDist = options.webDir ? resolve(options.webDir) + sep : builtWebDir
   const knownProject = (name: string) => projectNamePattern.test(name) && existsSync(join(runsDir, name, "pipeline.yaml"))
   const launchRun = options.startRun ?? spawnRun
+  const secretsEnv = options.secretsEnv ?? process.env
   const runInsightFor = options.runInsight ?? ((projectDir: string, agent: InsightAgent) => runInsightAgent({ projectDir, agent }))
   const askLeadFor = options.askLead ?? ((projectDir: string, message: string, extra: { attachments: string[]; transcriptPath: string; signal: AbortSignal }) => askLead({ projectDir, message, ...extra }))
 
@@ -1045,6 +1049,15 @@ export function startUi(options: UiOptions) {
         throw error
       }
     }
+    if (parts[0] === "api" && parts[1] === "secrets" && parts.length <= 3) {
+      const path = globalVaultPath(runsDir)
+      if (parts.length === 3 && parts[2] !== "delete") return send(response, 404, { error: "not found" })
+      if (parts.length === 2) saveSecret(path, body.name, body.value, secretsEnv)
+      else removeSecret(path, body.name)
+      // A shared value can complete the secrets of every project whose deploy waits.
+      const resumed = parts.length === 2 ? listProjects(runsDir).filter((name) => withProjectStore(join(runsDir, name), (store) => releaseDeployGate(join(runsDir, name), store)) && startRunIfIdle(name)) : []
+      return send(response, 200, { resumed })
+    }
     if (parts[0] !== "api" || parts[1] !== "projects") return send(response, 404, { error: "not found" })
 
     if (parts.length === 3 && parts[2] === "import") {
@@ -1103,6 +1116,27 @@ export function startUi(options: UiOptions) {
         return send(response, 200, { dismissed: true })
       }
       return send(response, 404, { error: "not found" })
+    }
+    if (parts[3] === "secrets" && parts.length <= 5) {
+      const path = vaultPath("project", projectDir)
+      const action = parts[4] ?? "save"
+      if (action === "redeploy") {
+        const view = withProjectStore(projectDir, (store) => projectSecretsView(projectDir, store, secretsEnv))
+        if (runAlive(projectDir)) return send(response, 409, { error: "A run is in progress. Redeploy after it stops." })
+        if (!view.live) return send(response, 409, { error: "The app is not live. The next deploy uses the new values." })
+        launchRun(projectDir, runLogPath(runsDir, name), ["deploy"])
+        return send(response, 202, { started: true })
+      }
+      if (action === "save") saveSecret(path, body.name, body.value, secretsEnv)
+      else if (action === "delete") removeSecret(path, body.name)
+      else if (action === "skip") {
+        if (typeof body.name !== "string" || typeof body.skipped !== "boolean") return send(response, 400, { error: "skip needs a name and skipped true or false." })
+        withProjectStore(projectDir, (store) => setSecretSkipped(store, body.name as string, body.skipped as boolean))
+      } else return send(response, 404, { error: "not found" })
+      if (action === "save") withProjectStore(projectDir, (store) => store.log("secrets", `${body.name} saved for this project`))
+      if (action === "delete") withProjectStore(projectDir, (store) => store.log("secrets", `${body.name} removed from this project`))
+      const released = withProjectStore(projectDir, (store) => releaseDeployGate(projectDir, store))
+      return send(response, 200, { started: released ? startRunIfIdle(name) : false })
     }
     if (parts[3] === "sprints" && parts[4] === "start" && parts.length === 5) {
       const config = loadConfig(join(projectDir, "pipeline.yaml"))
@@ -1248,6 +1282,7 @@ export function startUi(options: UiOptions) {
       if (parts[0] === "api" && parts[1] === "templates" && parts.length === 2) return send(response, 200, templateSummaries())
       if (parts[0] === "api" && parts[1] === "design-styles" && parts.length === 2) return send(response, 200, designStyleSummaries())
       if (parts[0] === "api" && parts[1] === "incidents" && parts.length === 2) return send(response, 200, allIncidents(runsDir))
+      if (parts[0] === "api" && parts[1] === "secrets" && parts.length === 2) return send(response, 200, globalSecretsView(runsDir, listProjects(runsDir), secretsEnv))
       if (parts[0] === "api" && parts[1] === "incidents" && parts.length === 4) {
         if (!knownProject(parts[2])) return send(response, 404, { error: "unknown project" })
         const incident = incidentDetail(runsDir, parts[2], parts[3])
@@ -1282,6 +1317,7 @@ export function startUi(options: UiOptions) {
           if (status !== "all" && !(findingStatuses as readonly string[]).includes(status)) return send(response, 400, { error: "status must be open, approved, dismissed, or all" })
           return send(response, 200, withProjectStore(projectDir, (store) => store.listFindings(status === "all" ? {} : { status: status as FindingStatus })))
         }
+        if (parts[3] === "secrets" && parts.length === 4) return send(response, 200, withProjectStore(projectDir, (store) => projectSecretsView(projectDir, store, secretsEnv)))
         if (parts[3] === "markdown" && parts.length === 4) return send(response, 200, listMarkdown(projectDir))
         if (parts[3] === "files" && parts.length === 4) {
           try {
@@ -1404,6 +1440,7 @@ export function startUi(options: UiOptions) {
     } catch (error) {
       if (response.headersSent) return
       if (error instanceof ProjectError) return send(response, error.status, { error: error.message })
+      if (error instanceof SecretError) return send(response, 400, { error: error.message })
       if (error instanceof URIError) return send(response, 400, { error: "The URL is not valid." })
       send(response, 500, { error: (error as Error).message })
     }

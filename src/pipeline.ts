@@ -13,6 +13,7 @@ import { defaultAllowlist, ensureEgressProxy } from "./harness/network.ts"
 import type { Harness, HarnessOutcome } from "./harness/harness.ts"
 import { amendCommit, commitAndRebase, createWorkspace, fastForward, mergeInto, mergeIntoMain, removeWorkspace, type Workspace } from "./harness/workspace.ts"
 import { appLimitsText, deployProject } from "./deploy.ts"
+import { missingSecrets, projectSecretStatuses, secretsWaitingText } from "./secrets.ts"
 import { archiveFeedback, readFeedback } from "./feedback.ts"
 import { changeTitle, type GitHub } from "./github.ts"
 import { changePath, importCleanupKey, importDoneKey } from "./project.ts"
@@ -2088,6 +2089,13 @@ async function runDeployPhase(context: PipelineContext): Promise<{ outcome: RunO
     return { outcome: "completed", url: null }
   }
   if (store.phaseStatus("deploy") === "approved" && store.meta("deploy.url")) return { outcome: "completed", url: store.meta("deploy.url") }
+  // The build uses fakes for third-party keys; the live app waits until a person enters or skips each one.
+  const missing = missingSecrets(projectSecretStatuses(projectDir, store))
+  if (missing.length) {
+    store.setPhase("deploy", "awaiting_approval")
+    store.log("gate", `phase "deploy" ${secretsWaitingText}: ${missing.join(", ")}`)
+    return { outcome: "awaiting_approval", url: null }
+  }
   store.setPhase("deploy", "running")
   let failure: string | null = null
   for (let attempt = 1; attempt <= deployAttempts; attempt++) {
@@ -2109,6 +2117,11 @@ async function runDeployPhase(context: PipelineContext): Promise<{ outcome: RunO
     if (result.url !== null) {
       store.setPhase("deploy", "approved")
       return { outcome: "completed", url: result.url }
+    }
+    if (result.stage === "secrets") {
+      store.setPhase("deploy", "pending")
+      noteStop(context, `deploy paused: ${result.error}`)
+      return { outcome: "paused", url: null }
     }
     if (result.stage === "tunnel") {
       store.setPhase("deploy", "pending")
