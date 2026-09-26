@@ -4,7 +4,7 @@ template: custom # custom (the architect chooses the stack) or a stack template 
 autonomy:
   gates: []
   changeMerge: auto # auto | manual: manual waits for Approve before a change request merges into main
-  autoApproveScope: false # true: a task blocked on files outside its scope gets them without stopping (at most twice per task)
+  autoApproveScope: true
 
 budget:
   perTaskUsd: 2
