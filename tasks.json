@@ -166,5 +166,27 @@
       "npm run typecheck and npm test pass."
     ],
     "verify": "npm run typecheck && npm test"
+  },
+  {
+    "id": "L004",
+    "title": "Create missing GitHub labels on existing repositories",
+    "story": "As the project owner, I want imported repositories to get the agent-team labels, so task issues are created instead of failing on every run.",
+    "phase": "feature",
+    "dependsOn": [],
+    "allowedPaths": [
+      "src/github.ts",
+      "test/github.test.ts"
+    ],
+    "readPaths": [
+      "src/store.ts",
+      "docs/architecture.md"
+    ],
+    "acceptance": [
+      "When the repository already has an origin, the orchestrator creates the labels from the labels list with `gh label create --force` once per project, and records a store meta flag so it does not repeat on every run.",
+      "Label creation stays best effort: a failure is logged through attempt() and the run continues.",
+      "createIssue retries without labels if gh fails because a label is missing, so the issue is still created and its number is stored.",
+      "test/github.test.ts covers label creation for an existing origin and the no-label fallback, offline, with a fake gh on PATH. npm run typecheck and npm test pass."
+    ],
+    "verify": "npm run typecheck && npm test"
   }
 ]
