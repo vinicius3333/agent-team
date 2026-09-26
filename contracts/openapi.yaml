@@ -1,0 +1,667 @@
+openapi: 3.1.0
+info:
+  title: agent-team dashboard API
+  version: 0.1.0
+  description: >
+    The JSON API that `agent-team ui` serves under /api (src/ui/server.ts). It records the API as it is today.
+    When a login is set, every route except /api/auth/* needs the session cookie or a trusted proxy header, or it returns 401.
+    Every POST needs the header `x-agent-team: 1` and an allowed Origin, or it returns 403.
+    A Host header that is not loopback, *.ts.net, or in AGENT_TEAM_UI_HOSTS returns 403. Other methods return 405.
+    Errors use the body `{ "error": "..." }`.
+servers:
+  - url: http://127.0.0.1:4400
+security:
+  - session: []
+  - proxyUser: []
+components:
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: agent_team_session
+      description: HMAC-signed HttpOnly session cookie set by POST /api/auth/login.
+    proxyUser:
+      type: apiKey
+      in: header
+      name: X-Forwarded-User
+      description: The header named in AGENT_TEAM_UI_PROXY_USER_HEADER, accepted only from AGENT_TEAM_UI_TRUSTED_PROXIES.
+  parameters:
+    csrf:
+      name: x-agent-team
+      in: header
+      required: true
+      schema: { type: string, const: "1" }
+    name:
+      name: name
+      in: path
+      required: true
+      description: Project name (lowercase letters, digits, and dashes).
+      schema: { type: string, pattern: "^[a-z0-9][a-z0-9-]*$" }
+    file:
+      name: file
+      in: path
+      required: true
+      schema: { type: string }
+    path:
+      name: path
+      in: query
+      required: true
+      description: A path relative to the project folder.
+      schema: { type: string }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+    Object:
+      type: object
+      additionalProperties: true
+    Started:
+      type: object
+      properties:
+        started: { type: boolean }
+    ChangeStarted:
+      type: object
+      properties:
+        id: { type: string }
+        branch: { type: string }
+        started: { type: boolean }
+    Session:
+      type: object
+      properties:
+        mode: { type: string, enum: [none, password, proxy, password+proxy] }
+        authenticated: { type: boolean }
+        user: { type: [string, "null"] }
+        source: { type: [string, "null"] }
+    NewProject:
+      type: object
+      required: [name, brief]
+      properties:
+        name: { type: string }
+        brief: { type: string }
+        target: { type: string, enum: [web, api, web+api] }
+        template: { type: string }
+        workerRunner: { type: string, enum: [claude, codex] }
+        gates: { type: array, items: { type: string } }
+        github: { type: boolean }
+        deploy: { type: boolean }
+        branding: { type: boolean }
+    ImportProject:
+      type: object
+      required: [name, source]
+      properties:
+        name: { type: string }
+        source:
+          type: object
+          description: A git URL or an absolute local folder path.
+          additionalProperties: true
+        urls: { type: array, items: { type: string } }
+        github: { type: string, enum: [source, new, none] }
+        target: { type: string, enum: [web, api, web+api] }
+        gates: { type: array, items: { type: string } }
+        deploy: { type: boolean }
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Json:
+      description: JSON body
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Object" }
+    Started:
+      description: Whether a run was started
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Started" }
+    Saved:
+      description: Saved
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              saved: { type: boolean }
+    File:
+      description: File contents
+      content:
+        application/octet-stream:
+          schema: { type: string, format: binary }
+
+paths:
+  /api/auth/session:
+    get:
+      summary: Current login state (US-02)
+      security: []
+      responses:
+        "200":
+          description: Login mode and whether the caller is logged in
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+  /api/auth/login:
+    post:
+      summary: Log in with the dashboard password (US-02)
+      description: Sets the session cookie. 5 failures from one address lock it for 15 minutes (429).
+      security: []
+      parameters: [{ $ref: "#/components/parameters/csrf" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password: { type: string }
+      responses:
+        "200": { $ref: "#/components/responses/Json" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+  /api/auth/logout:
+    post:
+      summary: Log out (US-02)
+      security: []
+      parameters: [{ $ref: "#/components/parameters/csrf" }]
+      responses:
+        "204": { description: Cookie cleared }
+
+  /api/defaults:
+    get:
+      summary: Default choices for the new project form (US-03)
+      responses: { "200": { $ref: "#/components/responses/Json" } }
+  /api/templates:
+    get:
+      summary: Stack templates by target (US-03)
+      responses: { "200": { $ref: "#/components/responses/Json" } }
+  /api/git-identity:
+    get:
+      summary: Git author name and email for commits (US-03)
+      responses: { "200": { $ref: "#/components/responses/Json" } }
+    post:
+      summary: Save the git author identity (US-03)
+      parameters: [{ $ref: "#/components/parameters/csrf" }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                email: { type: string }
+      responses:
+        "200": { $ref: "#/components/responses/Json" }
+        "400": { $ref: "#/components/responses/Error" }
+  /api/notifications:
+    get:
+      summary: Configured notification channels (US-05)
+      responses: { "200": { $ref: "#/components/responses/Json" } }
+  /api/notifications/test:
+    post:
+      summary: Send a test notification (US-05)
+      parameters: [{ $ref: "#/components/parameters/csrf" }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                channel: { type: string }
+      responses:
+        "200": { $ref: "#/components/responses/Json" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /api/incidents:
+    get:
+      summary: Incidents across projects, newest first (US-08)
+      responses: { "200": { $ref: "#/components/responses/Json" } }
+  /api/incidents/{project}/{id}:
+    get:
+      summary: One incident with the doctor's diagnosis (US-08)
+      parameters:
+        - { name: project, in: path, required: true, schema: { type: string } }
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { $ref: "#/components/responses/Json" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /api/projects:
+    get:
+      summary: List every project on the server (US-03)
+      responses: { "200": { $ref: "#/components/responses/Json" } }
+    post:
+      summary: Create a project from a brief and start a run (US-03)
+      parameters: [{ $ref: "#/components/parameters/csrf" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewProject" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name: { type: string }
+        "400": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/projects/import:
+    post:
+      summary: Import an existing repository or folder (US-04)
+      parameters: [{ $ref: "#/components/parameters/csrf" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ImportProject" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name: { type: string }
+        "400": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /api/projects/{name}:
+    get:
+      summary: Project detail with phases, tasks, events, cost, and decisions (US-05)
+      parameters: [{ $ref: "#/components/parameters/name" }]
+      responses:
+        "200": { $ref: "#/components/responses/Json" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/stream/{name}:
+    get:
+      summary: Server-Sent Events that push the project detail every 2 seconds (US-05)
+      parameters: [{ $ref: "#/components/parameters/name" }]
+      responses:
+        "200":
+          description: Event stream
+          content:
+            text/event-stream:
+              schema: { type: string }
+  /api/projects/{name}/transcript/{file}:
+    get:
+      summary: An agent transcript (US-05)
+      parameters: [{ $ref: "#/components/parameters/name" }, { $ref: "#/components/parameters/file" }]
+      responses: { "200": { $ref: "#/components/responses/File" }, "404": { $ref: "#/components/responses/Error" } }
+  /api/projects/{name}/markdown:
+    get:
+      summary: The project's markdown docs (US-05)
+      parameters: [{ $ref: "#/components/parameters/name" }]
+      responses: { "200": { $ref: "#/components/responses/Json" } }
+  /api/projects/{name}/files:
+    get:
+      summary: The project's file tree (US-05)
+      parameters: [{ $ref: "#/components/parameters/name" }]
+      responses: { "200": { $ref: "#/components/responses/Json" } }
+  /api/projects/{name}/file:
+    get:
+      summary: One text file from the project (US-05)
+      parameters: [{ $ref: "#/components/parameters/name" }, { $ref: "#/components/parameters/path" }]
+      responses: { "200": { $ref: "#/components/responses/Json" }, "404": { $ref: "#/components/responses/Error" } }
+  /api/projects/{name}/raw:
+    get:
+      summary: One raw file from the project, such as an image (US-05)
+      parameters: [{ $ref: "#/components/parameters/name" }, { $ref: "#/components/parameters/path" }]
+      responses: { "200": { $ref: "#/components/responses/File" }, "404": { $ref: "#/components/responses/Error" } }
+  /api/projects/{name}/branding:
+    get:
+      summary: Branding assets list (US-05)
+      parameters: [{ $ref: "#/components/parameters/name" }]
+      responses: { "200": { $ref: "#/components/responses/Json" } }
+  /api/projects/{name}/branding/{file}:
+    get:
+      summary: One branding asset (US-05)
+      parameters: [{ $ref: "#/components/parameters/name" }, { $ref: "#/components/parameters/file" }]
+      responses: { "200": { $ref: "#/components/responses/File" }, "404": { $ref: "#/components/responses/Error" } }
+  /api/projects/{name}/mockups:
+    get:
+      summary: Design mockups list (US-05)
+      parameters: [{ $ref: "#/components/parameters/name" }]
+      responses: { "200": { $ref: "#/components/responses/Json" } }
+  /api/projects/{name}/mockups/{file}:
+    get:
+      summary: One design mockup (US-05)
+      parameters: [{ $ref: "#/components/parameters/name" }, { $ref: "#/components/parameters/file" }]
+      responses: { "200": { $ref: "#/components/responses/File" }, "404": { $ref: "#/components/responses/Error" } }
+  /api/projects/{name}/concepts:
+    get:
+      summary: Design concepts to pick from at the design gate (US-05)
+      parameters: [{ $ref: "#/components/parameters/name" }]
+      responses: { "200": { $ref: "#/components/responses/Json" } }
+  /api/projects/{name}/concepts/{id}/{file}:
+    get:
+      summary: One design concept file (US-05)
+      parameters:
+        - { $ref: "#/components/parameters/name" }
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { $ref: "#/components/parameters/file" }
+      responses: { "200": { $ref: "#/components/responses/File" }, "404": { $ref: "#/components/responses/Error" } }
+  /api/projects/{name}/qa:
+    get:
+      summary: QA rounds with findings, test output, and screenshots (US-05)
+      parameters: [{ $ref: "#/components/parameters/name" }]
+      responses: { "200": { $ref: "#/components/responses/Json" } }
+  /api/projects/{name}/qa/{round}/{file}:
+    get:
+      summary: One QA screenshot (US-05)
+      parameters:
+        - { $ref: "#/components/parameters/name" }
+        - { name: round, in: path, required: true, schema: { type: string } }
+        - { $ref: "#/components/parameters/file" }
+      responses: { "200": { $ref: "#/components/responses/File" }, "404": { $ref: "#/components/responses/Error" } }
+
+  /api/projects/{name}/run:
+    post:
+      summary: Start or resume the run (US-05)
+      parameters: [{ $ref: "#/components/parameters/name" }, { $ref: "#/components/parameters/csrf" }]
+      responses: { "202": { $ref: "#/components/responses/Started" }, "409": { $ref: "#/components/responses/Error" } }
+  /api/projects/{name}/approve:
+    post:
+      summary: Approve a phase at its gate (US-05)
+      parameters: [{ $ref: "#/components/parameters/name" }, { $ref: "#/components/parameters/csrf" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phase]
+              properties:
+                phase: { type: string }
+                choice: { type: string, description: The picked design concept, when there is one. }
+      responses: { "200": { $ref: "#/components/responses/Started" }, "400": { $ref: "#/components/responses/Error" } }
+  /api/projects/{name}/feedback:
+    post:
+      summary: Request changes on a phase at its gate (US-05)
+      parameters: [{ $ref: "#/components/parameters/name" }, { $ref: "#/components/parameters/csrf" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phase, message]
+              properties:
+                phase: { type: string }
+                message: { type: string }
+      responses: { "200": { $ref: "#/components/responses/Started" }, "400": { $ref: "#/components/responses/Error" } }
+  /api/projects/{name}/retry:
+    post:
+      summary: Retry a failed task (US-05)
+      parameters: [{ $ref: "#/components/parameters/name" }, { $ref: "#/components/parameters/csrf" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [taskId], properties: { taskId: { type: string } } }
+      responses: { "200": { $ref: "#/components/responses/Started" }, "400": { $ref: "#/components/responses/Error" } }
+  /api/projects/{name}/approve-suggestion:
+    post:
+      summary: Approve a worker's request for more files and retry (US-05)
+      parameters: [{ $ref: "#/components/parameters/name" }, { $ref: "#/components/parameters/csrf" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [taskId], properties: { taskId: { type: string } } }
+      responses: { "200": { $ref: "#/components/responses/Json" }, "400": { $ref: "#/components/responses/Error" } }
+  /api/projects/{name}/drop-task:
+    post:
+      summary: Reject a scope request and drop the task (US-05)
+      parameters: [{ $ref: "#/components/parameters/name" }, { $ref: "#/components/parameters/csrf" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [taskId], properties: { taskId: { type: string } } }
+      responses: { "200": { $ref: "#/components/responses/Started" }, "400": { $ref: "#/components/responses/Error" } }
+  /api/projects/{name}/approve-task-budget:
+    post:
+      summary: Give a task more budget and resume (US-05)
+      parameters: [{ $ref: "#/components/parameters/name" }, { $ref: "#/components/parameters/csrf" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [taskId], properties: { taskId: { type: string } } }
+      responses: { "200": { $ref: "#/components/responses/Json" }, "400": { $ref: "#/components/responses/Error" } }
+  /api/projects/{name}/raise-budget:
+    post:
+      summary: Raise budget.runUsd (by 50% when runUsd is not sent) and resume (US-05)
+      parameters: [{ $ref: "#/components/parameters/name" }, { $ref: "#/components/parameters/csrf" }]
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { runUsd: { type: number } } }
+      responses: { "200": { $ref: "#/components/responses/Json" }, "400": { $ref: "#/components/responses/Error" } }
+  /api/projects/{name}/auto-approve-scope:
+    post:
+      summary: Turn automatic approval of scope requests on or off (US-05)
+      parameters: [{ $ref: "#/components/parameters/name" }, { $ref: "#/components/parameters/csrf" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [enabled], properties: { enabled: { type: boolean } } }
+      responses: { "200": { $ref: "#/components/responses/Json" }, "400": { $ref: "#/components/responses/Error" } }
+  /api/projects/{name}/gates:
+    post:
+      summary: Save the project's approval gates (US-05)
+      parameters: [{ $ref: "#/components/parameters/name" }, { $ref: "#/components/parameters/csrf" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [gates], properties: { gates: { type: array, items: { type: string } } } }
+      responses: { "200": { $ref: "#/components/responses/Saved" }, "400": { $ref: "#/components/responses/Error" } }
+  /api/projects/{name}/roles:
+    post:
+      summary: Change the model for each agent role while no run is active (US-05)
+      parameters: [{ $ref: "#/components/parameters/name" }, { $ref: "#/components/parameters/csrf" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [roles], properties: { roles: { $ref: "#/components/schemas/Object" } } }
+      responses: { "200": { $ref: "#/components/responses/Saved" }, "400": { $ref: "#/components/responses/Error" }, "409": { $ref: "#/components/responses/Error" } }
+
+  /api/projects/{name}/chat:
+    post:
+      summary: Ask the project lead a question (US-06)
+      description: The answer arrives through the project detail stream. Chat cost is not added to the run budget.
+      parameters: [{ $ref: "#/components/parameters/name" }, { $ref: "#/components/parameters/csrf" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                message: { type: string }
+                attachments: { type: array, items: { type: string }, description: Names of files sent to chat-upload. }
+      responses:
+        "202": { $ref: "#/components/responses/Json" }
+        "400": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/projects/{name}/chat-upload:
+    post:
+      summary: Upload an image to attach to a lead chat message (US-06)
+      parameters: [{ $ref: "#/components/parameters/name" }, { $ref: "#/components/parameters/csrf" }]
+      requestBody:
+        required: true
+        content:
+          image/*:
+            schema: { type: string, format: binary }
+      responses: { "201": { $ref: "#/components/responses/Json" }, "400": { $ref: "#/components/responses/Error" } }
+  /api/projects/{name}/chat-upload/{file}:
+    get:
+      summary: An uploaded chat image (US-06)
+      parameters: [{ $ref: "#/components/parameters/name" }, { $ref: "#/components/parameters/file" }]
+      responses: { "200": { $ref: "#/components/responses/File" }, "404": { $ref: "#/components/responses/Error" } }
+  /api/projects/{name}/chat-session:
+    post:
+      summary: Start a new lead chat session, or open an earlier one (US-06)
+      parameters: [{ $ref: "#/components/parameters/name" }, { $ref: "#/components/parameters/csrf" }]
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { session: { type: integer } } }
+      responses: { "200": { $ref: "#/components/responses/Json" }, "404": { $ref: "#/components/responses/Error" }, "409": { $ref: "#/components/responses/Error" } }
+  /api/projects/{name}/chat-stop:
+    post:
+      summary: Stop a lead reply that is still running (US-06)
+      parameters: [{ $ref: "#/components/parameters/name" }, { $ref: "#/components/parameters/csrf" }]
+      responses: { "200": { $ref: "#/components/responses/Json" }, "409": { $ref: "#/components/responses/Error" } }
+  /api/projects/{name}/chat-action:
+    post:
+      summary: Apply or dismiss an action the lead suggested (US-06)
+      parameters: [{ $ref: "#/components/parameters/name" }, { $ref: "#/components/parameters/csrf" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [messageId, index, state]
+              properties:
+                messageId: { type: integer }
+                index: { type: integer }
+                state: { type: string, enum: [applied, dismissed] }
+      responses: { "200": { $ref: "#/components/responses/Json" }, "400": { $ref: "#/components/responses/Error" }, "404": { $ref: "#/components/responses/Error" } }
+  /api/projects/{name}/lead-settings:
+    post:
+      summary: Save the lead's settings (US-06)
+      parameters: [{ $ref: "#/components/parameters/name" }, { $ref: "#/components/parameters/csrf" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Object" }
+      responses: { "200": { $ref: "#/components/responses/Saved" }, "400": { $ref: "#/components/responses/Error" } }
+
+  /api/projects/{name}/changes:
+    post:
+      summary: Open a change request on a finished app and start a change run (US-07)
+      parameters: [{ $ref: "#/components/parameters/name" }, { $ref: "#/components/parameters/csrf" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [request], properties: { request: { type: string } } }
+      responses:
+        "201":
+          description: Change opened
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChangeStarted" }
+        "400": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/projects/{name}/changes/{id}/merge:
+    post:
+      summary: Approve and merge a change (US-07)
+      parameters:
+        - { $ref: "#/components/parameters/name" }
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { $ref: "#/components/parameters/csrf" }
+      responses: { "200": { $ref: "#/components/responses/Started" }, "404": { $ref: "#/components/responses/Error" }, "409": { $ref: "#/components/responses/Error" } }
+  /api/projects/{name}/changes/{id}/abandon:
+    post:
+      summary: Abandon a change (US-07)
+      parameters:
+        - { $ref: "#/components/parameters/name" }
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { $ref: "#/components/parameters/csrf" }
+      responses: { "200": { $ref: "#/components/responses/Json" }, "404": { $ref: "#/components/responses/Error" } }
+  /api/projects/{name}/findings:
+    get:
+      summary: List findings, filtered by status (US-07)
+      parameters:
+        - { $ref: "#/components/parameters/name" }
+        - { name: status, in: query, schema: { type: string, enum: [open, approved, dismissed, all], default: open } }
+      responses: { "200": { $ref: "#/components/responses/Json" } }
+    post:
+      summary: Add a backlog item as an open finding (US-07)
+      parameters: [{ $ref: "#/components/parameters/name" }, { $ref: "#/components/parameters/csrf" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: { type: string }
+                detail: { type: string }
+                severity: { type: string }
+      responses: { "201": { $ref: "#/components/responses/Json" }, "400": { $ref: "#/components/responses/Error" } }
+  /api/projects/{name}/findings/{id}/approve:
+    post:
+      summary: Approve a finding, which opens a change for it (US-07)
+      parameters:
+        - { $ref: "#/components/parameters/name" }
+        - { name: id, in: path, required: true, schema: { type: integer } }
+        - { $ref: "#/components/parameters/csrf" }
+      responses: { "201": { $ref: "#/components/responses/Json" }, "404": { $ref: "#/components/responses/Error" }, "409": { $ref: "#/components/responses/Error" } }
+  /api/projects/{name}/findings/{id}/dismiss:
+    post:
+      summary: Dismiss a finding (US-07)
+      parameters:
+        - { $ref: "#/components/parameters/name" }
+        - { name: id, in: path, required: true, schema: { type: integer } }
+        - { $ref: "#/components/parameters/csrf" }
+      responses: { "200": { $ref: "#/components/responses/Json" }, "404": { $ref: "#/components/responses/Error" } }
+  /api/projects/{name}/cleanup/start:
+    post:
+      summary: Start a cleanup change run (US-07)
+      parameters: [{ $ref: "#/components/parameters/name" }, { $ref: "#/components/parameters/csrf" }]
+      responses:
+        "201":
+          description: Cleanup started
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChangeStarted" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/projects/{name}/cleanup/dismiss:
+    post:
+      summary: Dismiss the suggested cleanup (US-07)
+      parameters: [{ $ref: "#/components/parameters/name" }, { $ref: "#/components/parameters/csrf" }]
+      responses: { "200": { $ref: "#/components/responses/Json" } }
+  /api/projects/{name}/sprints:
+    get:
+      summary: List sprints (US-07)
+      parameters: [{ $ref: "#/components/parameters/name" }]
+      responses: { "200": { $ref: "#/components/responses/Json" } }
+  /api/projects/{name}/sprints/start:
+    post:
+      summary: Start a sprint now (US-07)
+      parameters: [{ $ref: "#/components/parameters/name" }, { $ref: "#/components/parameters/csrf" }]
+      responses: { "202": { $ref: "#/components/responses/Started" }, "409": { $ref: "#/components/responses/Error" } }
+  /api/projects/{name}/operate:
+    get:
+      summary: Operate overview with health, metrics, insight runs, and changes (US-07)
+      parameters: [{ $ref: "#/components/parameters/name" }]
+      responses: { "200": { $ref: "#/components/responses/Json" } }
+  /api/projects/{name}/operate/run:
+    post:
+      summary: Run one insight agent, which adds findings (US-07)
+      parameters: [{ $ref: "#/components/parameters/name" }, { $ref: "#/components/parameters/csrf" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [agent], properties: { agent: { type: string } } }
+      responses: { "202": { $ref: "#/components/responses/Json" }, "400": { $ref: "#/components/responses/Error" }, "409": { $ref: "#/components/responses/Error" } }
