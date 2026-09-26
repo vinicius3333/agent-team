@@ -188,5 +188,30 @@
       "test/github.test.ts covers label creation for an existing origin and the no-label fallback, offline, with a fake gh on PATH. npm run typecheck and npm test pass."
     ],
     "verify": "npm run typecheck && npm test"
+  },
+  {
+    "id": "L005",
+    "title": "Always allow the APP_URL host in the preview start command",
+    "story": "As the project owner, I want the preview to accept its public APP_URL host even when AGENT_TEAM_UI_HOSTS is already set, so opening the preview does not answer 403.",
+    "phase": "feature",
+    "dependsOn": [],
+    "allowedPaths": [
+      "deploy.json",
+      "docs/architecture.md",
+      "test/deploy-start.test.ts"
+    ],
+    "readPaths": [
+      "src/ui/server.ts",
+      "src/deploy.ts",
+      "docker-compose.yml",
+      "test/preview-host.test.ts"
+    ],
+    "acceptance": [
+      "The start command in deploy.json appends the APP_URL host name to any existing AGENT_TEAM_UI_HOSTS value (comma-separated) instead of using it only as a fallback. It still works when AGENT_TEAM_UI_HOSTS is empty or APP_URL is unset, and never produces a leading or trailing comma.",
+      "test/deploy-start.test.ts runs the host-list part of the deploy.json start command in a shell with AGENT_TEAM_UI_HOSTS=other.example and APP_URL=https://app.example and checks that both hosts are in the result; it also covers the empty and unset cases. Offline, no Docker.",
+      "docs/architecture.md says that the APP_URL host is added to AGENT_TEAM_UI_HOSTS, not only used as a default.",
+      "npm run typecheck and npm test pass."
+    ],
+    "verify": "npm run typecheck && npm test"
   }
 ]
