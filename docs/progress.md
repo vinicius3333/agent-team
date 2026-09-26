@@ -224,3 +224,11 @@ Files: `src/cli.ts`, `src/config.ts`, `src/project.ts`, `src/routines.ts`, `src/
 > Sprints and routines now run on imported projects, and when something blocks them the CLI and the dashboard say what it is. The full `verify` command passes: typecheck and 44 tests pass, lint shows only warnings in files I didn't touch, and the web build succeeds. I didn't run `sprint --check` or `routines --check` against a real project; only the tests exercise the new code.
 > The last attempt failed only because the web packages weren't installed (`oxlint: not found`). I ran `npm --prefix web ci` and then reapplied the earlier diff.
 > **What changed**
+
+## T016: Let the Codex runner use an OpenAI-compatible base URL
+
+Files: `src/harness/docker.ts`, `src/harness/harness.ts`, `src/harness/network.ts`, `src/lead.ts`, `src/operate/agents.ts`, `src/pipeline.ts`, `src/routines.ts`, `src/runners/codex.ts`, `src/runners/types.ts`, `test/harness.test.ts`, `test/network.test.ts`, `test/runners.test.ts`
+
+> The Codex runner can now use an OpenAI-compatible base URL. The last `verify` run passed: typecheck is clean and all 27 tests pass. I also ran `test/pipeline.test.ts` because I changed `src/pipeline.ts`, and it passes. I didn't run the whole `npm test` suite, and nothing ran against a real Codex, endpoint or Docker.
+> **What changed**
+> - **`RunRequest`** (`src/runners/types.ts`): gains `codex?: { baseUrl; apiKeyEnv }`. It is filled from `config.runners.codex` in `src/lead.ts`, `src/operate/agents.ts` and `src/routines.ts`. For pipeline runs, `runAgent` in `src/pipeline.ts` sets it on the job and `src/harness/harness.ts` copies it into the request. I went through the job because `createHarness` is called from `run.ts` and `doctor.ts`, which are outside the allowed paths.
