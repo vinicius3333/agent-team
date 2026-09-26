@@ -19,7 +19,7 @@ import { operateTick } from "./operate/tick.ts"
 import { sprintTick } from "./sprint.ts"
 import { decideReplan } from "./replan.ts"
 import type { Store } from "./store.ts"
-import { loadTasks } from "./tasks.ts"
+import { loadTasks, widenTask } from "./tasks.ts"
 
 export interface DoctorConfig {
   stallMinutes: number
@@ -549,7 +549,13 @@ function editTask(projectDir: string, store: Store, taskId: string, allowedPaths
   try {
     const tasks = loadTasks(join(workspace.path, "tasks.json"))
     const mergedIds = new Set(tasks.filter((task) => store.task(task.id)?.status === "merged").map((task) => task.id))
-    const decision = decideReplan(tasks, taskId, { action: "rebind", allowedPaths }, mergedIds)
+    let decision = decideReplan(tasks, taskId, { action: "rebind", allowedPaths }, mergedIds)
+    if (decision.kind === "human" && config.autonomy.decide === "auto") {
+      // autonomy.decide: auto applies the edit a person would have approved; the task waits for any other owner.
+      const { tasks: widened, owners } = widenTask(tasks, taskId, allowedPaths, (id) => mergedIds.has(id))
+      store.log("autonomy", `doctor edit of ${taskId} applied without a human because autonomy.decide is auto: ${decision.reason}`)
+      decision = { kind: "apply", tasks: widened, summary: `widened ${taskId} to ${allowedPaths.join(", ")}${owners.length ? `; it now waits for ${owners.join(", ")}` : ""}` }
+    }
     if (decision.kind === "human") {
       store.requireHuman(taskId, `the doctor asked for this change: ${decision.reason}`)
       return `edit of ${taskId} needs a human: ${decision.reason}`
