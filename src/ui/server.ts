@@ -22,7 +22,7 @@ import { changeIdPattern } from "../tasks.ts"
 import { listIncidents, openIncident, readIncident } from "../incidents.ts"
 import { askLead, chatMessageMaxLength, chatUploadsDir } from "../lead.ts"
 import { applyGitIdentity, parseGitIdentity, readGitIdentity, saveGitIdentity } from "../git-identity.ts"
-import { applyLeadAction, approveTaskSuggestion, dropTask, parseGates, parseLeadSettings, saveAutoApproveScope, saveGates, saveLeadSettings } from "../lead-actions.ts"
+import { applyLeadAction, approveTaskSuggestion, dropTask, parseGates, parseLeadSettings, parseSprintSettings, saveAutoApproveScope, saveGates, saveLeadSettings, saveSprintSettings } from "../lead-actions.ts"
 import { suggestedPaths } from "../replan.ts"
 import { trackedFiles } from "../git.ts"
 import { insightAgents, type InsightAgent, type PipelineConfig } from "../config.ts"
@@ -1189,6 +1189,10 @@ export function startUi(options: UiOptions) {
       }
       case "gates": {
         saveGates(projectDir, parseGates(body.gates))
+        return send(response, 200, { saved: true })
+      }
+      case "sprint-settings": {
+        saveSprintSettings(projectDir, parseSprintSettings(body))
         return send(response, 200, { saved: true })
       }
       case "lead-settings": {

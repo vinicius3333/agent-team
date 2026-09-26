@@ -247,6 +247,12 @@ test("the dashboard uploads images, applies a lead task on the server, auto-appl
   assert.equal((await post("gates", { gates: [] })).status, 200)
   assert.deepEqual(loadConfig(join(projectDir, "pipeline.yaml")).autonomy.gates, [])
 
+  const sprintSettings = { enabled: true, everyDays: 14, budgetUsd: 20, monthlyUsd: 60, maxItems: 4, newFeatures: false }
+  assert.equal((await post("sprint-settings", { ...sprintSettings, everyDays: "14" })).status, 400)
+  assert.equal((await post("sprint-settings", { ...sprintSettings, monthlyUsd: 10 })).status, 400, "the monthly cap is below one sprint")
+  assert.equal((await post("sprint-settings", sprintSettings)).status, 200)
+  assert.deepEqual(loadConfig(join(projectDir, "pipeline.yaml")).sprints, sprintSettings)
+
   assert.equal((await post("chat", { message: "Add links" })).status, 202)
   const messageId = withProjectStore(projectDir, (store) =>
     store.addChatMessage("lead", "Two changes.", [

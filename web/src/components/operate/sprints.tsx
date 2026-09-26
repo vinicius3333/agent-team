@@ -17,6 +17,7 @@ import { formatCost, formatDateTime } from "@/lib/format"
 import { projectPath } from "@/lib/navigation"
 import { cn } from "@/lib/utils"
 import { SourceLabel } from "./shared"
+import { SprintSettingsDialog } from "./sprint-settings-dialog"
 import { useFindings, useSprints } from "./use-operate"
 
 const dayMs = 24 * 60 * 60_000
@@ -279,6 +280,7 @@ export function OperateSprints() {
           </p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
+          {snapshot && <SprintSettingsDialog settings={snapshot.settings} lastFinishedAt={snapshot.sprints[0]?.finishedAt ?? null} onSaved={refresh} />}
           <Button variant="outline" asChild className="h-11 sm:h-9">
             <Link to={`${projectPath(name, "operate", "next-steps")}?add=1`}>
               <Plus /> Add to backlog
@@ -312,7 +314,7 @@ export function OperateSprints() {
                   <CardDescription>
                     {snapshot.settings.enabled
                       ? `The doctor starts the first sprint once the build is live. ${snapshot.backlogSize} backlog items are waiting.`
-                      : "Sprints are off. Set sprints.enabled: true in pipeline.yaml, and keep the doctor running."}
+                      : "Sprints are off. Turn them on in Sprint settings, and keep the doctor running."}
                   </CardDescription>
                 </CardHeader>
               </Card>

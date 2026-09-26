@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { isSeq, parseDocument } from "yaml"
-import { leadActionKinds, loadConfig, planningPhases, type LeadConfig, type PlanningPhase } from "./config.ts"
+import { leadActionKinds, loadConfig, planningPhases, type LeadConfig, type PlanningPhase, type SprintConfig } from "./config.ts"
 import { commitPaths, fileAtRef } from "./git.ts"
 import { commitAndRebase, createWorkspace, fastForward, removeWorkspace } from "./harness/workspace.ts"
 import { approvePhase, ProjectError, raiseRunBudget, requestChanges, retryTask } from "./project.ts"
@@ -151,13 +151,14 @@ export function dropTask(projectDir: string, store: Store, taskId: string): void
 }
 
 // The dashboard's switch for autonomy.autoApproveScope; a running build reads it at its next decision.
-function saveAutonomySetting(projectDir: string, key: string, value: unknown, message: string): void {
+function savePipelineSetting(projectDir: string, key: string[], value: unknown, message: string, replaces: string[] = []): void {
   const path = join(projectDir, "pipeline.yaml")
   const original = readFileSync(path, "utf8")
   const document = parseDocument(original)
   const node = document.createNode(value)
   if (isSeq(node)) node.flow = true
-  document.setIn(["autonomy", key], node)
+  document.setIn(key, node)
+  for (const legacy of replaces) document.deleteIn([legacy])
   writeFileSync(path, document.toString())
   try {
     loadConfig(path)
@@ -166,6 +167,10 @@ function saveAutonomySetting(projectDir: string, key: string, value: unknown, me
     throw new ProjectError(400, (error as Error).message)
   }
   commitPaths(projectDir, ["pipeline.yaml"], message)
+}
+
+function saveAutonomySetting(projectDir: string, key: string, value: unknown, message: string): void {
+  savePipelineSetting(projectDir, ["autonomy", key], value, message)
 }
 
 export function saveAutoApproveScope(projectDir: string, enabled: boolean): void {
@@ -183,6 +188,25 @@ export function parseGates(value: unknown): PlanningPhase[] {
     throw new ProjectError(400, `Each gate must be one of ${planningPhases.join(", ")}.`)
   }
   return value as PlanningPhase[]
+}
+
+// The doctor reads sprints on every tick, so a new interval moves the next due time at once. The whole block is
+// written, and a legacy evolve block goes away because sprints would override it anyway.
+export function saveSprintSettings(projectDir: string, settings: SprintConfig): void {
+  savePipelineSetting(projectDir, ["sprints"], settings, `chore: run sprints ${settings.enabled ? `every ${settings.everyDays} days` : "no more"}`, ["evolve"])
+}
+
+export function parseSprintSettings(value: unknown): SprintConfig {
+  const raw = (value ?? {}) as Record<string, unknown>
+  const flag = (field: string) => {
+    if (typeof raw[field] !== "boolean") throw new ProjectError(400, `${field} must be true or false.`)
+    return raw[field] as boolean
+  }
+  const number = (field: string) => {
+    if (typeof raw[field] !== "number" || !Number.isFinite(raw[field])) throw new ProjectError(400, `${field} must be a number.`)
+    return raw[field] as number
+  }
+  return { enabled: flag("enabled"), everyDays: number("everyDays"), budgetUsd: number("budgetUsd"), monthlyUsd: number("monthlyUsd"), maxItems: number("maxItems"), newFeatures: flag("newFeatures") }
 }
 
 export function parseLeadSettings(value: unknown): LeadConfig {

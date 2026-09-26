@@ -1,4 +1,4 @@
-import type { Defaults, GitIdentity, Finding, FindingStatus, InsightAgent, NewBacklogItem, SprintSnapshot, OperateSnapshot, LeadActionState, LeadSettings, NotificationStatus, NotificationTestResult, RoleCandidate, Incident, IncidentDetail, ImportProjectRequest, ConceptsView, NewProjectRequest, PlanningPhase, ProjectDetail, ProjectSummary, QaRound, StackTemplate } from "@/api/types"
+import type { Defaults, GitIdentity, Finding, FindingStatus, InsightAgent, NewBacklogItem, SprintSettings, SprintSnapshot, OperateSnapshot, LeadActionState, LeadSettings, NotificationStatus, NotificationTestResult, RoleCandidate, Incident, IncidentDetail, ImportProjectRequest, ConceptsView, NewProjectRequest, PlanningPhase, ProjectDetail, ProjectSummary, QaRound, StackTemplate } from "@/api/types"
 
 export class ApiError extends Error {
   status: number
@@ -117,6 +117,7 @@ export const api = {
   approveFinding: (name: string, id: number) => post<{ changeId: string; branch: string; started: boolean }>(`${projectPath(name)}/findings/${id}/approve`, {}),
   dismissFinding: (name: string, id: number) => post<{ dismissed: boolean }>(`${projectPath(name)}/findings/${id}/dismiss`, {}),
   addBacklogItem: (name: string, item: NewBacklogItem) => post<Finding>(`${projectPath(name)}/findings`, item),
+  saveSprintSettings: (name: string, settings: SprintSettings) => post<{ saved: boolean }>(`${projectPath(name)}/sprint-settings`, settings),
   startSprint: (name: string) => post<{ started: boolean }>(`${projectPath(name)}/sprints/start`, {}),
   runInsight: (name: string, agent: InsightAgent) => post<{ accepted: boolean }>(`${projectPath(name)}/operate/run`, { agent }),
   // Without runUsd the server adds 50%.
