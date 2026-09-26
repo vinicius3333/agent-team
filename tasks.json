@@ -703,7 +703,9 @@
       "test/dashboard.test.ts",
       "test/fixtures/imported-project/**",
       "web/src/components/operate/sprints.tsx",
-      "web/src/components/operate/routines.tsx"
+      "web/src/components/operate/routines.tsx",
+      "src/config.ts",
+      "test/config.test.ts"
     ],
     "readPaths": [
       "docs/changes/C003/spec.md",
