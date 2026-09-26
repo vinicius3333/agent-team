@@ -4,7 +4,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
-import { commandFailure, detectDeployPlan, ensureNetwork, projectSlug, removeContainers, removeNetwork, snapshotMain, startAppContainer, waitForApp } from "./deploy.ts"
+import { commandFailure, detectDeployPlan, ensureNetwork, projectSlug, publicUrlEnv, removeContainers, removeNetwork, snapshotMain, startAppContainer, waitForApp } from "./deploy.ts"
 import { demoAccessEnv, type DemoAccess } from "./access.ts"
 import type { QaScreen } from "./qa.ts"
 
@@ -102,6 +102,11 @@ export async function captureScreenshots(options: { projectDir: string; outDir: 
   }
 }
 
+// The app sees the checker's own address as its public URL, so absolute links and Origin checks match what the browser uses.
+export function checkerAppEnv(baseUrl: string, access: DemoAccess | null): Record<string, string> {
+  return { ...publicUrlEnv(baseUrl), ...demoAccessEnv(access) }
+}
+
 // Runs the app in `dir` and screenshots every screen. The caller removes the containers and the network.
 // The app joins the apps network to install its dependencies, plus the internal network `names.network`.
 // The browser joins only that internal network: it reaches the app and nothing else, not the internet.
@@ -124,7 +129,7 @@ export async function captureApp(options: {
   try {
     ensureNetwork()
     ensureNetwork(names.network, { internal: true })
-    startAppContainer({ name: names.app, dir, plan, label: options.label, restart: false, env: demoAccessEnv(options.login?.access ?? null) })
+    startAppContainer({ name: names.app, dir, plan, label: options.label, restart: false, env: checkerAppEnv(baseUrl, options.login?.access ?? null) })
     await execFileAsync("docker", ["network", "connect", ...(options.alias ? ["--alias", options.alias] : []), names.network, names.app])
     await waitForApp(names.app, plan.port)
   } catch (error) {
