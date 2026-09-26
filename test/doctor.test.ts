@@ -575,6 +575,129 @@ test("an attempt cut short by the doctor stopping does not count toward the limi
   assert.ok(incident.actions.some((action) => action.action === "interrupted"))
 })
 
+function blockedProject(options: { doctorYaml?: string } = {}) {
+  const context = setup(options)
+  const store = openProjectStore(context.projectDir)
+  store.syncTasks(["T001", "T005"])
+  store.updateTask("T005", "blocked", blockedReason)
+  stop(store, "failed", blockedReason)
+  store.close()
+  return context
+}
+
+function codeFixReply(fields: Record<string, unknown>, version: number): Reply {
+  return (_job, workdir) => {
+    writeFileSync(join(workdir, "src", "json.ts"), `export const version = ${version}\n`)
+    writeFileSync(join(workdir, "test", "json.test.ts"), `// regression test ${version}\n`)
+    return { summary: report({ codeFix: true, summary: "Fix the parser.", ...fields }) }
+  }
+}
+
+function doctorEvents(projectDir: string): string[] {
+  const store = openProjectStore(projectDir)
+  try {
+    return store.recentEvents(200).filter((event) => event.type === "doctor").map((event) => event.message)
+  } finally {
+    store.close()
+  }
+}
+
+test("a stop that comes back after a resume-only fix escalates at once without a new attempt", async () => {
+  const { runsDir, projectDir, installDir } = blockedProject({ doctorYaml: "maxAttempts: 5\n" })
+  const { deps, gh, jobs, started } = stubDeps(installDir, [() => ({ summary: report({ cause: "external", projectActions: [{ action: "retry", taskId: "T005" }, { action: "resume" }] }) })])
+  await checkOnce({ runsDir, deps })
+  let [incident] = listIncidents(projectDir) as (ReturnType<typeof listIncidents>[number] & { fixSignatures?: unknown })[]
+  assert.equal(incident.status, "fixed", JSON.stringify(incident.actions))
+  assert.deepEqual(incident.fixSignatures, [{ cause: "external", actions: ["resume", "retry T005"], codeFix: false }])
+
+  // The resumed run hit the same stop again: run.stop still holds it.
+  await checkOnce({ runsDir, deps })
+  ;[incident] = listIncidents(projectDir)
+  assert.equal(incident.status, "gave_up")
+  assert.equal(incident.attempts, 1, "no new attempt")
+  assert.equal(jobs.length, 1)
+  assert.deepEqual(started, [projectDir])
+  assert.match(incident.actions.at(-1)?.detail ?? "", /^the same stop came back and the last fix changed no code$/)
+  assert.ok(doctorEvents(projectDir).includes(`incident ${incident.id}: escalated early: the same stop came back and the last fix changed no code`))
+  assert.ok(gh.some((args) => args[0] === "issue" && args[1] === "comment" && args.includes("https://github.com/owner/agent-team/issues/1")))
+
+  await checkOnce({ runsDir, deps })
+  assert.equal(jobs.length, 1, "no attempt after giving up")
+})
+
+test("the escalation lists the earlier attempts and their actions on the incident issue", async () => {
+  const { runsDir, projectDir, installDir } = blockedProject()
+  const bodies: string[] = []
+  const { deps } = stubDeps(installDir, [() => ({ summary: report({ cause: "external", projectActions: [{ action: "retry", taskId: "T005" }] }) })])
+  const gh = deps.gh!
+  deps.gh = (args, cwd, input) => {
+    if (args[0] === "issue" && args[1] === "comment" && input) bodies.push(input)
+    return gh(args, cwd, input)
+  }
+  await checkOnce({ runsDir, deps })
+  await checkOnce({ runsDir, deps })
+  const escalation = bodies.find((body) => body.includes("## Earlier attempts"))
+  assert.ok(escalation, bodies.join("\n---\n"))
+  assert.match(escalation, /Attempt 1: cause `external`; actions: retry T005; code fix: no/)
+  assert.match(escalation, /- retry: reset T005 for a retry/)
+  assert.match(escalation, /the last fix changed no code/)
+})
+
+test("without an incident issue, an early escalation opens a Decision needed notice", async () => {
+  const { runsDir, projectDir, installDir } = blockedProject()
+  const { deps, gh } = stubDeps(installDir, [() => ({ summary: report({ projectActions: [{ action: "resume" }] }) })])
+  const base = deps.gh!
+  let issues = 0
+  deps.gh = (args, cwd, input) => {
+    if (args[0] === "issue" && args[1] === "create" && issues++ === 0) throw new Error("GitHub is down")
+    return base(args, cwd, input)
+  }
+  await checkOnce({ runsDir, deps })
+  assert.equal(listIncidents(projectDir)[0].issueUrl, null)
+  await checkOnce({ runsDir, deps })
+  const created = gh.filter((args) => args[0] === "issue" && args[1] === "create")
+  assert.equal(created.length, 1)
+  assert.match(created[0][created[0].indexOf("--title") + 1], /^Decision needed: crm-test: /)
+  assert.equal(listIncidents(projectDir)[0].status, "gave_up")
+})
+
+test("a stop that comes back after the same code fix as an earlier attempt escalates", async () => {
+  const { runsDir, projectDir, installDir } = blockedProject({ doctorYaml: "maxAttempts: 5\n" })
+  const { deps, jobs } = stubDeps(installDir, [codeFixReply({ projectActions: [{ action: "retry", taskId: "T005" }] }, 2)])
+  await checkOnce({ runsDir, deps })
+  assert.equal(listIncidents(projectDir)[0].status, "fixed")
+  await checkOnce({ runsDir, deps })
+  let [incident] = listIncidents(projectDir)
+  assert.equal(incident.status, "fixed", "a single code fix earns another try")
+  assert.equal(incident.attempts, 2)
+
+  await checkOnce({ runsDir, deps })
+  ;[incident] = listIncidents(projectDir)
+  assert.equal(incident.status, "gave_up")
+  assert.equal(incident.attempts, 2)
+  assert.equal(jobs.length, 2)
+  assert.match(incident.actions.at(-1)?.detail ?? "", /fix repeated/)
+  assert.ok(doctorEvents(projectDir).some((message) => message.startsWith(`incident ${incident.id}: escalated early: `) && /fix repeated/.test(message)))
+})
+
+test("a stop that comes back after a different code fix tries again", async () => {
+  const { runsDir, projectDir, installDir } = blockedProject({ doctorYaml: "maxAttempts: 5\n" })
+  const { deps, jobs } = stubDeps(installDir, [
+    codeFixReply({ projectActions: [{ action: "retry", taskId: "T005" }] }, 2),
+    codeFixReply({ projectActions: [{ action: "retry", taskId: "T005" }, { action: "reset_cooldowns" }] }, 3),
+    codeFixReply({ cause: "project_state", projectActions: [{ action: "retry", taskId: "T005" }] }, 4),
+    codeFixReply({}, 5),
+  ])
+  await checkOnce({ runsDir, deps })
+  await checkOnce({ runsDir, deps })
+  await checkOnce({ runsDir, deps })
+  const [incident] = listIncidents(projectDir) as (ReturnType<typeof listIncidents>[number] & { fixSignatures?: { codeFix: boolean }[] })[]
+  assert.equal(jobs.length, 3)
+  assert.equal(incident.attempts, 3)
+  assert.equal(incident.status, "fixed", JSON.stringify(incident.actions))
+  assert.deepEqual(incident.fixSignatures?.map((signature) => signature.codeFix), [true, true, true])
+})
+
 async function landFixAndResume(options: { doctorYaml?: string } = {}) {
   const { runsDir, projectDir, installDir, sourceDir } = setup(options)
   const store = openProjectStore(projectDir)
