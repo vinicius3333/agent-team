@@ -198,14 +198,20 @@ export interface TemplatePin {
 export const leadActionKinds = ["retry", "resume", "approve", "request_changes", "raise_budget", "add_task", "edit_task"] as const
 export type LeadActionKind = (typeof leadActionKinds)[number]
 
+export const leadAccessModes = ["read", "full"] as const
+export type LeadAccess = (typeof leadAccessModes)[number]
+
 // What the project lead may suggest in the chat, and which of those apply without a click.
+// access "full" lets the lead edit files and run commands in the project folder, with no review.
+// loadConfig always sets access; it is optional so settings saved without it fall back to "read".
 export interface LeadConfig {
   actions: LeadActionKind[]
   autoApply: LeadActionKind[]
   chatBudgetUsd: number
+  access?: LeadAccess
 }
 
-export const defaultLeadConfig: LeadConfig = { actions: [...leadActionKinds], autoApply: [], chatBudgetUsd: 2 }
+export const defaultLeadConfig: LeadConfig = { actions: [...leadActionKinds], autoApply: [], chatBudgetUsd: 2, access: "read" }
 
 export const marketingFormats = {
   og: { width: 1200, height: 630 },
@@ -268,6 +274,7 @@ export function loadConfig(path: string): PipelineConfig {
       actions: raw.lead?.actions ?? defaultLeadConfig.actions,
       autoApply: raw.lead?.autoApply ?? defaultLeadConfig.autoApply,
       chatBudgetUsd: raw.lead?.chatBudgetUsd ?? defaultLeadConfig.chatBudgetUsd,
+      access: raw.lead?.access ?? defaultLeadConfig.access,
     },
     operate: normalizeOperate(raw.operate),
     routines: normalizeRoutines(raw.routines, raw.operate?.schedule),
@@ -495,6 +502,7 @@ function validateConfig(config: PipelineConfig, projectDir: string): void {
   }
   if (Array.isArray(config.lead.autoApply) && config.lead.autoApply.some((kind) => !config.lead.actions.includes(kind))) errors.push("lead.autoApply may only list kinds that lead.actions allows")
   if (!(config.lead.chatBudgetUsd > 0 && config.lead.chatBudgetUsd <= 20)) errors.push("lead.chatBudgetUsd must be above 0 and at most 20")
+  if (!(leadAccessModes as readonly unknown[]).includes(config.lead.access ?? defaultLeadConfig.access)) errors.push(`lead.access must be ${leadAccessModes.join(" or ")}`)
   if (!["web", "api", "web+api"].includes(config.target)) errors.push(`target must be web, api, or web+api`)
   if (config.autonomy.changeMerge !== "auto" && config.autonomy.changeMerge !== "manual") errors.push("autonomy.changeMerge must be auto or manual")
   if (typeof config.autonomy.autoApproveScope !== "boolean") errors.push("autonomy.autoApproveScope must be true or false")

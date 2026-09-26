@@ -213,5 +213,41 @@
       "npm run typecheck and npm test pass."
     ],
     "verify": "npm run typecheck && npm test"
+  },
+  {
+    "id": "L006",
+    "title": "Let the project lead run with full access when lead.access is full",
+    "story": "As the project owner, I want to let the chat lead edit files and run any command in the project, so it can fix things and deploy without a separate task.",
+    "phase": "feature",
+    "dependsOn": [],
+    "allowedPaths": [
+      "src/lead.ts",
+      "src/config.ts",
+      "src/runners/claude.ts",
+      "prompts/lead.md",
+      "test/lead.test.ts",
+      "test/config.test.ts",
+      "test/runners.test.ts",
+      "docs/architecture.md"
+    ],
+    "readPaths": [
+      "src/runners/types.ts",
+      "src/runners/codex.ts",
+      "src/runners/index.ts",
+      "src/harness/executor.ts",
+      "src/ui/server.ts",
+      "pipeline.yaml"
+    ],
+    "acceptance": [
+      "pipeline.yaml accepts lead.access with the value \"read\" (the default) or \"full\", next to the existing lead.actions and lead.autoApply keys. loadConfig reads it, and config validation rejects any other value with a plain error message.",
+      "With lead.access read, askLead passes allowedTools [\"read\", \"web_search\", \"web_fetch\"] exactly as before.",
+      "With lead.access full, askLead also passes edit, write and an unrestricted bash tool, and sets no writablePaths, so the lead can edit any file in the project folder and run any command there.",
+      "toClaudeTools maps a plain \"bash\" tool to the unrestricted Claude \"Bash\" tool. The existing \"bash:<prefix>\" rules still map as before.",
+      "In full mode, prompts/lead.md tells the lead that it may edit files and run commands, that it works directly on the project's main checkout without review, and that it must list every file it changed and every command it ran in its reply. In read mode, the prompt keeps the current text that says the lead cannot edit or run commands.",
+      "test/lead.test.ts covers both modes with a fake runLead and checks the allowedTools and the system prompt. Tests run offline and call no real agent.",
+      "docs/architecture.md documents lead.access, its default, and the risk that full mode skips the worktree, reviewer and PR.",
+      "npm run typecheck and npm test pass."
+    ],
+    "verify": "npm run typecheck && npm test"
   }
 ]

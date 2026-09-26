@@ -26,7 +26,9 @@ agent-team is a self-hosted orchestrator. It turns a plain-text brief into a wor
 - **Store (`src/store.ts`):** opens the project's SQLite file and owns every table. All other modules read and write state through it.
 - **Project files (`src/project.ts`, `src/config.ts`):** the project folder layout, `pipeline.yaml`, and the docs the agents write.
 - **Change, sprint, and operate (`src/sprint.ts`, `src/operate/`, `src/feedback.ts`):** change requests on a finished app, sprints and cleanups, insight agents, health checks, and findings.
-- **Lead chat (`src/lead.ts`, `src/lead-actions.ts`):** answers questions about a run and proposes actions that run only after the operator clicks them.
+- **Lead chat (`src/lead.ts`, `src/lead-actions.ts`):** answers questions about a run and proposes actions that run only after the operator clicks them. `lead.access` in `pipeline.yaml` sets what the lead may touch, next to `lead.actions` and `lead.autoApply`:
+  - `read` (the default): the lead may read files and search and fetch the web. It cannot edit files or run commands.
+  - `full`: the lead may also edit and write any file in the project folder and run any command there, with the unrestricted `Bash` tool. Risk: it works directly on the project's main checkout, so its changes skip the worktree, the reviewer, and the PR, and nothing checks them before they are live. The prompt tells it to list every file it changed and every command it ran in its reply. Turn it on only for projects you trust the lead to change on its own.
 - **Doctor (`src/doctor.ts`, `src/incidents.ts`):** a long-running process that watches runs, diagnoses stops, tries repairs, and writes incidents.
 - **Deploy and QA (`src/deploy.ts`, `src/qa.ts`, `src/smoke.ts`, `src/screenshots.ts`):** start the built app in a container, run smoke checks, take screenshots, and publish a preview.
 - **GitHub (`src/github.ts`, `src/git.ts`, `src/commits.ts`):** repos, branches, PRs, issues, and the project board, through `git` and `gh`.

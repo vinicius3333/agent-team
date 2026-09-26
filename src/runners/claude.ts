@@ -10,9 +10,11 @@ const toolNames: Record<string, string[]> = {
 
 const editTools = new Set(["edit", "write"])
 
+// A plain "bash" is the unrestricted Bash tool; "bash:<prefix>" allows only commands that start with the prefix.
 // With writablePaths, edit and write become path rules such as Edit(./src/auth/**), so Claude denies other paths at once.
 export function toClaudeTools(allowedTools: string[], writablePaths?: string[]): string[] {
   return allowedTools.flatMap((tool) => {
+    if (tool === "bash") return ["Bash"]
     if (tool.startsWith("bash:")) return [`Bash(${tool.slice("bash:".length)}:*)`]
     if (writablePaths && editTools.has(tool)) return writablePaths.flatMap((path) => toolNames[tool].map((name) => `${name}(${relativeRule(path)})`))
     return toolNames[tool] ?? []
