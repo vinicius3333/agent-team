@@ -9,6 +9,7 @@ export const sourceLabels: Record<FindingSource, string> = {
   evaluator: "Evaluator",
   product: "Product ideas",
   manual: "Mine",
+  routine: "Routines",
 }
 
 export const agentLabels: Record<FindingSource, string> = {
@@ -18,6 +19,7 @@ export const agentLabels: Record<FindingSource, string> = {
   evaluator: "Evaluator",
   product: "Product idea",
   manual: "Added by hand",
+  routine: "Routine",
 }
 
 const severityRank: Record<FindingSeverity, number> = { high: 0, medium: 1, low: 2 }

@@ -48,18 +48,32 @@ deploy:
   enabled: true        # after the build, run the app in a container and expose it at a random https://*.trycloudflare.com URL
 
 operate:               # after deploy: agents watch the live app and write findings; a person approves each one as a change
-  enabled: true        # false turns off every Operate agent and the health probe
+  enabled: true        # false turns off the built-in routines (monitoring, analytics, research) and the health probe
   healthPath: /        # probed on the live URL every 5 minutes
-  schedule:            # hours between runs; 0 turns an agent off
-    monitoring: 24
-    analytics: 24
-    research: 168
   # posthog:           # analytics; without it the analytics agent asks you to set it up
   #   host: https://us.posthog.com
   #   projectId: "12345"
   #   publicKey: phc_xxx          # passed to the app as POSTHOG_KEY and VITE_POSTHOG_KEY
   #   apiKeyEnv: POSTHOG_API_KEY  # name of the env var with the personal API key; never the key itself
   competitors: []      # e.g. [https://example.com]; the research agent compares the app with them
+
+routines:              # recurring jobs for one agent each; edit them on the dashboard's Operate > Routines view
+  monthlyUsd: 40       # the most all routine runs of the last 30 days may spend together; none starts past it
+  list:
+    # The Operate agents are built-in routines: only enabled, trigger (interval | manual), and everyDays apply.
+    - { id: monitoring, enabled: true, trigger: interval, everyDays: 1 }
+    - { id: analytics, enabled: true, trigger: interval, everyDays: 1 }
+    - { id: research, enabled: true, trigger: interval, everyDays: 7 }
+    # A custom routine:
+    # - id: weekly-social-posts
+    #   name: Weekly social posts
+    #   role: marketer         # marketer | researcher | pm | designer; the role sets the tools (marketer: image generation)
+    #   instructions: Make 3 square Instagram images for the week's top jokes. Use the brand colors.
+    #   trigger: interval      # interval | sprint (after each finished sprint) | deploy (after each deploy) | manual
+    #   everyDays: 7           # interval only; 0.25 is every 6 hours
+    #   output: marketing      # marketing (images in marketing/routines/) | backlog (findings) | report (docs/routines/<id>.md)
+    #   budgetUsd: 2           # the most one run may spend; a codex run reports no cost, so it counts this
+    #   enabled: true
 
 publish:
   github:

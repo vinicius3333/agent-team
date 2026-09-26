@@ -1,4 +1,4 @@
-import type { Defaults, GitIdentity, Finding, FindingStatus, InsightAgent, NewBacklogItem, SprintSnapshot, OperateSnapshot, LeadActionState, LeadSettings, NotificationStatus, NotificationTestResult, RoleCandidate, Incident, IncidentDetail, ImportProjectRequest, ConceptsView, NewProjectRequest, PlanningPhase, ProjectDetail, ProjectSummary, QaRound, StackTemplate, DesignStyleSummary, ProjectSecrets, SharedSecrets } from "@/api/types"
+import type { Defaults, GitIdentity, Finding, FindingStatus, InsightAgent, NewBacklogItem, RoutineConfig, RoutinesSnapshot, SprintSettings, SprintSnapshot, OperateSnapshot, LeadActionState, LeadSettings, NotificationStatus, NotificationTestResult, RoleCandidate, Incident, IncidentDetail, ImportProjectRequest, ConceptsView, NewProjectRequest, PlanningPhase, ProjectDetail, ProjectSummary, QaRound, StackTemplate, DesignStyleSummary, ProjectSecrets, SharedSecrets } from "@/api/types"
 
 export class ApiError extends Error {
   status: number
@@ -86,6 +86,9 @@ export const api = {
   sprints: (name: string) => getJson<SprintSnapshot>(`${projectPath(name)}/sprints`),
   secrets: (name: string) => getJson<ProjectSecrets>(`${projectPath(name)}/secrets`),
   sharedSecrets: () => getJson<SharedSecrets>("/api/secrets"),
+  routines: (name: string) => getJson<RoutinesSnapshot>(`${projectPath(name)}/routines`),
+  saveRoutines: (name: string, monthlyUsd: number, list: RoutineConfig[]) => post<{ saved: boolean }>(`${projectPath(name)}/routines`, { monthlyUsd, list }),
+  runRoutine: (name: string, id: string) => post<{ accepted: boolean }>(`${projectPath(name)}/routines/run`, { id }),
 
   createProject: (body: NewProjectRequest) => post<{ name: string }>("/api/projects", body),
   importProject: (body: ImportProjectRequest) => post<{ name: string }>("/api/projects/import", body),
@@ -126,6 +129,7 @@ export const api = {
   approveFinding: (name: string, id: number) => post<{ changeId: string; branch: string; started: boolean }>(`${projectPath(name)}/findings/${id}/approve`, {}),
   dismissFinding: (name: string, id: number) => post<{ dismissed: boolean }>(`${projectPath(name)}/findings/${id}/dismiss`, {}),
   addBacklogItem: (name: string, item: NewBacklogItem) => post<Finding>(`${projectPath(name)}/findings`, item),
+  saveSprintSettings: (name: string, settings: SprintSettings) => post<{ saved: boolean }>(`${projectPath(name)}/sprint-settings`, settings),
   startSprint: (name: string) => post<{ started: boolean }>(`${projectPath(name)}/sprints/start`, {}),
   runInsight: (name: string, agent: InsightAgent) => post<{ accepted: boolean }>(`${projectPath(name)}/operate/run`, { agent }),
   // Without runUsd the server adds 50%.

@@ -77,8 +77,8 @@ export const currentChangeKey = "change.current"
 export const insightAgents = ["monitoring", "analytics", "research"] as const
 export type InsightAgent = (typeof insightAgents)[number]
 // The backlog that sprints draw from: the Operate agents' findings, the evaluator's gaps, the product
-// manager's feature proposals, and items a person added by hand.
-export const findingSources = [...insightAgents, "evaluator", "product", "manual"] as const
+// manager's feature proposals, items a person added by hand, and findings of custom routines.
+export const findingSources = [...insightAgents, "evaluator", "product", "manual", "routine"] as const
 export type FindingSource = (typeof findingSources)[number]
 export const findingSeverities = ["high", "medium", "low"] as const
 export type FindingSeverity = (typeof findingSeverities)[number]
@@ -135,6 +135,26 @@ export interface InsightRun {
   status: InsightRunStatus
   summary: string
   findings: number
+}
+
+export interface RoutineFile {
+  // Relative to the project folder.
+  file: string
+  caption: string
+}
+
+export interface RoutineRun {
+  id: number
+  routine: string
+  startedAt: string
+  finishedAt: string | null
+  status: InsightRunStatus
+  summary: string
+  // null when the runner does not report cost (codex); spend then counts budgetUsd.
+  costUsd: number | null
+  budgetUsd: number
+  findings: number
+  files: RoutineFile[]
 }
 
 export interface Metric {
@@ -272,6 +292,18 @@ export function openStore(path: string) {
       summary TEXT NOT NULL DEFAULT '',
       findings INTEGER NOT NULL DEFAULT 0
     );
+    CREATE TABLE IF NOT EXISTS routine_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      routine TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      finished_at TEXT,
+      status TEXT NOT NULL,
+      summary TEXT NOT NULL DEFAULT '',
+      cost_usd REAL,
+      budget_usd REAL NOT NULL,
+      findings INTEGER NOT NULL DEFAULT 0,
+      files TEXT NOT NULL DEFAULT '[]'
+    );
     CREATE TABLE IF NOT EXISTS metrics (
       at TEXT NOT NULL,
       key TEXT NOT NULL,
@@ -314,6 +346,8 @@ export function openStore(path: string) {
   const lastMergedChangeId = () => (db.prepare("SELECT id FROM changes WHERE status = 'merged' ORDER BY id DESC LIMIT 1").get() as { id: string } | undefined)?.id ?? ""
   const findingColumnsSql = "id, source, severity, title, evidence, proposal, status, change_id AS changeId, created_at AS createdAt, updated_at AS updatedAt"
   const insightRunColumnsSql = "id, agent, started_at AS startedAt, finished_at AS finishedAt, status, summary, findings"
+  const routineRunColumnsSql = "id, routine, started_at AS startedAt, finished_at AS finishedAt, status, summary, cost_usd AS costUsd, budget_usd AS budgetUsd, findings, files"
+  const routineRun = (row: unknown) => (row ? { ...(row as RoutineRun), files: JSON.parse((row as { files: string }).files) as RoutineFile[] } : null)
   const sprintColumnsSql = "number, status, goal, score, change_id AS changeId, cost_at_start AS costAtStart, cost_usd AS costUsd, note, started_at AS startedAt, finished_at AS finishedAt"
   const metaValue = (key: string) => (db.prepare("SELECT value FROM meta WHERE key = ?").get(key) as { value: string } | undefined)?.value ?? null
 
@@ -688,6 +722,35 @@ export function openStore(path: string) {
     },
     lastInsightRuns(): InsightRun[] {
       return db.prepare(`SELECT ${insightRunColumnsSql} FROM insight_runs WHERE id IN (SELECT MAX(id) FROM insight_runs GROUP BY agent) ORDER BY agent`).all() as unknown as InsightRun[]
+    },
+    startRoutineRun(routine: string, budgetUsd: number): number {
+      const result = db.prepare("INSERT INTO routine_runs (routine, started_at, status, budget_usd) VALUES (?, ?, 'running', ?)").run(routine, now(), budgetUsd)
+      return Number(result.lastInsertRowid)
+    },
+    finishRoutineRun(id: number, result: { status: Exclude<InsightRunStatus, "running">; summary: string; costUsd: number | null; findings: number; files: RoutineFile[] }) {
+      db.prepare("UPDATE routine_runs SET status = ?, summary = ?, cost_usd = ?, findings = ?, files = ?, finished_at = ? WHERE id = ?").run(
+        result.status,
+        result.summary,
+        result.costUsd,
+        result.findings,
+        JSON.stringify(result.files),
+        now(),
+        id,
+      )
+    },
+    lastRoutineRun(routine: string): RoutineRun | null {
+      return routineRun(db.prepare(`SELECT ${routineRunColumnsSql} FROM routine_runs WHERE routine = ? ORDER BY id DESC LIMIT 1`).get(routine))
+    },
+    // What routines spent since the given time: custom runs count their budget when the runner reports no cost,
+    // and built-in runs (the insight-<agent> attempts) count the fallback.
+    routineSpend(since: string, insightFallbackUsd: number): number {
+      const custom = db.prepare("SELECT COALESCE(SUM(COALESCE(cost_usd, budget_usd)), 0) AS usd FROM routine_runs WHERE started_at >= ?").get(since) as { usd: number }
+      const builtIn = db.prepare("SELECT COALESCE(SUM(COALESCE(cost_usd, ?)), 0) AS usd FROM attempts WHERE subject LIKE 'insight-%' AND created_at >= ?").get(insightFallbackUsd, since) as { usd: number }
+      return custom.usd + builtIn.usd
+    },
+    // When the app last went live, from the deploy log; routines with the deploy trigger follow it.
+    lastDeployAt(): string | null {
+      return (db.prepare("SELECT at FROM events WHERE type = 'deploy' AND message LIKE 'live at %' ORDER BY id DESC LIMIT 1").get() as { at: string } | undefined)?.at ?? null
     },
     // Funnel and top-event rows describe only the latest run, so new ones replace the old ones.
     // Rows with the same key and time replace each other, so a daily series can be written again.

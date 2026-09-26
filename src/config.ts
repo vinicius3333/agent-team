@@ -107,7 +107,38 @@ export interface PipelineConfig {
   harness: HarnessConfig
   lead: LeadConfig
   operate: OperateConfig
+  routines: RoutinesConfig
   import: ImportConfig | null
+}
+
+export const routineTriggers = ["interval", "sprint", "deploy", "manual"] as const
+export type RoutineTrigger = (typeof routineTriggers)[number]
+export const routineOutputs = ["backlog", "marketing", "report"] as const
+export type RoutineOutput = (typeof routineOutputs)[number]
+// Roles a custom routine may use. The Operate agents are built-in routines instead, because the server gathers
+// their data (health checks, logs, PostHog) before the call.
+export const routineRoles = ["marketer", "researcher", "pm", "designer"] as const
+export type RoutineRole = (typeof routineRoles)[number]
+
+// A recurring job for one agent. The three Operate agents are built-in routines (id monitoring, analytics, or
+// research): only enabled, trigger (interval or manual), and everyDays apply to them.
+export interface RoutineConfig {
+  id: string
+  name: string
+  role: Role
+  instructions: string
+  trigger: RoutineTrigger
+  // Only for the interval trigger. Fractions work: 0.25 is every 6 hours.
+  everyDays: number
+  output: RoutineOutput
+  budgetUsd: number
+  enabled: boolean
+}
+
+export interface RoutinesConfig {
+  // The most all routine runs of the last 30 days may spend together, built-in ones included.
+  monthlyUsd: number
+  list: RoutineConfig[]
 }
 
 // Once the app is live, the doctor starts a sprint every everyDays: the evaluator scores the app, the PM picks
@@ -239,8 +270,10 @@ export function loadConfig(path: string): PipelineConfig {
       chatBudgetUsd: raw.lead?.chatBudgetUsd ?? defaultLeadConfig.chatBudgetUsd,
     },
     operate: normalizeOperate(raw.operate),
+    routines: normalizeRoutines(raw.routines, raw.operate?.schedule),
     import: raw.import ? { source: raw.import.source, urls: raw.import.urls ?? [], github: raw.import.github ?? "none" } : null,
   }
+  config.operate.schedule = scheduleFromRoutines(config.routines)
   validateConfig(config, dirname(path))
   return config
 }
@@ -263,6 +296,81 @@ function normalizeOperate(raw: any): OperateConfig {
       : null,
     competitors: raw?.competitors ?? [],
   }
+}
+
+const builtInRoutineDefaults: Record<InsightAgent, Pick<RoutineConfig, "name" | "instructions">> = {
+  monitoring: { name: "Health check review", instructions: "Read health probes, logs, and incidents." },
+  analytics: { name: "Funnel review", instructions: "Read PostHog numbers and find drop-offs." },
+  research: { name: "Competitor research", instructions: "Compare the app with its competitors and log gaps." },
+}
+export const insightBudgetUsd = 1
+export const defaultRoutinesMonthlyUsd = 40
+
+export function isBuiltInRoutine(id: string): id is InsightAgent {
+  return (insightAgents as readonly string[]).includes(id)
+}
+
+// Projects from before routines set the Operate agents in operate.schedule, in hours; 0 turned an agent off.
+function builtInRoutine(agent: InsightAgent, raw: any, legacyHours: unknown): RoutineConfig {
+  const hours = typeof legacyHours === "number" ? legacyHours : defaultSchedule[agent]
+  // A negative value stays negative, so validation still rejects it.
+  const legacy = { enabled: hours !== 0, everyDays: hours !== 0 ? hours / 24 : defaultSchedule[agent] / 24 }
+  return {
+    ...builtInRoutineDefaults[agent],
+    id: agent,
+    role: insightAgentRoles[agent],
+    trigger: raw?.trigger ?? "interval",
+    everyDays: raw?.everyDays ?? legacy.everyDays,
+    output: "backlog",
+    budgetUsd: insightBudgetUsd,
+    enabled: raw?.enabled ?? legacy.enabled,
+  }
+}
+
+function normalizeRoutines(raw: any, legacySchedule: any): RoutinesConfig {
+  const entries: any[] = Array.isArray(raw?.list) ? raw.list : []
+  const custom = entries
+    .filter((entry) => !isBuiltInRoutine(entry?.id))
+    .map((entry) => ({ trigger: "interval", everyDays: 7, output: "report", budgetUsd: 2, enabled: true, instructions: "", ...entry }) as RoutineConfig)
+  const builtIns = insightAgents.map((agent) => builtInRoutine(agent, entries.find((entry) => entry?.id === agent), legacySchedule?.[agent]))
+  return { monthlyUsd: raw?.monthlyUsd ?? defaultRoutinesMonthlyUsd, list: [...builtIns, ...custom] }
+}
+
+// The Operate code still reads operate.schedule, so it is derived from the built-in routines.
+function scheduleFromRoutines(routines: RoutinesConfig): Record<InsightAgent, number> {
+  const hours = (agent: InsightAgent) => {
+    const routine = routines.list.find((entry) => entry.id === agent)
+    return routine?.enabled && routine.trigger === "interval" ? routine.everyDays * 24 : 0
+  }
+  return Object.fromEntries(insightAgents.map((agent) => [agent, hours(agent)])) as Record<InsightAgent, number>
+}
+
+export const routineIdPattern = /^[a-z0-9][a-z0-9-]{0,39}$/
+
+function routineProblems(routines: RoutinesConfig, roleConfigs: Record<Role, RoleConfig>): string[] {
+  const problems: string[] = []
+  if (!(routines.monthlyUsd > 0)) problems.push("routines.monthlyUsd must be a number above 0")
+  const seen = new Set<string>()
+  for (const routine of routines.list) {
+    const label = `routine "${routine.id}"`
+    if (typeof routine.id !== "string" || !routineIdPattern.test(routine.id)) problems.push(`${label}: id must be lowercase letters, digits, and dashes, at most 40 characters`)
+    if (seen.has(routine.id)) problems.push(`${label}: the id is used twice`)
+    seen.add(routine.id)
+    if (typeof routine.enabled !== "boolean") problems.push(`${label}: enabled must be true or false`)
+    if (!routineTriggers.includes(routine.trigger)) problems.push(`${label}: trigger must be one of ${routineTriggers.join(", ")}`)
+    if (routine.trigger === "interval" && !(routine.everyDays > 0)) problems.push(`${label}: everyDays must be a number above 0`)
+    if (isBuiltInRoutine(routine.id)) {
+      if (routine.trigger !== "interval" && routine.trigger !== "manual") problems.push(`${label}: a built-in routine runs on an interval or by hand only`)
+      continue
+    }
+    if (typeof routine.name !== "string" || !routine.name.trim()) problems.push(`${label}: name is missing`)
+    if (typeof routine.instructions !== "string" || !routine.instructions.trim()) problems.push(`${label}: instructions are missing`)
+    if (!(routineRoles as readonly string[]).includes(routine.role)) problems.push(`${label}: role must be one of ${routineRoles.join(", ")}`)
+    if (!routineOutputs.includes(routine.output)) problems.push(`${label}: output must be one of ${routineOutputs.join(", ")}`)
+    if (!(routine.budgetUsd > 0 && routine.budgetUsd <= 10)) problems.push(`${label}: budgetUsd must be above 0 and at most 10`)
+    if (routine.output === "marketing" && roleConfigs[routine.role]?.runner !== "codex") problems.push(`${label}: marketing images need a role on the codex runner, which can generate images`)
+  }
+  return problems
 }
 
 function operateProblems(operate: OperateConfig): string[] {
@@ -374,6 +482,7 @@ function validateConfig(config: PipelineConfig, projectDir: string): void {
   if (!Number.isInteger(config.qa.maxRounds) || config.qa.maxRounds < 1) errors.push("qa.maxRounds must be a whole number of 1 or more")
   if (typeof config.qa.resolveAll !== "boolean") errors.push("qa.resolveAll must be true or false")
   errors.push(...sprintProblems(config.sprints))
+  errors.push(...routineProblems(config.routines, config.roles))
   if (typeof config.learning.enabled !== "boolean") errors.push("learning.enabled must be true or false")
   if (typeof config.learning.memory !== "boolean") errors.push("learning.memory must be true or false")
   if (!Number.isInteger(config.learning.maxSimilarTasks) || config.learning.maxSimilarTasks < 0) errors.push("learning.maxSimilarTasks must be a whole number of 0 or more")

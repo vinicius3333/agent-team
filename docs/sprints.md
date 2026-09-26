@@ -23,6 +23,8 @@ sprints:
 
 Sprints need `deploy.enabled: true` and a running doctor (`agent-team doctor <runsDir>`).
 
+To change these settings from the dashboard, open **Operate > Sprints** and click **Sprint settings**. The dialog writes the whole `sprints:` block and commits `pipeline.yaml`. It removes a legacy `evolve:` block, because `sprints:` overrides it. The doctor reads the file on every tick, so a new interval moves the next due time at once.
+
 ### The backlog
 
 The backlog is the list of open findings. Four sources feed it:
@@ -65,7 +67,7 @@ A sprint with nothing worth building is `skipped`. A sprint whose planning fails
 
 - `agent-team sprints <dir>`: the sprint history.
 - `agent-team backlog <dir>`: the open backlog.
-- The dashboard's **Operate > Sprints** view shows the next due time, the 30-day spend, the score trend, the active sprint with its picked items, and the history. **Operate > Backlog** lists the items by source and has **Add item**.
+- The dashboard's **Operate > Sprints** view has **Sprint settings** and shows the next due time, the 30-day spend, the score trend, the active sprint with its picked items, and the history. **Operate > Backlog** lists the items by source and has **Add item**.
 
 ### Projects from before sprints
 

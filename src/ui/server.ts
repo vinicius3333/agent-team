@@ -23,12 +23,13 @@ import { changeIdPattern } from "../tasks.ts"
 import { listIncidents, openIncident, readIncident } from "../incidents.ts"
 import { askLead, chatMessageMaxLength, chatUploadsDir } from "../lead.ts"
 import { applyGitIdentity, parseGitIdentity, readGitIdentity, saveGitIdentity } from "../git-identity.ts"
-import { applyLeadAction, approveTaskSuggestion, dropTask, parseGates, parseLeadSettings, saveAutoApproveScope, saveGates, saveLeadSettings } from "../lead-actions.ts"
+import { applyLeadAction, approveTaskSuggestion, dropTask, parseGates, parseLeadSettings, parseSprintSettings, saveAutoApproveScope, saveGates, saveLeadSettings, saveSprintSettings } from "../lead-actions.ts"
 import { suggestedPaths } from "../replan.ts"
 import { globalSecretsView, globalVaultPath, projectSecretsView, releaseDeployGate, removeSecret, saveSecret, SecretError, setSecretSkipped, vaultPath } from "../secrets.ts"
 import { trackedFiles } from "../git.ts"
 import { insightAgents, type InsightAgent, type PipelineConfig } from "../config.ts"
 import { insightRunActive, runInsightAgent } from "../operate/agents.ts"
+import { parseRoutines, routineBlocker, routinesSnapshot, runRoutine, saveRoutines } from "../routines.ts"
 import { approveFinding, dismissFinding } from "../operate/findings.ts"
 import { operateSnapshot } from "../operate/snapshot.ts"
 import { findingStatuses, type FindingStatus, type Store } from "../store.ts"
@@ -891,6 +892,7 @@ export interface UiOptions {
   webDir?: string
   askLead?: (projectDir: string, message: string, options: { attachments: string[]; transcriptPath: string; signal: AbortSignal }) => Promise<number>
   runInsight?: (projectDir: string, agent: InsightAgent) => Promise<unknown>
+  runRoutine?: (projectDir: string, id: string) => Promise<unknown>
   auth?: AuthConfig
   allowInsecureBind?: boolean
   now?: () => number
@@ -920,6 +922,7 @@ export function startUi(options: UiOptions) {
   const launchRun = options.startRun ?? spawnRun
   const secretsEnv = options.secretsEnv ?? process.env
   const runInsightFor = options.runInsight ?? ((projectDir: string, agent: InsightAgent) => runInsightAgent({ projectDir, agent }))
+  const runRoutineFor = options.runRoutine ?? ((projectDir: string, id: string) => runRoutine({ projectDir, id }))
   const askLeadFor = options.askLead ?? ((projectDir: string, message: string, extra: { attachments: string[]; transcriptPath: string; signal: AbortSignal }) => askLead({ projectDir, message, ...extra }))
 
   // Images are stored under random names, so a chat message can only reference files this endpoint wrote.
@@ -1161,6 +1164,19 @@ export function startUi(options: UiOptions) {
         .finally(() => insightBusy.delete(key))
       return send(response, 202, { accepted: true })
     }
+    if (parts[3] === "routines" && parts[4] === "run" && parts.length === 5) {
+      const config = loadConfig(join(projectDir, "pipeline.yaml"))
+      const routine = config.routines.list.find((entry) => entry.id === body.id)
+      if (!routine) return send(response, 404, { error: `unknown routine "${String(body.id)}"` })
+      const key = `${name}:routine:${routine.id}`
+      const blocker = insightBusy.has(key) ? "it is already running" : withProjectStore(projectDir, (store) => routineBlocker(store, config, routine, { now: now(), manual: true }))
+      if (blocker) return send(response, 409, { error: `${routine.name} cannot run now: ${blocker}.` })
+      insightBusy.add(key)
+      runRoutineFor(projectDir, routine.id)
+        .catch((error) => console.error(`[routine] ${name} ${routine.id}: ${(error as Error).message}`))
+        .finally(() => insightBusy.delete(key))
+      return send(response, 202, { accepted: true })
+    }
     if (parts.length !== 4) return send(response, 404, { error: "unknown project" })
     switch (parts[3]) {
       case "changes": {
@@ -1246,6 +1262,14 @@ export function startUi(options: UiOptions) {
         saveGates(projectDir, parseGates(body.gates))
         return send(response, 200, { saved: true })
       }
+      case "routines": {
+        saveRoutines(projectDir, parseRoutines(body))
+        return send(response, 200, { saved: true })
+      }
+      case "sprint-settings": {
+        saveSprintSettings(projectDir, parseSprintSettings(body))
+        return send(response, 200, { saved: true })
+      }
       case "lead-settings": {
         saveLeadSettings(projectDir, parseLeadSettings(body))
         return send(response, 200, { saved: true })
@@ -1307,6 +1331,10 @@ export function startUi(options: UiOptions) {
         if (parts[3] === "operate" && parts.length === 4) {
           const config = loadConfig(join(projectDir, "pipeline.yaml"))
           return send(response, 200, withProjectStore(projectDir, (store) => operateSnapshot(store, config)))
+        }
+        if (parts[3] === "routines" && parts.length === 4) {
+          const config = loadConfig(join(projectDir, "pipeline.yaml"))
+          return send(response, 200, withProjectStore(projectDir, (store) => routinesSnapshot(store, config, now())))
         }
         if (parts[3] === "sprints" && parts.length === 4) {
           const config = loadConfig(join(projectDir, "pipeline.yaml"))
