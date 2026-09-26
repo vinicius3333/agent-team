@@ -28,7 +28,8 @@ Also useful: `npm run typecheck` (server types), `npm --prefix web run dev` (das
   - `web/src/pages/`: one file per route.
   - `web/src/components/ui/`: shadcn/ui primitives. `web/src/components/<feature>/`: feature components.
 - `site/`: the marketing site on GitHub Pages. Separate package.
-- `docker/`, `Dockerfile`, `docker-compose.yml`: production image and services.
+- `docker/`, `Dockerfile`, `docker-compose.yml`: production image and services. `.github/workflows/release-image.yml` pushes the image to ghcr.io on each release.
+- `.env.example`: names of the secrets the preview reads, with a comment each. Never values.
 - `contracts/openapi.yaml`: the dashboard HTTP API.
 
 ## Conventions
@@ -41,7 +42,8 @@ Also useful: `npm run typecheck` (server types), `npm --prefix web run dev` (das
 - Tests: add or update `test/<feature>.test.ts` with `node:test` and `node:assert`. Tests run offline and must not call real agents, GitHub, or Docker; use temp folders and fakes. They must pass in a clean `node:24-bookworm` container with no git identity, so tests that commit set `user.name` and `user.email` themselves.
 - Errors: throw `new Error("plain sentence.")` with a message the operator can act on. API routes answer `{ "error": "..." }` with a 4xx status for bad input.
 - Every POST needs the `x-agent-team: 1` header; the web client adds it. Do not weaken the Host, Origin, or auth checks.
-- Config comes from environment variables (`AGENT_TEAM_UI_*`, `CLAUDE_CODE_OAUTH_TOKEN`) and `pipeline.yaml`. Never commit secrets or log passwords.
+- Config comes from environment variables (`AGENT_TEAM_UI_*`, `CLAUDE_CODE_OAUTH_TOKEN`) and `pipeline.yaml`. Never commit secrets or log passwords. A key named in `pipeline.yaml` is an env var name (`apiKeyEnv`), never the key.
+- Code that calls `gh` or `docker` takes the call as an injected function, so tests pass a fake.
 - Log to stdout with a short `[area]` prefix.
 - Dashboard UI: Tailwind CSS v4, shadcn/ui, Lucide icons. It must work at 360px wide.
 - Write docs and UI text in plain English: short sentences, active voice.

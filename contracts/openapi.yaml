@@ -276,7 +276,7 @@ paths:
 
   /api/projects/{name}:
     get:
-      summary: Project detail with phases, tasks, events, cost, and decisions (US-05)
+      summary: Project detail with phases, tasks, events, cost, and decisions. Its deploy object holds url, status, and error (the last deploy failure in one sentence with a next step, or null) (US-05)
       parameters: [{ $ref: "#/components/parameters/name" }]
       responses:
         "200": { $ref: "#/components/responses/Json" }

@@ -21,17 +21,18 @@ agent-team is a self-hosted orchestrator. It turns a plain-text brief into a wor
 
 - **CLI (`src/cli.ts`):** the entry point. It parses subcommands (`init`, `import`, `run`, `change`, `sprint`, `deploy`, `operate`, `ui`, `doctor`, `hash-password`, `session-secret`, and more) and calls the modules below.
 - **Pipeline (`src/pipeline.ts`, `src/run.ts`, `src/tasks.ts`, `src/replan.ts`):** runs the phases (spec, architecture, branding, design, plan, build, QA, deploy) for one project. It runs worker tasks in parallel, calls the reviewer, and stops at approval gates.
-- **Runners (`src/runners/`):** start `claude` or `codex` with a role prompt from `prompts/`, stream the transcript to disk, and report cost and status.
+- **Runners (`src/runners/`):** start `claude` or `codex` with a role prompt from `prompts/`, stream the transcript to disk, and report cost and status. `runners.codex.baseUrl` and `runners.codex.apiKeyEnv` in `pipeline.yaml` point Codex at any OpenAI-compatible server. The key stays in the environment variable that `apiKeyEnv` names; Codex reads it by name, the sandbox copies it with a bare `-e`, and the egress allowlist adds the base URL host (ADR 0011).
 - **Harness (`src/harness/`):** gives each agent a workspace, runs it in a Docker sandbox when set up, controls network access, and classifies failures.
 - **Store (`src/store.ts`):** opens the project's SQLite file and owns every table. All other modules read and write state through it.
 - **Project files (`src/project.ts`, `src/config.ts`):** the project folder layout, `pipeline.yaml`, and the docs the agents write.
-- **Change, sprint, and operate (`src/sprint.ts`, `src/operate/`, `src/feedback.ts`):** change requests on a finished app, sprints and cleanups, insight agents, health checks, and findings.
+- **Change, sprint, and operate (`src/sprint.ts`, `src/operate/`, `src/feedback.ts`):** change requests on a finished app, sprints and cleanups, insight agents, health checks, and findings. `agent-team sprint --check` and `agent-team routines --check` print what blocks a sprint or a routine. A sprint deploys first when deploy is on and the app is not live.
+- **GitHub issue intake (`src/operate/issues.ts`):** the long-lived doctor polls open issues labeled `agent-team` every `publish.github.issues.everyMinutes` (default 10) with `gh`. Each new issue becomes one open backlog item (fingerprint `github-issue:<owner>/<repo>#<n>`), and the issue gets one comment with a link built from `APP_URL` (ADR 0010).
 - **Lead chat (`src/lead.ts`, `src/lead-actions.ts`):** answers questions about a run and proposes actions that run only after the operator clicks them. `lead.access` in `pipeline.yaml` sets what the lead may touch, next to `lead.actions` and `lead.autoApply`:
   - `read` (the default): the lead may read files and search and fetch the web. It cannot edit files or run commands.
   - `full`: the lead may also edit and write any file in the project folder and run any command there, with the unrestricted `Bash` tool. Risk: it works directly on the project's main checkout, so its changes skip the worktree, the reviewer, and the PR, and nothing checks them before they are live. The prompt tells it to list every file it changed and every command it ran in its reply. Turn it on only for projects you trust the lead to change on its own.
   - The Lead settings form shows `read` as "Limited" and `full` as "Full". Saving sets only the keys the form manages (`actions`, `autoApply`, `chatBudgetUsd`, `access`) and keeps every other `lead` key (ADR 0007).
 - **Doctor (`src/doctor.ts`, `src/incidents.ts`):** a long-running process that watches runs, diagnoses stops, tries repairs, and writes incidents.
-- **Deploy and QA (`src/deploy.ts`, `src/qa.ts`, `src/smoke.ts`, `src/screenshots.ts`):** start the built app in a container, run smoke checks, take screenshots, and publish a preview. A QA round where no route renders (every route has an error, no status, 403, or 5xx, or the app did not start) gets the hard failure "No page rendered. Check the host and start command." after the import-baseline split, so it can never pass as "preexisting".
+- **Deploy and QA (`src/deploy.ts`, `src/qa.ts`, `src/smoke.ts`, `src/screenshots.ts`):** start the built app in a container, run smoke checks, take screenshots, and publish a preview. `deployProject` saves the last failure as one sentence with a next step in meta `deploy.error`; the project detail and the sprint report show it. `ensureDeployed` deploys a project whose deploy is on but has no live URL, at the start of a sprint and at the end of a run with nothing to build. `startRunContainer` removes a dead run's old container with `docker rm -f` and waits until `docker inspect` no longer finds it before `docker run`. A QA round where no route renders (every route has an error, no status, 403, or 5xx, or the app did not start) gets the hard failure "No page rendered. Check the host and start command." after the import-baseline split, so it can never pass as "preexisting".
 - **GitHub (`src/github.ts`, `src/git.ts`, `src/commits.ts`):** repos, branches, PRs, issues, and the project board, through `git` and `gh`.
 - **Notifications (`src/notify/`):** send run events to the channels in `notifications.yaml`.
 - **Dashboard server (`src/ui/server.ts`, `src/ui/auth.ts`):** the HTTP API under `/api`, a Server-Sent Events stream per project, and static files from `web/dist`. It calls the same modules as the CLI.
@@ -41,7 +42,7 @@ agent-team is a self-hosted orchestrator. It turns a plain-text brief into a wor
 ## Auth
 
 - The dashboard has no user accounts. It has one shared password or a trusted auth proxy (`src/ui/auth.ts`).
-- Password login: `AGENT_TEAM_UI_PASSWORD_HASH` holds a scrypt hash made with `agent-team hash-password` (at least 12 characters). A good login sets an HMAC-signed, HttpOnly, `SameSite=Strict` session cookie signed with `AGENT_TEAM_UI_SESSION_SECRET` (random at startup if unset). Sessions last `AGENT_TEAM_UI_SESSION_HOURS`.
+- Password login: `AGENT_TEAM_UI_PASSWORD_HASH` holds a scrypt hash made with `agent-team hash-password` (at least 12 characters). A good login sets an HMAC-signed, HttpOnly, `SameSite=Strict` session cookie signed with `AGENT_TEAM_UI_SESSION_SECRET` (random at startup if unset). The preview's `deploy.json` start passes it from the stored deploy secret, so a login survives a redeploy (ADR 0009). Sessions last `AGENT_TEAM_UI_SESSION_HOURS`.
 - The cookie is `Secure` only when the request came over HTTPS: a `*.ts.net` host, or a trusted proxy that sends `X-Forwarded-Proto: https`. So login works over plain http in smoke checks and QA. The app does not read `APP_URL` for this.
 - Proxy login: `AGENT_TEAM_UI_TRUSTED_PROXIES` (IPs or CIDRs) plus `AGENT_TEAM_UI_PROXY_USER_HEADER`.
 - Lockouts: 5 wrong passwords from one address in 15 minutes lock that address for 15 minutes. 30 failures from any address lock all logins for 15 minutes.
@@ -50,6 +51,14 @@ agent-team is a self-hosted orchestrator. It turns a plain-text brief into a wor
 - **Demo login:** the app has no users, so it cannot seed a demo user. `deploy.json` instead hashes `DEMO_PASSWORD` into `AGENT_TEAM_UI_PASSWORD_HASH` at startup. `DEMO_EMAIL` is not used. The password is piped to `hash-password` and never logged. `DEMO_PASSWORD` must be at least 12 characters, or the hash step fails and the server refuses to start on `0.0.0.0`.
 - **Public URL and preview hosts:** the dashboard makes no absolute links of its own. The `deploy.json` start command sets `AGENT_TEAM_UI_HOSTS` from `agent-team preview-hosts`, which prints `previewHosts(process.env)` from `src/ui/hosts.ts`: the names already in `AGENT_TEAM_UI_HOSTS`, the host names of `APP_URL` and the other public URL variables, and `HOSTNAME`. `startAppContainer` sets `--hostname` to the container name, so `HOSTNAME` is the name QA and smoke checks use. The list is comma-separated, lower-case, with no empty entries or duplicates, and no hard-coded names. Any other unknown host still gets 403 (ADR 0006).
 - **Checkers:** smoke checks, QA, and the import baseline (`captureApp` in `src/screenshots.ts`) pass `APP_URL` set to the URL their browser uses, as deploy does. The login checker fills an email field only when the form has one, so it can log in to the password-only card with `DEMO_PASSWORD` (ADR 0005).
+
+## Secrets
+
+`.env.example` at the repo root lists the secrets the preview reads. Deploy passes each stored value to the app container.
+
+- `AGENT_TEAM_UI_SESSION_SECRET` (optional): signs login cookies. Make it once with `agent-team session-secret` and store it in Settings > Secrets. Without it, the server makes a random one at each start, and a redeploy logs everyone out.
+
+The orchestrator's own secrets (`CLAUDE_CODE_OAUTH_TOKEN`, the login hash, the Codex endpoint key named by `runners.codex.apiKeyEnv`) live in the host environment or `doctor.env`, never in the repo.
 
 ## Autonomy: decide
 
@@ -115,6 +124,8 @@ web/                              dashboard (own package.json and lockfile)
   src/components/<feature>/       project, operate, office, incidents
   src/lib/, src/hooks/            helpers
 site/                             marketing site (own package.json)
+.github/workflows/                pages.yml (site), release-image.yml (image on release)
+.env.example                      secrets the preview reads, names only
 docker/                           entrypoint, QA and proxy images
 Dockerfile, docker-compose.yml    production image and services
 docs/                             design docs, plans, ADRs
@@ -136,3 +147,4 @@ For dashboard work, also run `npm --prefix web run dev`. Vite proxies `/api` to 
 - Logs go to stdout. State lives on the host disk under `<home>/agent-team-runs`, so the process is not stateless. This is a deliberate choice for a single-server tool (see ADR 0002).
 - **Orchestrator preview (`deploy.json`):** installs with `npm ci && npm run build:ui` and starts the dashboard on `0.0.0.0:$PORT` with a runs folder at `.agent-team-runs`. The start command hashes `DEMO_PASSWORD` into the login and allows the hosts from `agent-team preview-hosts`. The preview can show the dashboard and log in. Starting real runs also needs `claude`, `gh`, Docker, and an agent token, which the preview does not provide.
 - **Marketing site:** `.github/workflows/pages.yml` lints and builds `site/` and publishes it to GitHub Pages.
+- **Published image:** `.github/workflows/release-image.yml` builds the `Dockerfile` for amd64 and arm64 on each published release and pushes `ghcr.io/vinicius3333/agent-team` with the release tag and `latest` (ADR 0008). The site's install section starts with a `docker run` of it.
