@@ -1,4 +1,4 @@
-import type { Defaults, GitIdentity, Finding, FindingStatus, InsightAgent, NewBacklogItem, SprintSnapshot, OperateSnapshot, LeadActionState, LeadSettings, NotificationStatus, NotificationTestResult, RoleCandidate, Incident, IncidentDetail, ImportProjectRequest, ConceptsView, NewProjectRequest, ProjectDetail, ProjectSummary, QaRound, StackTemplate } from "@/api/types"
+import type { Defaults, GitIdentity, Finding, FindingStatus, InsightAgent, NewBacklogItem, SprintSnapshot, OperateSnapshot, LeadActionState, LeadSettings, NotificationStatus, NotificationTestResult, RoleCandidate, Incident, IncidentDetail, ImportProjectRequest, ConceptsView, NewProjectRequest, PlanningPhase, ProjectDetail, ProjectSummary, QaRound, StackTemplate } from "@/api/types"
 
 export class ApiError extends Error {
   status: number
@@ -95,6 +95,7 @@ export const api = {
   retry: (name: string, taskId: string) => post<{ started: boolean }>(`${projectPath(name)}/retry`, { taskId }),
   approveSuggestion: (name: string, taskId: string) => post<{ paths: string[]; started: boolean }>(`${projectPath(name)}/approve-suggestion`, { taskId }),
   setAutoApproveScope: (name: string, enabled: boolean) => post<{ enabled: boolean }>(`${projectPath(name)}/auto-approve-scope`, { enabled }),
+  setGates: (name: string, gates: PlanningPhase[]) => post<{ saved: boolean }>(`${projectPath(name)}/gates`, { gates }),
   dropTask: (name: string, taskId: string) => post<{ started: boolean }>(`${projectPath(name)}/drop-task`, { taskId }),
   saveRoles: (name: string, roles: Record<string, RoleCandidate>) => post<{ saved: boolean }>(`${projectPath(name)}/roles`, { roles }),
   chat: (name: string, message: string, attachments: string[] = []) => post<{ accepted: boolean }>(`${projectPath(name)}/chat`, { message, attachments }),

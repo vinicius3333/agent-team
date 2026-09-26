@@ -241,6 +241,12 @@ test("the dashboard uploads images, applies a lead task on the server, auto-appl
   assert.equal((await post("lead-settings", { actions: ["add_task", "edit_task", "retry"], autoApply: ["edit_task"], chatBudgetUsd: 1 })).status, 200)
   assert.deepEqual(loadConfig(join(projectDir, "pipeline.yaml")).lead.autoApply, ["edit_task"])
 
+  assert.equal((await post("gates", { gates: ["nope"] })).status, 400)
+  assert.equal((await post("gates", { gates: ["design", "spec"] })).status, 200)
+  assert.deepEqual(loadConfig(join(projectDir, "pipeline.yaml")).autonomy.gates, ["spec", "design"])
+  assert.equal((await post("gates", { gates: [] })).status, 200)
+  assert.deepEqual(loadConfig(join(projectDir, "pipeline.yaml")).autonomy.gates, [])
+
   assert.equal((await post("chat", { message: "Add links" })).status, 202)
   const messageId = withProjectStore(projectDir, (store) =>
     store.addChatMessage("lead", "Two changes.", [

@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { parseDocument } from "yaml"
-import { leadActionKinds, loadConfig, type LeadConfig } from "./config.ts"
+import { isSeq, parseDocument } from "yaml"
+import { leadActionKinds, loadConfig, planningPhases, type LeadConfig, type PlanningPhase } from "./config.ts"
 import { commitPaths, fileAtRef } from "./git.ts"
 import { commitAndRebase, createWorkspace, fastForward, removeWorkspace } from "./harness/workspace.ts"
 import { approvePhase, ProjectError, raiseRunBudget, requestChanges, retryTask } from "./project.ts"
@@ -151,11 +151,13 @@ export function dropTask(projectDir: string, store: Store, taskId: string): void
 }
 
 // The dashboard's switch for autonomy.autoApproveScope; a running build reads it at its next decision.
-export function saveAutoApproveScope(projectDir: string, enabled: boolean): void {
+function saveAutonomySetting(projectDir: string, key: string, value: unknown, message: string): void {
   const path = join(projectDir, "pipeline.yaml")
   const original = readFileSync(path, "utf8")
   const document = parseDocument(original)
-  document.setIn(["autonomy", "autoApproveScope"], enabled)
+  const node = document.createNode(value)
+  if (isSeq(node)) node.flow = true
+  document.setIn(["autonomy", key], node)
   writeFileSync(path, document.toString())
   try {
     loadConfig(path)
@@ -163,7 +165,24 @@ export function saveAutoApproveScope(projectDir: string, enabled: boolean): void
     writeFileSync(path, original)
     throw new ProjectError(400, (error as Error).message)
   }
-  commitPaths(projectDir, ["pipeline.yaml"], `chore: ${enabled ? "approve" : "stop approving"} scope requests automatically`)
+  commitPaths(projectDir, ["pipeline.yaml"], message)
+}
+
+export function saveAutoApproveScope(projectDir: string, enabled: boolean): void {
+  saveAutonomySetting(projectDir, "autoApproveScope", enabled, `chore: ${enabled ? "approve" : "stop approving"} scope requests automatically`)
+}
+
+// A phase already waiting for approval keeps waiting: removing its gate only affects phases that have not finished yet.
+export function saveGates(projectDir: string, gates: PlanningPhase[]): void {
+  const ordered = planningPhases.filter((phase) => gates.includes(phase))
+  saveAutonomySetting(projectDir, "gates", ordered, `chore: set approval gates to ${ordered.join(", ") || "none"}`)
+}
+
+export function parseGates(value: unknown): PlanningPhase[] {
+  if (!Array.isArray(value) || !value.every((gate) => (planningPhases as readonly unknown[]).includes(gate))) {
+    throw new ProjectError(400, `Each gate must be one of ${planningPhases.join(", ")}.`)
+  }
+  return value as PlanningPhase[]
 }
 
 export function parseLeadSettings(value: unknown): LeadConfig {

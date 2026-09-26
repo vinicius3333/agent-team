@@ -7,12 +7,10 @@ import { EmptyState } from "@/components/empty-state"
 import { invalidRoles, pickEditable, RoleModelsEditor, type RoleModels } from "@/components/role-models-editor"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { planningPhases } from "@/api/types"
-import { stepLabels } from "@/lib/pipeline"
 import { DecisionsCard } from "./decisions-card"
+import { GatesCard } from "./gates-card"
 import { LeadSettingsCard } from "./lead-settings-card"
 import { useProjectView } from "./context"
 
@@ -131,10 +129,6 @@ export function ConfigTab() {
             <dd className="font-mono">{config.target}</dd>
             <dt className="text-muted-foreground">Stack</dt>
             <dd>{config.template ? templateLabel(config.template) : "Custom (architect chooses)"}</dd>
-            <dt className="text-muted-foreground">Gates</dt>
-            <dd className="flex flex-wrap gap-1">
-              {config.gates.length ? planningPhases.filter((phase) => config.gates.includes(phase)).map((phase) => <Badge key={phase} variant="secondary">{stepLabels[phase]}</Badge>) : "none, fully autonomous"}
-            </dd>
             <dt className="text-muted-foreground">Branding</dt>
             <dd>{config.branding?.enabled === false ? "off" : `on${config.branding?.count ? `, ${config.branding.count} images` : ""}`}</dd>
             <dt className="text-muted-foreground">GitHub</dt>
@@ -142,6 +136,7 @@ export function ConfigTab() {
           </dl>
         </CardContent>
       </Card>
+      <GatesCard gates={config.gates} branding={config.branding?.enabled !== false} />
       <DecisionsCard enabled={config.autoApproveScope ?? false} />
       <LeadSettingsCard />
     </div>

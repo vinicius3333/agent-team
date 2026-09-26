@@ -20,7 +20,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
-import { stepLabels } from "@/lib/pipeline"
+import { gateHints, stepLabels } from "@/lib/pipeline"
 import { cn } from "@/lib/utils"
 
 const namePattern = /^[a-z0-9][a-z0-9-]{1,40}$/
@@ -51,16 +51,6 @@ const targets: {
     icon: Layers,
   },
 ]
-
-const gateHints: Record<PlanningPhase, string> = {
-  spec: "Review the product spec before the architecture.",
-  architecture: "Review the technical plan before design.",
-  concepts: "Choose one of 3 logo and style directions. The branding follows your pick.",
-  branding: "Review the logo and screen images before design.",
-  design: "Review the UI design before the build.",
-  marketing: "Review the launch images and copy before the plan.",
-  plan: "Review the task list before workers start.",
-}
 
 const teamRoles = [
   {

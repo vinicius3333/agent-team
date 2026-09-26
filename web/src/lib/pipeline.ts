@@ -1,4 +1,4 @@
-import type { Attempt, PhaseStatus, PipelineStep, ProjectDetail, ProjectSummary, RoleConfig, Task, TaskStatus } from "@/api/types"
+import type { Attempt, PhaseStatus, PipelineStep, PlanningPhase, ProjectDetail, ProjectSummary, RoleConfig, Task, TaskStatus } from "@/api/types"
 import { pipelineSteps } from "@/api/types"
 
 export const stepLabels: Record<PipelineStep, string> = {
@@ -14,6 +14,16 @@ export const stepLabels: Record<PipelineStep, string> = {
   build: "Build",
   qa: "QA",
   deploy: "Deploy",
+}
+
+export const gateHints: Record<PlanningPhase, string> = {
+  spec: "Review the product spec before the architecture.",
+  architecture: "Review the technical plan before design.",
+  concepts: "Choose one of 3 logo and style directions. The branding follows your pick.",
+  branding: "Review the logo and screen images before design.",
+  design: "Review the UI design before the build.",
+  marketing: "Review the launch images and copy before the plan.",
+  plan: "Review the task list before workers start.",
 }
 
 export const phaseRoles: Record<string, string> = {
