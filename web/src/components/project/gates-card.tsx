@@ -46,9 +46,9 @@ export function GatesCard({ gates, branding }: { gates: PlanningPhase[]; brandin
                 disabled={saving || unavailable}
                 onCheckedChange={(checked) => void change(phase, checked === true)}
                 aria-describedby={`project-gate-${phase}-help`}
-                className="mt-0.5"
+                className="sm:mt-0.5"
               />
-              <div className="grid gap-0.5">
+              <div className="grid gap-0.5 pt-1 sm:pt-0">
                 <Label htmlFor={`project-gate-${phase}`}>After {stepLabels[phase].toLowerCase()}</Label>
                 <p id={`project-gate-${phase}-help`} className="text-xs text-muted-foreground">
                   {gateHints[phase]}
