@@ -51,11 +51,6 @@ operate:
   # after deploy: agents watch the live app and write findings; a person approves each one as a change
   enabled: true # false turns off every Operate agent and the health probe
   healthPath: / # probed on the live URL every 5 minutes
-  schedule:
-    # hours between runs; 0 turns an agent off
-    monitoring: 24
-    analytics: 24
-    research: 168
   # posthog:           # analytics; without it the analytics agent asks you to set it up
   #   host: https://us.posthog.com
   #   projectId: "12345"
@@ -133,3 +128,18 @@ lead:
     - edit_task
   autoApply: []
   chatBudgetUsd: 15
+routines:
+  monthlyUsd: 40
+  list:
+    - id: monitoring
+      enabled: false
+      trigger: interval
+      everyDays: 1
+    - id: analytics
+      enabled: true
+      trigger: interval
+      everyDays: 1
+    - id: research
+      enabled: true
+      trigger: interval
+      everyDays: 7
