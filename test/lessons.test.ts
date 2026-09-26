@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { after, test } from "node:test"
-import { applyCuratorResult, collectSignals, formatLessons, knowledgeLessons, recordRetired, lessonsFor, lessonsPath, loadLessons, parseCuratorResult, projectStacks, saveLessons, type Lesson } from "../src/lessons.ts"
+import { applyCuratorResult, collectSignals, formatLessons, knowledgeLessons, recordRetired, lessonsFor, lessonsPath, lessonWeight, loadLessons, parseCuratorResult, projectStacks, removedIds, saveLessons, type Lesson } from "../src/lessons.ts"
 
 const scratch = mkdtempSync(join(tmpdir(), "agent-team-lessons-"))
 after(() => rmSync(scratch, { recursive: true, force: true }))
@@ -102,4 +102,84 @@ test("saveLessons round-trips, and collectSignals reads only files newer than th
   assert.deepEqual(signals.map((signal) => signal.source).sort(), ["incident", "qa", "review"])
   assert.match(signals.find((signal) => signal.source === "review")!.text, /AGENTS\.md/)
   assert.match(signals.find((signal) => signal.source === "qa")!.text, /\[minor\] No hero/)
+})
+
+test("weaken adds misses that cancel hits, and old lessons without misses keep their weight", () => {
+  const now = Date.parse("2026-09-01T00:00:00.000Z")
+  assert.equal(lessonWeight(lesson("L1", { hits: 3 }), now), 3)
+  assert.equal(lessonWeight(lesson("L1", { hits: 3, misses: 1 }), now), 2)
+  assert.equal(lessonWeight(lesson("L1", { hits: 1, misses: 4 }), now), 0)
+  assert.equal(lessonWeight(lesson("L1", { hits: 3, misses: 1, lastSeenAt: "2026-08-02T00:00:00.000Z" }), now), 1)
+  const known = [lesson("L1", { hits: 3 }), lesson("L2", { hits: 2 })]
+  const result = parseCuratorResult('{"updates":[],"weaken":["L1","L1"]}', known)
+  assert.deepEqual(result.weaken, ["L1", "L1"])
+  const next = applyCuratorResult(known, result)
+  assert.equal(next[0].misses, 2)
+  assert.equal(next[1].misses, undefined)
+  assert.equal(known[0].misses, undefined)
+  assert.deepEqual(lessonsFor(next, "worker", 5, [], now).map((entry) => entry.id), ["L2", "L1"])
+})
+
+test("merge folds duplicates into one lesson and keeps them retired", () => {
+  const known = [
+    lesson("L1", { hits: 2, misses: 1, evidence: ["a", "b", "c"], stacks: ["next"], lastSeenAt: "2026-09-01T00:00:00.000Z" }),
+    lesson("L2", { roles: ["planner"], hits: 3, evidence: ["d", "e"], stacks: ["react"], lastSeenAt: "2026-09-20T00:00:00.000Z" }),
+    lesson("L3", { hits: 1, misses: 2, evidence: ["f"], stacks: ["next"], lastSeenAt: "2026-08-01T00:00:00.000Z" }),
+    lesson("L4"),
+  ]
+  const result = parseCuratorResult('{"updates":[{"id":"L2","roles":["worker"],"rule":"Sharper merged rule here","evidence":"g","source":"review","stacks":["next","react"]}],"weaken":["L3"],"merge":[{"into":"L1","from":["L2","L3"]}]}', known)
+  const next = applyCuratorResult(known, result, new Date("2026-09-25T00:00:00.000Z"))
+  assert.deepEqual(next.map((entry) => entry.id), ["L1", "L4"])
+  const merged = next[0]
+  // 2 + 3 + 1 hits, plus the update on L2 that now lands on L1.
+  assert.equal(merged.hits, 7)
+  // 1 + 2 misses, plus the weaken on L3.
+  assert.equal(merged.misses, 4)
+  assert.deepEqual(merged.evidence, ["c", "d", "e", "f", "g"])
+  assert.deepEqual(merged.roles, ["worker", "planner"])
+  assert.equal(merged.rule, "Sharper merged rule here")
+  assert.deepEqual(removedIds(result), ["L2", "L3"])
+
+  const plain = applyCuratorResult(known, { updates: [], retire: [], merge: [{ into: "L1", from: ["L2", "L3"] }] })
+  assert.deepEqual(plain.map((entry) => entry.id), ["L1", "L4"])
+  assert.equal(plain[0].hits, 6)
+  assert.equal(plain[0].misses, 3)
+  assert.deepEqual(plain[0].evidence, ["b", "c", "d", "e", "f"])
+  assert.deepEqual(plain[0].roles, ["worker", "planner"])
+  assert.deepEqual(plain[0].stacks, ["next", "react"])
+  assert.equal(plain[0].lastSeenAt, "2026-09-20T00:00:00.000Z")
+  assert.equal(known[0].hits, 2)
+
+  const path = join(scratch, "merged", "lessons.json")
+  saveLessons(path, next)
+  recordRetired(path, removedIds(result))
+  const ids = loadLessons(path).map((entry) => entry.id)
+  assert.ok(ids.includes("L1") && !ids.includes("L2") && !ids.includes("L3"))
+})
+
+test("parseCuratorResult rejects unknown ids in weaken and merge, and old answers still parse", () => {
+  const known = [lesson("L1"), lesson("L2")]
+  assert.throws(() => parseCuratorResult('{"updates":[],"weaken":["L9"]}', known), /weaken\[0\] L9 is not an existing lesson/)
+  assert.throws(() => parseCuratorResult('{"updates":[],"weaken":"L1"}', known), /weaken must be a list/)
+  assert.throws(() => parseCuratorResult('{"updates":[],"merge":[{"into":"L9","from":["L1"]}]}', known), /merge\[0\]\.into L9 is not an existing lesson/)
+  assert.throws(() => parseCuratorResult('{"updates":[],"merge":[{"into":"L1","from":["L2","L8"]}]}', known), /merge\[0\]\.from\[1\] L8 is not an existing lesson/)
+  assert.throws(() => parseCuratorResult('{"updates":[],"merge":[{"into":"L1","from":[]}]}', known), /at least one/)
+  assert.throws(() => parseCuratorResult('{"updates":[],"merge":[{"into":"L1","from":["L1"]}]}', known), /into itself/)
+  assert.throws(() => parseCuratorResult('{"updates":[],"merge":[{"into":"L1","from":["L2"]}],"retire":["L2"]}', known), /also retired/)
+  const old = parseCuratorResult('{"updates":[],"retire":[]}', known)
+  assert.deepEqual(old.weaken, [])
+  assert.deepEqual(old.merge, [])
+  assert.deepEqual(applyCuratorResult(known, old).map((entry) => entry.id), ["L1", "L2"])
+  assert.deepEqual(applyCuratorResult(known, { updates: [], retire: [] }).map((entry) => entry.id), ["L1", "L2"])
+})
+
+test("an old lessons.json without misses still loads", () => {
+  const dir = join(scratch, "old")
+  mkdirSync(dir, { recursive: true })
+  const old: Partial<Lesson> = lesson("L1", { hits: 2 })
+  delete old.misses
+  writeFileSync(join(dir, "lessons.json"), JSON.stringify([old]))
+  const loaded = loadLessons(join(dir, "lessons.json")).find((entry) => entry.id === "L1")!
+  assert.equal(loaded.misses, undefined)
+  assert.equal(lessonWeight(loaded, Date.parse("2026-09-01T00:00:00.000Z")), 2)
 })

@@ -24,6 +24,8 @@ export interface Lesson {
   sourceUrl?: string
   // How many times the curator saw this problem again. A lesson that keeps coming back weighs more.
   hits: number
+  // How many times the curator found the lesson wrong or unhelpful; missing means 0. Each miss cancels a hit.
+  misses?: number
   createdAt: string
   lastSeenAt: string
 }
@@ -38,9 +40,19 @@ export interface LessonUpdate {
   stacks: string[]
 }
 
+export interface LessonMerge {
+  // The lesson that stays and takes the others' hits, misses, and evidence.
+  into: string
+  // Duplicates that are removed and remembered as retired.
+  from: string[]
+}
+
 export interface CuratorResult {
   updates: LessonUpdate[]
   retire: string[]
+  // Existing lessons the signals showed to be wrong or unhelpful; each gets one more miss.
+  weaken?: string[]
+  merge?: LessonMerge[]
 }
 
 export interface Signal {
@@ -120,7 +132,7 @@ export function saveLessons(path: string, lessons: Lesson[]): void {
 
 export function lessonWeight(lesson: Lesson, now = Date.now()): number {
   const ageDays = Math.max(0, (now - Date.parse(lesson.lastSeenAt)) / 86_400_000)
-  return lesson.hits * 0.5 ** (ageDays / halfLifeDays)
+  return Math.max(0, lesson.hits - (lesson.misses ?? 0)) * 0.5 ** (ageDays / halfLifeDays)
 }
 
 // stacks are the project's tags (projectStacks); a lesson tied to other stacks is left out. With no project tags yet
@@ -149,10 +161,35 @@ export function applyCuratorResult(lessons: Lesson[], result: CuratorResult, now
   const retired = new Set(result.retire)
   // Counted before retiring, so a retired id is never reused for a different rule.
   let counter = lessons.reduce((max, lesson) => Math.max(max, Number(/^L(\d+)$/.exec(lesson.id)?.[1] ?? 0)), 0)
-  const next = lessons.filter((lesson) => !retired.has(lesson.id)).map((lesson) => ({ ...lesson, evidence: [...lesson.evidence] }))
+  let next = lessons.filter((lesson) => !retired.has(lesson.id)).map((lesson) => ({ ...lesson, evidence: [...lesson.evidence] }))
+  // A merged-away id points to the lesson it went into, so an update or weaken on it lands there.
+  const mergedInto = new Map<string, string>()
+  for (const merge of result.merge ?? []) {
+    const into = next.find((lesson) => lesson.id === merge.into)
+    if (!into) continue
+    for (const id of merge.from) {
+      const from = next.find((lesson) => lesson.id === id)
+      if (!from || from === into) continue
+      into.hits += from.hits
+      const misses = (into.misses ?? 0) + (from.misses ?? 0)
+      if (misses) into.misses = misses
+      into.evidence = [...into.evidence, ...from.evidence].slice(-maxEvidence)
+      into.roles = [...new Set([...into.roles, ...from.roles])]
+      // An empty stack list means every stack, so the union stays empty when either side is empty.
+      into.stacks = into.stacks.length && from.stacks.length ? [...new Set([...into.stacks, ...from.stacks])] : []
+      if (Date.parse(from.lastSeenAt) > Date.parse(into.lastSeenAt)) into.lastSeenAt = from.lastSeenAt
+      mergedInto.set(id, into.id)
+      next = next.filter((lesson) => lesson !== from)
+    }
+  }
+  const resolve = (id: string) => mergedInto.get(id) ?? id
+  for (const id of result.weaken ?? []) {
+    const lesson = next.find((entry) => entry.id === resolve(id))
+    if (lesson) lesson.misses = (lesson.misses ?? 0) + 1
+  }
   for (const update of result.updates) {
     const evidence = update.evidence.trim().slice(0, maxEvidenceLength)
-    const existing = update.id ? next.find((lesson) => lesson.id === update.id) : undefined
+    const existing = update.id ? next.find((lesson) => lesson.id === resolve(update.id!)) : undefined
     if (existing) {
       existing.hits += 1
       existing.lastSeenAt = at
@@ -184,8 +221,46 @@ export function parseCuratorResult(text: string, known: Lesson[]): CuratorResult
     return { id: update?.id, roles: updateRoles, rule: String(update?.rule ?? ""), evidence: String(update?.evidence ?? ""), source: update?.source, stacks: Array.isArray(stacks) ? stacks : [] }
   })
   const retire = Array.isArray(parsed.retire) ? parsed.retire.filter((id: unknown): id is string => typeof id === "string" && knownIds.has(id)) : []
+  const weaken: string[] = []
+  if (parsed.weaken !== undefined) {
+    if (!Array.isArray(parsed.weaken)) errors.push("weaken must be a list of existing lesson ids")
+    else
+      parsed.weaken.forEach((id: unknown, index: number) => {
+        if (typeof id === "string" && knownIds.has(id)) weaken.push(id)
+        else errors.push(`weaken[${index}] ${String(id)} is not an existing lesson`)
+      })
+  }
+  const merge: LessonMerge[] = []
+  if (parsed.merge !== undefined) {
+    if (!Array.isArray(parsed.merge)) errors.push("merge must be a list of { into, from } objects")
+    else {
+      const used = new Set<string>()
+      parsed.merge.forEach((entry: any, index: number) => {
+        const into = entry?.into
+        const from: unknown[] = Array.isArray(entry?.from) ? entry.from : []
+        if (typeof into !== "string" || !knownIds.has(into)) errors.push(`merge[${index}].into ${String(into)} is not an existing lesson`)
+        if (!from.length) errors.push(`merge[${index}].from must list at least one existing lesson id`)
+        from.forEach((id, fromIndex) => {
+          if (typeof id !== "string" || !knownIds.has(id)) errors.push(`merge[${index}].from[${fromIndex}] ${String(id)} is not an existing lesson`)
+          else if (id === into) errors.push(`merge[${index}].from[${fromIndex}] ${id} cannot merge into itself`)
+        })
+        for (const id of [into, ...from]) {
+          if (typeof id !== "string" || !knownIds.has(id)) continue
+          if (used.has(id)) errors.push(`merge[${index}] uses ${id}, which another merge already uses`)
+          if (retire.includes(id)) errors.push(`merge[${index}] uses ${id}, which is also retired`)
+          used.add(id)
+        }
+        merge.push({ into: String(into), from: from.map(String) })
+      })
+    }
+  }
   if (errors.length) throw new Error(`invalid curator result:\n- ${errors.join("\n- ")}`)
-  return { updates, retire }
+  return { updates, retire, weaken, merge }
+}
+
+// Ids that leave the store for good: retired lessons plus the duplicates merged into another lesson.
+export function removedIds(result: CuratorResult): string[] {
+  return [...result.retire, ...(result.merge ?? []).flatMap((merge) => merge.from)]
 }
 
 // Raw signals a run wrote since `sinceMs`: rejected attempts, QA verdicts, evaluations, and incidents.
@@ -259,7 +334,7 @@ export function curatorPrompt(input: { project: string; lessons: Lesson[]; signa
     "",
     "## Current lessons",
     "",
-    input.lessons.length ? input.lessons.map((lesson) => `- ${lesson.id} (${lesson.roles.join(", ")}; ${lesson.stacks?.length ? `stacks ${lesson.stacks.join(", ")}` : "any stack"}; seen ${lesson.hits}x): ${lesson.rule}`).join("\n") : "none",
+    input.lessons.length ? input.lessons.map((lesson) => `- ${lesson.id} (${lesson.roles.join(", ")}; ${lesson.stacks?.length ? `stacks ${lesson.stacks.join(", ")}` : "any stack"}; seen ${lesson.hits}x${lesson.misses ? `, missed ${lesson.misses}x` : ""}): ${lesson.rule}`).join("\n") : "none",
     "",
     "## New signals",
     "",
