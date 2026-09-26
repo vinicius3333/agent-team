@@ -415,6 +415,7 @@ function readConfig(projectDir: string) {
         actions: (raw.lead?.actions ?? defaultLeadConfig.actions) as LeadActionKind[],
         autoApply: (raw.lead?.autoApply ?? defaultLeadConfig.autoApply) as LeadActionKind[],
         chatBudgetUsd: Number(raw.lead?.chatBudgetUsd ?? defaultLeadConfig.chatBudgetUsd),
+        access: raw.lead?.access === "full" ? "full" : "read",
       },
     }
   } catch {
