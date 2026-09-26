@@ -259,6 +259,19 @@ test("an uncommitted pipeline.yaml on main does not block the final merge", asyn
   assert.equal(git(projectDir, ["status", "--porcelain", "--", "pipeline.yaml"]), "")
 })
 
+test("a stray uncommitted edit on main is stashed so the final merge still runs", async () => {
+  const { projectDir, store, run } = completedProject("dirty-source")
+  openChange(projectDir, store, "Add tags")
+  writeFile(projectDir, "src/t001/a.ts", "export const a = 2 // a stray edit\n")
+  const { harness } = changeAgents((dir) => writeFile(dir, "src/t001/a.ts", "export const a = 3\n"))
+  assert.equal(await run(harness), "completed")
+  assert.equal(store.change("C001")?.status, "merged")
+  assert.equal(git(projectDir, ["show", "main:src/t001/a.ts"]), "export const a = 3")
+  assert.match(git(projectDir, ["stash", "list"]), /stray edits on main before merging C001/)
+  assert.match(git(projectDir, ["stash", "show", "-p"]), /a stray edit/)
+  assert.ok(events(projectDir, "change").some((message) => /stashed uncommitted edits on main before the merge \(src\/t001\/a\.ts\)/.test(message)))
+})
+
 test("abandon restores the phase rows and removes the change's tasks", () => {
   const { projectDir, store } = completedProject("abandon")
   const change = openChange(projectDir, store, "Add tags")

@@ -63,6 +63,18 @@ export function commitPaths(dir: string, paths: string[], message: string): bool
   return hasChanges
 }
 
+// Moves uncommitted edits to tracked files into a git stash, so a merge can run; returns the stashed paths.
+export function stashTrackedChanges(dir: string, message: string): string[] {
+  const paths = git(dir, ["status", "--porcelain", "--untracked-files=no", "-z"])
+    .split("\0")
+    .filter(Boolean)
+    .map((entry) => entry.slice(3))
+  if (!paths.length) return []
+  ensureIdentity(dir)
+  git(dir, ["stash", "push", "-q", "-m", message])
+  return paths
+}
+
 export function trackedFiles(dir: string): string[] {
   return git(dir, ["ls-files"]).split("\n").filter(Boolean)
 }
