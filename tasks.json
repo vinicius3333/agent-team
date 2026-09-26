@@ -377,5 +377,34 @@
       "/"
     ],
     "change": "C002"
+  },
+  {
+    "id": "Q201",
+    "title": "Make checkboxes at least 24x24 px on phones",
+    "story": "US-01",
+    "phase": "feature",
+    "dependsOn": [],
+    "ui": true,
+    "routes": [
+      "/new",
+      "/import"
+    ],
+    "allowedPaths": [
+      "web/src/components/ui/checkbox.tsx",
+      "web/src/pages/new-project.tsx",
+      "web/src/pages/import-project.tsx",
+      "web/src/components/project/gates-card.tsx"
+    ],
+    "readPaths": [
+      "docs/design-system.md",
+      "design/tokens.css"
+    ],
+    "acceptance": [
+      "At 390px wide, every approval gate checkbox on /new and /import (for example #gate-spec, #gate-architecture, #import-gate-spec, #import-gate-design) and its hidden input measure at least 24x24 CSS px",
+      "At 1440px wide the checkboxes keep their 16px look (for example size-6 sm:size-4), and the label stays aligned with the box",
+      "The checkboxes keep a visible focus ring and can still be checked with the keyboard and by clicking the label"
+    ],
+    "verify": "npm --prefix web run lint && npm run build:ui",
+    "change": "C002"
   }
 ]
