@@ -1,15 +1,20 @@
-# agent-team
+# C003: Reliable resume, a published image, GitHub issue intake, working sprints and deploy, and custom model endpoints
 
-## Problem
-Developers and small teams who want a working web app or API from an idea must still plan it, split the work, write the code, review it, and test it by hand. agent-team is a self-hosted orchestrator that does this with a team of scoped AI agents. The agents turn a plain-text product brief into a spec, an architecture, a design, a task plan, built and reviewed code, QA results, and an optional live preview. The operator keeps control through approval gates, budgets, and a web dashboard, and pays only for the agent runs on their own server.
+## Change
+This change handles seven backlog items (#10, #8, #7, #5, #4, #11, #9). Two of them fix things the user asked for before that still do not work: sprints and routines on this project (#5), and the live deploy (#4). The rest make the app easier to run and feed: resume a run without a container name clash (#10), keep sessions across a redeploy (#11), install with one `docker run` (#8), turn labeled GitHub issues into work (#7), and let the Codex runner use any OpenAI-compatible endpoint (#9).
 
-## Users
-- **Visitor:** a developer who finds the public marketing site and decides whether to install agent-team.
-- **Operator:** a developer who hosts the dashboard, creates or imports projects, and steers runs at gates and decisions.
-- **Maintainer of a live app:** an operator who keeps a finished project going with change requests, backlog items, sprints, and findings.
-- **Admin:** the person who sets up the login (password hash and session secret, or a trusted auth proxy), the git identity, and notifications on the server.
+What must be true after the change:
+- Resuming a run whose old container still exists removes that container and waits until it is gone before it starts a new one.
+- Each GitHub release builds the `Dockerfile` and pushes the image to `ghcr.io`. The site's install section starts with a `docker run` of that image.
+- For a project with a GitHub repo, open issues with the `agent-team` label become backlog items (or change requests), and each issue gets a comment that links to its item.
+- On this project, starting a sprint from approved findings and running a routine both work, and both show up in the sprints list.
+- With `deploy.enabled: true`, the app deploys: the project page shows the **Live** badge and a preview URL that answers.
+- The `deploy.json` start command sets `AGENT_TEAM_UI_SESSION_SECRET` from a stored secret, so a login survives a redeploy.
+- `pipeline.yaml` can give the Codex runner a base URL and an API key, so it can call OpenRouter, vLLM, Ollama, or a similar server.
 
-## User stories
+Five stories change: `US-01` (install step), `US-02` (session secret), `US-03` (model endpoint), `US-05` (resume and deploy), and `US-07` (issue intake, sprints, and routines). No new stories.
+
+## New or changed user stories
 
 ### US-01: Learn about agent-team on the landing page
 As a visitor, I want a public page at `/` of the marketing site that explains what agent-team does so that I can decide whether to install it.
@@ -52,15 +57,6 @@ Acceptance criteria:
 - When `pipeline.yaml` sets no base URL, the Codex runner works as before.
 - A base URL that is not an `http://` or `https://` URL stops the run before any agent starts, with the error "Set codex base URL to a full http or https URL."
 
-### US-04: Import an existing project
-As an operator, I want to import an existing repository or folder so that the team can document it and take change requests on it.
-
-Acceptance criteria:
-- On `/import`, I choose a git URL or a local folder, a project name, a GitHub mode (Source repo, New repo, or None), approval gates (spec, architecture, design), and whether to deploy changes.
-- An empty source shows "Paste the repository URL." for git or "Type the folder's full path." for a folder, and a folder path that does not start with `/` shows "Use the full path, starting with /."
-- Choosing **Source repo** with a non-GitHub URL shows "Only a GitHub URL can use the source repo for pull requests."
-- Submitting a valid form shows the toast "Importing <name>" and starts the importer, PM, architect, designer, and baseline steps; the source folder itself is not changed.
-
 ### US-05: Follow a run and steer it at gates and decisions
 As an operator, I want to see a run's progress and answer the points where it stops so that the build keeps going the way I want.
 
@@ -75,16 +71,6 @@ Acceptance criteria:
 - When `pipeline.yaml` has `deploy.enabled: true` and a run or sprint finishes, the app is deployed: the project page shows the **Live** badge, a `GET` on the preview URL answers 200, and the sprint report does not say "The live app: not deployed".
 - When the deploy is enabled but fails, the sprint report and the project page say why in one sentence and what to do next, instead of "not deployed" with no reason.
 - When every checked route in a QA round fails (for example all answer 403 or 5xx, or no page renders), the round's verdict is "fail" with the message "No page rendered. Check the host and start command.", even if the reviewer says "pass" or marks the failures "preexisting". A test in `test/qa.test.ts` covers this case and a case where at least one route renders.
-
-### US-06: Ask the project lead about a run
-As an operator, I want to chat with a lead agent about my project so that I can understand a problem and fix it quickly.
-
-Acceptance criteria:
-- In the **Lead** tab, I type a question and get an answer that uses the project's state, docs, and transcripts.
-- When the lead suggests an action (for example retry or resume), clicking it applies the action; the lead never changes the project without that click.
-- I can stop a chat reply that is still running, and chat cost is not added to the run budget.
-- The Lead settings form on `/projects/:name` shows the access level, limited or full, with one sentence that says what full access allows.
-- Saving the Lead settings with access set to full leaves `access: full` under `lead` in `pipeline.yaml`; saving with limited writes `access: limited`. Other `lead` keys the form does not manage stay unchanged. A round-trip test checks this.
 
 ### US-07: Change a finished app
 As a maintainer, I want to send change requests, add backlog items, review findings, and start sprints so that the app keeps improving after the first build.
@@ -101,40 +87,23 @@ Acceptance criteria:
 - After it adds the item, the app comments once on the issue with a link to the item. Polling again does not add a second item or a second comment for the same issue. A test with a fake GitHub checks both.
 - A project with no GitHub repo does not poll issues.
 
-### US-08: Review incidents the doctor handled
-As an operator, I want to see the runs that the doctor diagnosed and tried to repair so that I know what broke and what it did.
-
-Acceptance criteria:
-- `/incidents` lists incidents across projects, newest first, under the heading "Incidents".
-- Opening `/incidents/:project/:id` shows the incident's details and the doctor's diagnosis, or "The doctor has not answered yet." when there is none.
-
 ## Out of scope
-- Public sign-up or self-service accounts. The dashboard has one shared password or relies on a trusted auth proxy; there are no user accounts, roles, or per-user permissions.
-- Password reset or change from the dashboard. The admin sets the password hash with `hash-password` and restarts the server.
-- Hosted or multi-tenant service. Each operator runs their own server.
-- Payments, paid plans, or billing inside agent-team. Agent cost is tracked per run against `budget.runUsd` only.
-- Product analytics on the dashboard or the marketing site.
-- A login link or dashboard access from the marketing site.
-- Choosing agent runners other than the supported `claude` and `codex` CLIs.
-- CI for the server tests, the typecheck, or the dashboard build. CI builds only `site/` and, on each release, the Docker image (C003).
-- Images on registries other than `ghcr.io`, and image builds for each commit or pull request.
-- Custom model endpoints for the Claude runner. Only the Codex runner takes a base URL and key (C003), set in `pipeline.yaml` and the environment, not in a form.
-- GitHub issue webhooks, closing or syncing issues, and labels other than `agent-team`. Labeled issues become backlog items only; they never start a change on their own (C003).
+- Turning issues into change requests that start on their own. Every labeled issue becomes a backlog item; the maintainer approves it or starts a change by hand.
+- Closing, relabeling, or syncing the status of a GitHub issue after the first comment.
+- GitHub webhooks for issues. v1 polls.
+- Labels other than `agent-team`, and issues from repos other than the project's own repo.
+- Images on registries other than `ghcr.io`, and image builds for each commit or pull request. Only releases publish an image.
+- CI for the server tests, the typecheck, or the dashboard build. The new workflow only builds and pushes the image.
+- Custom model endpoints for the Claude runner. Only the Codex runner gets a base URL.
+- A form on `/new` or `/settings` for the base URL and key. They are set in `pipeline.yaml` and the environment only.
 - Rotating the session secret from the dashboard.
-- The CLI is a second way to do everything above; this spec does not list separate stories for it.
 
 ## Open questions
-- **Is the marketing site the product's landing page?** The dashboard's `/` is the projects list behind the login, so it cannot explain the product to a new visitor. Default: `US-01` describes the `site/` page at `/` on GitHub Pages. Its public URL is not in `input.md` or the code I read.
-- **Is `agent-team.137-131-153-58.sslip.io` still the live production dashboard?** Default: treat it as the production instance named in `docker-compose.yml`; I did not open it.
-- **Which features are not covered by a story?** Settings (git identity, notifications, browser preferences), project config edits (gates, roles, lead settings, auto-approve scope), file and transcript browsing, branding and mockup views, and the `doctor` service all exist today. Default: they are part of the app as it is, but this spec does not describe them in detail to keep to 8 stories.
-- **Exact behavior of change requests, sprints, cleanups, and operate agents.** I took these from the API routes, the README, and `docs/change-requests.md`, `docs/sprints.md`, and `docs/operate.md`, not from running them. Default: they behave as those docs describe.
-- **Plans in `docs/payments.md` and `docs/plans/`.** Default: treat them as not built, since the dashboard shows no payments or plans.
-- **Global lockout.** The README says 30 wrong passwords from any address lock all logins for 15 minutes. Default: this is true, but `US-02` tests only the per-address lockout.
-- **Do `npm test` and `npm run typecheck` pass on `main`?** No CI runs them. The import baseline found that `npm test` failed. Default: change C001 makes `npm test` pass offline.
-- **How does the demo account log in?** The dashboard has no users, so `DEMO_EMAIL` is unused. Default (C001): the login check uses `DEMO_PASSWORD` alone on the password-only card.
-- **Which host names does the preview allow?** Default (C002): the `APP_URL` host, the names in `AGENT_TEAM_UI_HOSTS`, and the QA and preview host names read from the environment. No host name is hard-coded.
-- **What is the default lead access?** Default (C002): limited when `lead.access` is not set in `pipeline.yaml`.
-- **Backlog item or change request for a labeled GitHub issue?** Default (C003): a backlog item, polled every 10 minutes (configurable in `pipeline.yaml`), with one comment on the issue that links to the item.
-- **Where does the Codex API key live?** Default (C003): `pipeline.yaml` holds the base URL and the name of the environment variable with the key; the key stays in the environment.
-- **Where is the session secret stored?** Default (C003): with the other deploy secrets, outside the repo; `deploy.json` only reads it.
-- **Who uses it?** Real usage is unknown beyond the author. Default: the main user is a single developer who self-hosts it.
+- **Backlog item or change request for a labeled issue?** The request says "change request or backlog item". Default: a backlog item (an open finding), so nothing costs money until the maintainer approves it.
+- **How often does issue polling run?** Default: every 10 minutes while the server runs, and the interval can be set in `pipeline.yaml`.
+- **Which link goes in the issue comment?** Default: the finding's link on the dashboard, built from `APP_URL`. When `APP_URL` is not set, the comment names the project and the item number instead.
+- **Where does the Codex API key live?** A key in `pipeline.yaml` would be a committed secret. Default: `pipeline.yaml` holds the base URL and the name of the environment variable that holds the key; the key itself stays in the environment.
+- **Where is the session secret stored?** Default: with the other deploy secrets, outside the repo. The architect picks the exact place.
+- **Why do sprints, routines, and deploy fail today?** The request says they do not work, but not why. Default: the fix is done when the checks in `US-05` and `US-07` pass on this project, whatever the cause turns out to be.
+- **Does the image name match the repo?** Default: `ghcr.io/vinicius3333/agent-team`, taken from the GitHub URL in `input.md`.
+- **Contradiction:** the spec listed CI as out of scope. This change adds one CI workflow that builds and pushes the image on release. Default: keep the request; other CI stays out of scope.
