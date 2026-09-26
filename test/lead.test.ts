@@ -197,6 +197,41 @@ test("askLead fills the allowed actions into the prompt, passes the chat budget,
   assert.deepEqual(last[1].actions.map((action) => action.kind), ["retry"])
 })
 
+test("askLead keeps the lead read-only by default and gives it edit, write, and bash with lead.access full", async () => {
+  const seen: Record<string, { tools: string[]; writable: string[] | undefined; system: string }> = {}
+  for (const access of ["read", "full"] as const) {
+    const projectDir = join(scratch, `access-${access}`)
+    createProject(projectDir, "brief")
+    if (access === "full") {
+      const path = join(projectDir, "pipeline.yaml")
+      writeFileSync(path, `${readFileSync(path, "utf8")}\nlead:\n  access: full\n`)
+    }
+    assert.equal(loadConfig(join(projectDir, "pipeline.yaml")).lead.access, access)
+    await askLead({
+      projectDir,
+      message: "Fix the build",
+      runLead: async (request) => {
+        seen[access] = { tools: request.allowedTools, writable: request.writablePaths, system: request.systemPrompt }
+        return { status: "done", summary: reply({ reply: "ok", actions: [] }), costUsd: 0, tokens: 0, durationMs: 1, exitCode: 0, diagnostics: "" }
+      },
+    })
+  }
+  assert.deepEqual(seen.read.tools, ["read", "web_search", "web_fetch"])
+  assert.match(seen.read.system, /You cannot edit files or run commands/)
+  assert.doesNotMatch(seen.read.system, /full access/)
+  assert.doesNotMatch(seen.read.system, /<!-- access/)
+
+  assert.deepEqual(seen.full.tools, ["read", "web_search", "web_fetch", "edit", "write", "bash"])
+  assert.equal(seen.full.writable, undefined)
+  assert.doesNotMatch(seen.full.system, /You cannot edit files or run commands/)
+  assert.match(seen.full.system, /may edit and write any file in the project folder and run any command/)
+  assert.match(seen.full.system, /directly on the project's main checkout/)
+  assert.match(seen.full.system, /no reviewer/)
+  assert.match(seen.full.system, /list every file you changed and every command you ran/)
+  assert.doesNotMatch(seen.full.system, /<!-- \/?access/)
+  assert.match(seen.full.system, /web search and fetch/)
+})
+
 test("the dashboard uploads images, applies a lead task on the server, auto-applies allowed kinds, and stops the lead", async (t) => {
   const runsDir = join(scratch, "apply-runs")
   const projectDir = join(runsDir, "apply-app")

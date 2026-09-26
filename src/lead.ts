@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { summarizeActivity } from "./activity.ts"
-import { leadActionKinds, loadConfig, planningPhases, type LeadActionKind } from "./config.ts"
+import { leadActionKinds, loadConfig, planningPhases, type LeadAccess, type LeadActionKind } from "./config.ts"
 import { readStop } from "./doctor.ts"
 import { hostExecutor } from "./harness/executor.ts"
 import { extractJsonObject } from "./json.ts"
@@ -50,14 +50,16 @@ export async function askLead(options: AskLeadOptions): Promise<number> {
     return leadTaskPrompt(projectDir, store, config.budget.runUsd)
   })
   const transcriptPath = options.transcriptPath ?? join(projectDir, ".agent-team", "transcripts", `lead-${Date.now()}.log`)
-  const systemPrompt = readFileSync(new URL("../prompts/lead.md", import.meta.url), "utf8").replace("{{actions}}", actionGuide(config.lead.actions))
+  const access = config.lead.access ?? "read"
+  const template = readFileSync(new URL("../prompts/lead.md", import.meta.url), "utf8")
+  const systemPrompt = forAccess(template, access).replace("{{actions}}", actionGuide(config.lead.actions))
   const request: RunRequest = {
     role: "lead",
     model: role.model,
     systemPrompt,
     taskPrompt,
     executor: hostExecutor(projectDir),
-    allowedTools: ["read", "web_search", "web_fetch"],
+    allowedTools: leadTools(access),
     budgetUsd: config.lead.chatBudgetUsd,
     timeoutMs: leadTimeoutMs,
     transcriptPath,
@@ -86,6 +88,18 @@ export async function askLead(options: AskLeadOptions): Promise<number> {
     })
     return store.addChatMessage("lead", answer.reply, answer.actions, { followUps: answer.followUps, filesRead })
   })
+}
+
+// Full access sets no writablePaths, so edit and write reach any file in the project folder and bash runs any command.
+export function leadTools(access: LeadAccess): string[] {
+  const readTools = ["read", "web_search", "web_fetch"]
+  return access === "full" ? [...readTools, "edit", "write", "bash"] : readTools
+}
+
+// prompts/lead.md holds one block per access mode, from <!-- access:read --> or <!-- access:full --> to <!-- /access -->.
+// Only the block for the project's mode stays in the prompt.
+export function forAccess(template: string, access: LeadAccess): string {
+  return template.replace(/<!-- access:(\w+) -->\n([\s\S]*?)<!-- \/access -->\n/g, (_, mode: string, body: string) => (mode === access ? body : ""))
 }
 
 function readTranscriptFiles(transcriptPath: string): string[] {
