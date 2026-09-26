@@ -160,3 +160,11 @@ Files: `contracts/openapi.yaml`, `docs/sprints.md`, `src/operate/findings.ts`, `
 > You can now tick several open items in Operate > Backlog and start them all as one change. The full `verify` command passes: typecheck, 25/25 tests in `test/operate.test.ts`, lint (warnings only, all in files I didn't change) and the web build. I haven't viewed the page in a browser, so the orchestrator's phone and desktop check is the first real look at the layout.
 > **Server**
 > - `src/operate/findings.ts`: new `approveFindings(projectDir, store, ids)`.
+
+## T012: Set a stored session secret in the deploy start command
+
+Files: `deploy.json`, `test/auth.test.ts`, `test/deploy-start.test.ts`, `.env.example`
+
+> The deploy start command now passes a stored session secret to the dashboard, so a login should survive a redeploy once the secret is saved. The last `verify` run passed: typecheck is clean and all 15 tests pass.
+> **Changes**
+> - **`deploy.json`**: the start command sets `AGENT_TEAM_UI_SESSION_SECRET="${AGENT_TEAM_UI_SESSION_SECRET:-}"` just before the `ui` command. The hash step, host list, `ui` command, install and port are unchanged, and the file holds no secret value. When the variable is empty, `src/ui/auth.ts` still makes a random secret, as it did before.

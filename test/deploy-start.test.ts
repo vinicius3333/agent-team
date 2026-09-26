@@ -45,6 +45,29 @@ test("the start command lists each name once and skips bad values", () => {
   assert.equal(hosts, "other.example,agent-team-qa-agent-team")
 })
 
+test("the start command passes AGENT_TEAM_UI_SESSION_SECRET from the environment before the ui command", () => {
+  const part = 'AGENT_TEAM_UI_SESSION_SECRET="${AGENT_TEAM_UI_SESSION_SECRET:-}"'
+  const at = deploy.start.indexOf(part)
+  assert.ok(at > 0, "deploy.json start command sets AGENT_TEAM_UI_SESSION_SECRET from $AGENT_TEAM_UI_SESSION_SECRET")
+  assert.ok(at < deploy.start.indexOf(" src/cli.ts ui "), "the session secret is set before the ui command")
+  const secretFor = (env: Record<string, string>) =>
+    execFileSync("sh", ["-c", `export ${part}; printf %s "$AGENT_TEAM_UI_SESSION_SECRET"`], { env: { PATH: "/usr/bin:/bin", ...env }, encoding: "utf8" })
+  assert.equal(secretFor({ AGENT_TEAM_UI_SESSION_SECRET: "stored-value" }), "stored-value")
+  assert.equal(secretFor({}), "")
+})
+
+test("deploy.json holds no session secret value", () => {
+  const text = readFileSync(new URL("../deploy.json", import.meta.url), "utf8")
+  assert.doesNotMatch(text, /(^|[^A-Za-z0-9_-])[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])/)
+})
+
+test(".env.example lists AGENT_TEAM_UI_SESSION_SECRET as an optional key with an empty value", () => {
+  const lines = readFileSync(new URL("../.env.example", import.meta.url), "utf8").split("\n")
+  const at = lines.indexOf("AGENT_TEAM_UI_SESSION_SECRET=")
+  assert.ok(at > 0, ".env.example lists AGENT_TEAM_UI_SESSION_SECRET= with an empty value")
+  assert.equal(lines[at - 1], "# optional: signs dashboard login cookies, so a login survives a redeploy. Make one with: agent-team session-secret")
+})
+
 test("the start command gives an empty list when nothing is set", () => {
   assert.equal(hostsFor({}), "")
   assert.equal(hostsFor({ AGENT_TEAM_UI_HOSTS: "", APP_URL: "", HOSTNAME: "" }), "")

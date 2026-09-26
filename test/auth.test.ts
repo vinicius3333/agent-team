@@ -51,6 +51,22 @@ test("loadAuthConfig picks the mode and rejects unsafe settings", () => {
   assert.throws(() => loadAuthConfig({ AGENT_TEAM_UI_PASSWORD_HASH: hash, AGENT_TEAM_UI_SESSION_HOURS: "0" }), /positive number/)
 })
 
+test("a session cookie survives a restart with the same AGENT_TEAM_UI_SESSION_SECRET and fails with another", () => {
+  const hash = hashPassword("correct horse battery")
+  const now = 1_000
+  const before = loadAuthConfig({ AGENT_TEAM_UI_PASSWORD_HASH: hash, AGENT_TEAM_UI_SESSION_SECRET: secretText })
+  const cookie = signSession({ user: "dashboard", expiresAt: now + 60_000 }, before.sessionSecret!)
+  const request = fakeRequest("127.0.0.1", { cookie: `agent_team_session=${cookie}` })
+
+  const sameSecret = loadAuthConfig({ AGENT_TEAM_UI_PASSWORD_HASH: hash, AGENT_TEAM_UI_SESSION_SECRET: secretText })
+  assert.deepEqual(authenticate(request, sameSecret, now), { user: "dashboard", source: "session" })
+
+  const otherSecret = loadAuthConfig({ AGENT_TEAM_UI_PASSWORD_HASH: hash, AGENT_TEAM_UI_SESSION_SECRET: Buffer.alloc(32, 9).toString("base64url") })
+  assert.equal(authenticate(request, otherSecret, now), null)
+  const generated = loadAuthConfig({ AGENT_TEAM_UI_PASSWORD_HASH: hash })
+  assert.equal(authenticate(request, generated, now), null)
+})
+
 test("authenticate trusts the proxy header only from a trusted address", () => {
   const config = loadAuthConfig({ AGENT_TEAM_UI_TRUSTED_PROXIES: "172.17.0.0/16", AGENT_TEAM_UI_PROXY_USER_HEADER: "Remote-User" })
   assert.deepEqual(authenticate(fakeRequest("::ffff:172.17.0.2", { "remote-user": "ana" }), config, 0), { user: "ana", source: "proxy" })
