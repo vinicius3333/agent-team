@@ -406,5 +406,40 @@
     ],
     "verify": "npm --prefix web run lint && npm run build:ui",
     "change": "C002"
+  },
+  {
+    "id": "L007",
+    "title": "Add autonomy.decide: auto so the run never waits for a human",
+    "story": "As the project owner, I want the run to make the best decision on its own instead of stopping at requireHuman, so the project stays autonomous. Add `autonomy.decide: human | auto` to pipeline.yaml (default `human`). With `auto`, every place that calls requireHuman decides by itself and logs why: scope blocks approve the requested files without the maxAutoApprovals limit, but if the task asks again for files it already has, mark it blocked, open a GitHub issue for the record, and continue with other tasks; a task out of budget gets +50% once if the run budget allows, otherwise it is skipped; a doctor edit that needed a human is applied directly. The run-wide spend limit still applies. Also turn it on for this project by setting `decide: auto` under `autonomy` in pipeline.yaml.",
+    "phase": "feature",
+    "dependsOn": [],
+    "allowedPaths": [
+      "src/pipeline.ts",
+      "src/config.ts",
+      "src/doctor.ts",
+      "pipeline.yaml",
+      "test/pipeline.test.ts",
+      "test/config.test.ts",
+      "test/doctor.test.ts",
+      "docs/architecture.md"
+    ],
+    "readPaths": [
+      "src/run.ts",
+      "src/tasks.ts",
+      "src/store.ts"
+    ],
+    "acceptance": [
+      "loadConfig reads autonomy.decide as 'human' or 'auto', defaults to 'human', and throws a plain error for any other value.",
+      "With decide: auto, a scope block is approved without the maxAutoApprovals limit, unless the task asks for files it already has; then the task is marked blocked, an issue is opened, and the run continues with other tasks without awaiting_approval.",
+      "With decide: auto, a task that runs out of its per-task budget gets +50% once when the run budget allows it; otherwise it is skipped and the run continues.",
+      "With decide: auto, a doctor edit that required a human is applied directly.",
+      "Every automatic decision logs a line with the reason, using the existing event log.",
+      "With decide: human (the default), behavior is unchanged.",
+      "This project's pipeline.yaml has `decide: auto` under `autonomy`.",
+      "docs/architecture.md documents autonomy.decide and its risks.",
+      "Tests cover each decision path offline with fakes."
+    ],
+    "verify": "npm run typecheck && npm test",
+    "change": "C002"
   }
 ]
