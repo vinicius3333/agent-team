@@ -441,5 +441,34 @@
     ],
     "verify": "npm run typecheck && npm test",
     "change": "C002"
+  },
+  {
+    "id": "L008",
+    "title": "Make the lead chat full screen and responsive on phones",
+    "story": "On a phone (360-412px wide) the Build > Chat screen breaks. Follow-up chips in FollowUps (chat-tab.tsx) overflow to the right and cause a horizontal scrollbar, because the Button base class has whitespace-nowrap and shrink-0 and the chips have no max width. The Thread height is calc(100dvh-11rem), but the page header (breadcrumb, title, status badges) takes about a third of the screen, so the page scrolls and the chat sits in a small card. The composer textarea is fixed at 2 rows and squeezed by the image, mic, and send buttons, so the placeholder is cut off. Make the chat feel like a messaging app on phones: full screen and fluid.",
+    "phase": "feature",
+    "dependsOn": [],
+    "allowedPaths": [
+      "web/src/components/project/chat-tab.tsx",
+      "web/src/components/project/lead-composer.tsx",
+      "web/src/components/project/lead-action-card.tsx",
+      "web/src/pages/project.tsx"
+    ],
+    "readPaths": [
+      "web/src/components/ui/button.tsx",
+      "web/src/components/markdown.tsx",
+      "AGENTS.md"
+    ],
+    "acceptance": [
+      "At 360px and 412px wide, the chat page has no horizontal scroll: follow-up chips, action cards, code blocks, and long paths stay within the screen (chips wrap or scroll sideways in their own row).",
+      "Below the sm breakpoint, the chat fills the space below the app top bar edge to edge: no card border or side margin, the page heading and breadcrumb are hidden or collapsed to one compact line, and the composer stays pinned at the bottom above the safe area, including when the mobile keyboard is open (use dvh).",
+      "The composer textarea starts at one line and grows with the text up to about 40% of the viewport. The placeholder is short enough to fit on phones. Image and mic buttons stay tappable (at least 36px) without squeezing the textarea.",
+      "The message list keeps scrolled to the newest message as new messages or live activity arrive, unless the person scrolled up; then a 'Jump to latest' button appears.",
+      "Message bubbles on phones use almost the full width (the avatar may be hidden or smaller), and the desktop layout (sm and up, xl with the context card) keeps working as before.",
+      "npm --prefix web run lint and npm --prefix web run build pass."
+    ],
+    "verify": "npm --prefix web run lint && npm --prefix web run build && npm run typecheck",
+    "ui": true,
+    "change": "C002"
   }
 ]
