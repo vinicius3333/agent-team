@@ -271,6 +271,16 @@ With `deploy.enabled: true`, the orchestrator runs the finished app from `main` 
 - Quick tunnels have no uptime guarantee, and the URL changes if the tunnel container restarts. For a stable address, use a named Cloudflare tunnel with your own domain.
 - Anyone with the URL can reach the app. Do not deploy apps that hold real data.
 
+### App secrets
+
+Keys that only a person can create (a Google OAuth client, a payment or email API key) are declared by the app in `.env.example`. The build and QA use fakes. Deploy waits until you enter or skip each required key on the dashboard, under **Launch → Secrets**, or under **Settings → Shared secrets** for values that several projects use. Values are encrypted with `AGENT_TEAM_SECRETS_KEY`, which you set on the host:
+
+```sh
+AGENT_TEAM_SECRETS_KEY=$(openssl rand -base64 32)
+```
+
+See [docs/secrets.md](docs/secrets.md).
+
 ## Change requests
 
 A finished project can take changes without a rebuild. Once the run is complete, the project page shows **Request a change**. Describe the change ("add CSV export to the reports page") and submit it. From the command line, write it to a file and run `agent-team change <projectDir> --request change.md`, then `agent-team run <projectDir>`.
@@ -498,6 +508,7 @@ Add the variables to the service's `EnvironmentFile` (mode 600), not to the unit
 ```sh
 # ~/.config/agent-team/doctor.env
 CLAUDE_CODE_OAUTH_TOKEN=...
+AGENT_TEAM_SECRETS_KEY=...
 NTFY_TOPIC_SUFFIX=...
 NTFY_TOKEN=...
 SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...

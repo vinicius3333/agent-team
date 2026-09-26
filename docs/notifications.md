@@ -17,6 +17,7 @@ Match on the event `type` and message prefix as they are logged today. Where a m
 | Notification | Trigger today | Severity |
 |---|---|---|
 | `gate` | `log("gate", 'phase "<phase>" is ready for review: ...')` in `runPlanningPhase` | action |
+| `gate` | `log("gate", 'phase "deploy" waits for secrets: NAME, ...')` in `runDeployPhase` (see `docs/secrets.md`) | action |
 | `budget` | `log("budget", "run budget reached: ...")` in `budgetStop` | action |
 | `qa_failed` | `log("qa", "stopped after <n> failed rounds; ...")` in `runQaLoop` | action |
 | `paused` | `run finished: paused`, with the reason from `run.stop` | action |
