@@ -249,5 +249,132 @@
       "npm run typecheck and npm test pass."
     ],
     "verify": "npm run typecheck && npm test"
+  },
+  {
+    "id": "T004",
+    "title": "Build the preview host list from the environment with an agent-team preview-hosts command",
+    "story": "US-02",
+    "phase": "foundation",
+    "dependsOn": [],
+    "allowedPaths": [
+      "src/ui/hosts.ts",
+      "src/ui/server.ts",
+      "src/cli.ts",
+      "deploy.json",
+      "test/hosts.test.ts",
+      "test/deploy-start.test.ts",
+      "test/preview-host.test.ts",
+      "test/hash-password.test.ts"
+    ],
+    "readPaths": [
+      "docs/changes/C002/request.md",
+      "docs/changes/C002/spec.md",
+      "docs/changes/C002/architecture.md",
+      "docs/architecture.md",
+      "docs/adr/0006-preview-host-list-from-the-environment.md",
+      "src/ui/auth.ts",
+      "src/screenshots.ts",
+      "test/auth.test.ts",
+      "test/dashboard.test.ts"
+    ],
+    "acceptance": [
+      "New src/ui/hosts.ts exports parseHostList(value) (split on commas, trim, lower-case, drop empty values and duplicates) and previewHosts(env): the union, in order, of parseHostList(env.AGENT_TEAM_UI_HOSTS), the host name of each set and valid URL in APP_URL, PUBLIC_URL, BASE_URL, ORIGIN, NEXTAUTH_URL, NEXT_PUBLIC_APP_URL, and env.HOSTNAME when it is a valid host name. Names are lower-cased, with no port, no empty entries, and no duplicates. No host name is hard-coded.",
+      "src/ui/server.ts uses parseHostList for its extra hosts in place of the inline split, with the same behavior. allowedHost, allowedOrigin, knownHost, and the auth checks do not change.",
+      "New CLI subcommand `agent-team preview-hosts` in src/cli.ts prints previewHosts(process.env).join(\",\") and nothing else, and is listed in the usage text.",
+      "The deploy.json start command sets AGENT_TEAM_UI_HOSTS=\"$(node --disable-warning=ExperimentalWarning src/cli.ts preview-hosts)\" in place of the node -p one-liner. The hash step, the ui command, install, and port stay the same.",
+      "test/hosts.test.ts covers: empty env gives []; AGENT_TEAM_UI_HOSTS=\" a.example, ,A.example\" gives [\"a.example\"]; APP_URL=http://agent-team-qa-agent-team:4400 gives [\"agent-team-qa-agent-team\"]; HOSTNAME=agent-team-qa-agent-team with no APP_URL gives the same; APP_URL=\"not a url\" and HOSTNAME=\"\" are skipped; all set with overlaps gives each name once.",
+      "test/deploy-start.test.ts is updated to the new start command: it runs the host-list part in sh offline and checks the list for example environments.",
+      "test/preview-host.test.ts starts the server with AGENT_TEAM_UI_HOSTS=previewHosts({ HOSTNAME: \"agent-team-qa-agent-team\" }).join(\",\") and a password hash: GET on /, /login, /new, /import, /incidents, and /settings with Host: agent-team-qa-agent-team:4400 answers 200, and GET / with Host: evil.example answers 403 with \"This host name is not allowed. Add it to AGENT_TEAM_UI_HOSTS.\" The shell body check is skipped when web/dist is missing.",
+      "New test/hash-password.test.ts runs `node src/cli.ts hash-password` with execFileSync, stdin set to a 12+ character password with no trailing newline, and checks the login password check from src/ui/auth.ts accepts exactly that password and rejects it with a trailing space. It runs offline.",
+      "The login form, sessions, and lockouts do not change."
+    ],
+    "verify": "npm run typecheck && node --disable-warning=ExperimentalWarning --test test/hosts.test.ts test/deploy-start.test.ts test/preview-host.test.ts test/hash-password.test.ts test/auth.test.ts test/dashboard.test.ts",
+    "change": "C002"
+  },
+  {
+    "id": "T005",
+    "title": "Set the app container host name to its container name",
+    "story": "US-02",
+    "phase": "feature",
+    "dependsOn": [],
+    "allowedPaths": [
+      "src/deploy.ts",
+      "test/deploy.test.ts"
+    ],
+    "readPaths": [
+      "docs/changes/C002/spec.md",
+      "docs/changes/C002/architecture.md",
+      "src/screenshots.ts",
+      "test/run-container.test.ts"
+    ],
+    "acceptance": [
+      "startAppContainer in src/deploy.ts adds `--hostname <name>` to docker run, so HOSTNAME inside the app equals the container name the checker uses (for example agent-team-qa-agent-team).",
+      "The flag is left out when the name is not a valid host label (over 63 characters, or characters other than letters, digits, and hyphens). Nothing else in the docker run arguments changes.",
+      "The docker run arguments come from a small exported pure helper (for example appRunArgs), and new test/deploy.test.ts checks they hold --hostname <name> for a normal name and leave it out for a 70-character name. No Docker."
+    ],
+    "verify": "npm run typecheck && node --disable-warning=ExperimentalWarning --test test/deploy.test.ts test/run-container.test.ts test/screenshots.test.ts",
+    "change": "C002"
+  },
+  {
+    "id": "T006",
+    "title": "Fail a QA round when no page renders",
+    "story": "US-05",
+    "phase": "feature",
+    "dependsOn": [],
+    "allowedPaths": [
+      "src/qa.ts",
+      "src/pipeline.ts",
+      "test/qa.test.ts"
+    ],
+    "readPaths": [
+      "docs/changes/C002/spec.md",
+      "docs/changes/C002/architecture.md",
+      "src/baseline.ts",
+      "src/screenshots.ts"
+    ],
+    "acceptance": [
+      "src/qa.ts exports noPageRenderedMessage = \"No page rendered. Check the host and start command.\" and noPageRendered(visual). It returns false when visual is null; true when visual.startError is set, visual.routes is empty, or every route failed. A route failed when it has an error, a null status, a 403 or 5xx status, or no screenshot file. One route with a 2xx or 3xx status and a screenshot makes it false.",
+      "In the QA round in src/pipeline.ts, after splitFailures, noPageRenderedMessage is pushed onto hardFailures when noPageRendered(visual) is true, so it can never be filed as preexisting, and a \"pass\" verdict is rejected. The round logs `round N: No page rendered. Check the host and start command.`",
+      "splitFailures and createBaseline do not change.",
+      "test/qa.test.ts covers: every route 403 gives true; every route with status null and an error gives true; startError with no routes gives true; one route 200 with a file and the rest 403 gives false; visual null gives false."
+    ],
+    "verify": "npm run typecheck && node --disable-warning=ExperimentalWarning --test test/qa.test.ts",
+    "change": "C002"
+  },
+  {
+    "id": "T007",
+    "title": "Keep lead.access when saving the Lead settings and show the access level in the form",
+    "story": "US-06",
+    "phase": "feature",
+    "dependsOn": [],
+    "allowedPaths": [
+      "src/lead-actions.ts",
+      "test/lead-actions.test.ts",
+      "web/src/api/types.ts",
+      "web/src/components/project/lead-settings-card.tsx"
+    ],
+    "readPaths": [
+      "docs/changes/C002/spec.md",
+      "docs/changes/C002/architecture.md",
+      "docs/adr/0007-lead-settings-own-access.md",
+      "contracts/openapi.yaml",
+      "src/config.ts",
+      "test/lead.test.ts",
+      "web/src/components/ui/toggle-group.tsx",
+      "design/tokens.css"
+    ],
+    "acceptance": [
+      "parseLeadSettings in src/lead-actions.ts also reads access, which must be read or full, or the route answers 400 with \"access must be read or full.\" A body with no access leaves access out.",
+      "saveLeadSettings sets actions, autoApply, chatBudgetUsd, and access (only when given) one by one with document.setIn([\"lead\", key], value). It never replaces the lead node, so other lead keys and comments stay. The validate-and-restore step and the commit stay the same.",
+      "New test/lead-actions.test.ts uses a temp project whose pipeline.yaml has lead: { access: full, note: keep }, and sets git user.name and user.email itself. Saving with access \"full\" keeps access: full and note: keep, and loadConfig reads access as full. Saving with access \"read\" writes access: read. Saving with no access keeps the old value. access \"admin\" is rejected.",
+      "web/src/api/types.ts adds access?: \"read\" | \"full\" to the lead settings type.",
+      "The Lead settings card shows an Access field with two choices, Limited (read, the default when unset) and Full, using the existing shadcn/ui ToggleGroup or a similar existing control, with the sentence \"Full access lets the lead edit any file and run any command in the project folder, with no review.\" It sends access with the other fields, fits at 360px wide, and each choice is at least 24px tall."
+    ],
+    "verify": "npm run typecheck && node --disable-warning=ExperimentalWarning --test test/lead-actions.test.ts test/lead.test.ts && npm --prefix web run lint && npm --prefix web run build",
+    "ui": true,
+    "routes": [
+      "/"
+    ],
+    "change": "C002"
   }
 ]
