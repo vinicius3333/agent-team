@@ -1,0 +1,20 @@
+{
+  "comment": "The state the importer leaves: its phases approved, import.done set, no tasks, and no deploy URL yet.",
+  "phases": {
+    "research": "approved",
+    "spec": "approved",
+    "architecture": "approved",
+    "design": "approved",
+    "baseline": "approved",
+    "branding": "approved",
+    "marketing": "approved",
+    "plan": "approved",
+    "qa": "approved",
+    "deploy": "pending"
+  },
+  "meta": { "import.done": "1" },
+  "findings": [
+    { "source": "evaluator", "severity": "medium", "title": "Sprint mode does not start", "evidence": "The sprints list is empty.", "proposal": "Make sprints start on this project." },
+    { "source": "manual", "severity": "low", "title": "Routines never run", "evidence": "No last run.", "proposal": "Make routines run by hand." }
+  ]
+}

@@ -10,7 +10,7 @@ import { changeRequestMaxLength, createProject, ProjectError, withProjectStore }
 import { addBacklogItem, parseEvaluation, parseSprintPlan, sprintBlocker, sprintRequest, sprintSpend, sprintTick, syncSprint } from "../src/sprint.ts"
 import { openStore, type Store } from "../src/store.ts"
 import type { DeployResult } from "../src/deploy.ts"
-import { liveAppLine } from "../src/improve.ts"
+import { liveAppLine, startSprint } from "../src/improve.ts"
 import { ensureDeployed, type PipelineContext } from "../src/pipeline.ts"
 import { startUi } from "../src/ui/server.ts"
 
@@ -173,6 +173,50 @@ test("syncSprint closes a building sprint when its change merges, and a dead pla
   assert.equal(closed.status, "done")
   assert.equal(closed.costUsd, 4)
   assert.ok(closed.finishedAt)
+  store.close()
+})
+
+test("syncSprint closes a change stuck open with no live run as failed, so sprints can start again", () => {
+  const store = finishedStore()
+  const building = store.startSprint(0)
+  store.openChange({ id: "C001", request: "r", branch: "change/C001-r", baseCommit: "abc" }, ["plan", "qa", "deploy"])
+  store.updateSprint(building.number, { status: "building", changeId: "C001" })
+  const now = Date.now()
+  syncSprint(store, now)
+  assert.equal(store.change("C001")!.status, "open", "a change just opened waits for its run")
+  syncSprint(store, now + 2 * 60 * 60_000)
+  assert.equal(store.change("C001")!.status, "failed")
+  assert.ok(store.recentEvents(10).some((event) => /C001 was still open with no run in progress/.test(event.message)), "the close has a reason")
+  assert.equal(store.sprint(building.number)!.status, "abandoned")
+  assert.doesNotMatch(sprintBlocker(store, config, { now: now + 2 * 60 * 60_000, early: true }) ?? "", /still open|build is not finished/)
+  store.close()
+})
+
+test("an imported project with approved findings starts a sprint that ends in a final state", async () => {
+  const projectDir = join(scratch, "imported")
+  createProject(projectDir, "brief")
+  const fixture = JSON.parse(readFileSync(new URL("./fixtures/imported-project/state.json", import.meta.url), "utf8"))
+  const projectConfig = loadConfig(join(projectDir, "pipeline.yaml"))
+  projectConfig.deploy.enabled = true
+  projectConfig.sprints.enabled = true
+  projectConfig.harness.isolation = "none"
+  mkdirSync(join(projectDir, ".agent-team"), { recursive: true })
+  const store = openStore(join(projectDir, ".agent-team", "state.db"))
+  for (const [phase, status] of Object.entries(fixture.phases)) store.setPhase(phase, status as "approved")
+  for (const [key, value] of Object.entries(fixture.meta)) store.setMeta(key, value as string)
+  for (const finding of fixture.findings) store.setFindingStatus(store.addFinding(finding).id, "approved")
+  assert.equal(sprintBlocker(store, projectConfig), null)
+
+  const deploys: string[] = []
+  const failed = { status: "failed", summary: "fake runner: no reply", costUsd: 0, tokens: null, durationMs: 1, exitCode: 1, diagnostics: "" }
+  const harness = { run: async () => ({ result: failed, candidate: null, failureClass: "agent_failure" }) }
+  const deploy = async () => (deploys.push("deploy"), { url: "https://imported.trycloudflare.com", error: null })
+  const context = { projectDir, config: projectConfig, store, signal: new AbortController().signal, harness, deploy, appRunning: () => false } as unknown as PipelineContext
+  await startSprint(context, { early: true })
+  const sprint = store.sprints(1)[0]
+  assert.ok(sprint, "the sprint has a row")
+  assert.ok(["done", "failed"].includes(sprint.status), `the sprint ended ${sprint.status}`)
+  assert.deepEqual(deploys, ["deploy"], "the sprint deploys the app first")
   store.close()
 })
 
