@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process"
+import { parseHostList } from "./hosts.ts"
 import { randomUUID } from "node:crypto"
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, openSync, readSync, closeSync, writeFileSync } from "node:fs"
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http"
@@ -414,6 +415,7 @@ function readConfig(projectDir: string) {
         actions: (raw.lead?.actions ?? defaultLeadConfig.actions) as LeadActionKind[],
         autoApply: (raw.lead?.autoApply ?? defaultLeadConfig.autoApply) as LeadActionKind[],
         chatBudgetUsd: Number(raw.lead?.chatBudgetUsd ?? defaultLeadConfig.chatBudgetUsd),
+        access: raw.lead?.access === "full" ? "full" : "read",
       },
     }
   } catch {
@@ -944,7 +946,7 @@ export function startUi(options: UiOptions) {
     writeFileSync(join(dir, file), Buffer.concat(chunks))
     return send(response, 201, { file })
   }
-  const extraHosts = (process.env.AGENT_TEAM_UI_HOSTS ?? "").split(",").map((host) => host.trim().toLowerCase()).filter(Boolean)
+  const extraHosts = parseHostList(process.env.AGENT_TEAM_UI_HOSTS)
   const auth = options.auth ?? loadAuthConfig(process.env)
   const now = options.now ?? Date.now
   const loginDelayMs = options.failedLoginDelayMs ?? failedLoginDelayMs

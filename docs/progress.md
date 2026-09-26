@@ -73,3 +73,66 @@ Files: `docs/architecture.md`, `prompts/lead.md`, `src/config.ts`, `src/lead.ts`
 > Setting `lead.access: full` in `pipeline.yaml` now lets the lead chat edit any file in the project and run any command there. The default is `read`, which keeps the current behaviour. `npm run typecheck && npm test` passes: typecheck is clean, and 315 of 316 tests pass with 0 failures and 1 skipped. That skipped test was already in the suite.
 > **One gap to fix in a follow-up:** saving the lead settings from the dashboard drops `lead.access`, so the project goes back to `read`. The cause is in `src/lead-actions.ts`, which is outside this task's allowed paths: `parseLeadSettings` builds the settings without `access`, and `saveLeadSettings` replaces the whole `lead:` block. Because of that, `access` is optional in the `LeadConfig` type, and anything that doesn't set it counts as `read`. `loadConfig` always sets it. The fix is to keep `access` in those two functions.
 > **What changed**
+
+## T005: Set the app container host name to its container name
+
+Files: `src/deploy.ts`, `test/deploy.test.ts`
+
+> `startAppContainer` now adds `--hostname <name>` to `docker run`, so `HOSTNAME` inside the app matches the container name the checker uses (for example `agent-team-qa-agent-team`). The last `verify` run passed: typecheck is clean and all 11 tests pass.
+> - **`src/deploy.ts`:** the arguments now come from a new exported pure helper, `appRunArgs(options)`. It adds `--hostname <name>` right after `--name <name>`, but only when the name is a valid host label: 1 to 63 letters, digits or hyphens, not starting or ending with a hyphen. The other arguments are unchanged. `startAppContainer` now calls `run("docker", appRunArgs(options), …)` and still passes secrets through the environment. I also added an `AppContainerOptions` type for the options.
+> - **`test/deploy.test.ts` (new, no Docker):** four tests check that:
+
+## T006: Fail a QA round when no page renders
+
+Files: `src/pipeline.ts`, `src/qa.ts`, `test/qa.test.ts`
+
+> A QA round now fails when no page renders, and the message can never be marked as a preexisting import failure. The verify command passes: typecheck is clean and all 18 tests in `test/qa.test.ts` pass.
+> - **`src/qa.ts`**: exports `noPageRenderedMessage` and `noPageRendered(visual)`.
+> - It returns false for a null report, which means an API target with no visual gate.
+
+## T004: Build the preview host list from the environment with an agent-team preview-hosts command
+
+Files: `deploy.json`, `src/cli.ts`, `src/ui/server.ts`, `test/deploy-start.test.ts`, `test/preview-host.test.ts`, `src/ui/hosts.ts`, `test/hash-password.test.ts`, `test/hosts.test.ts`
+
+> The preview start command now builds its allowed host list with a new `agent-team preview-hosts` command, so the container name from `HOSTNAME` is allowed even when `APP_URL` is missing. The last `verify` run passed: typecheck is clean, and 34 of 35 tests pass with 0 failures. The one skip is an existing test that needs `web/dist`, which isn't built in this worktree. For the same reason, the new page test only checked status codes, not the page body.
+> - **`src/ui/hosts.ts` (new):**
+> - `parseHostList(value)` splits on commas, trims, lower-cases, and drops empty values and duplicates.
+
+## T007: Keep lead.access when saving the Lead settings and show the access level in the form
+
+Files: `src/lead-actions.ts`, `src/ui/server.ts`, `web/src/api/types.ts`, `web/src/components/project/lead-settings-card.tsx`, `test/lead-actions.test.ts`
+
+> Saving the Lead settings now keeps `lead.access`, and the form has an Access field with Limited and Full. The full `verify` command passes.
+> The web dependencies weren't installed at first, so `oxlint` wasn't found. I installed them with `npm --prefix web ci` and ran the web steps again. I did not open the page in a browser; that check is left to the orchestrator.
+> **Saving (`src/lead-actions.ts`)**
+
+## L007: Add autonomy.decide: auto so the run never waits for a human
+
+Files: `docs/architecture.md`, `pipeline.yaml`, `src/config.ts`, `src/doctor.ts`, `src/pipeline.ts`, `test/config.test.ts`, `test/doctor.test.ts`, `test/pipeline.test.ts`
+
+> I added `autonomy.decide: human | auto`. The default is `human`, and with `human` the pipeline behaves as before. The last run of `npm run typecheck && npm test` passed: typecheck is clean, and 350 of 351 tests passed with 0 failures. The remaining test was probably skipped or marked todo; I didn't confirm which one or why.
+> **One gap:** the criteria ask for "an issue is opened" when a task is skipped. `src/github.ts` has no public way to create an issue, and it is outside `allowedPaths`. So a skipped task instead gets the `blocked` label and a comment with the reason on its existing task issue, through `context.github.taskBlocked`. If a new issue per skip is needed, a follow-up task must add an `openIssue` method to `src/github.ts`.
+> **What `auto` does:**
+## Q201: Make checkboxes at least 24x24 px on phones
+
+Files: `web/src/components/project/gates-card.tsx`, `web/src/components/ui/checkbox.tsx`, `web/src/pages/import-project.tsx`, `web/src/pages/new-project.tsx`
+
+> I made the approval gate checkboxes 24×24 px on phones. They keep their 16 px look at 1440 px. `verify` passes: lint reports warnings in `hooks.ts` and `auth-context.tsx`, files I didn't touch, and no errors, and `npm run build:ui` builds. I didn't run the app in a browser, so the orchestrator's phone check is the first real test of the sizes. I also didn't write tests: the dashboard has no component test setup, so the check rests on `verify` and that browser check.
+> This time I also fixed the other small controls on the two pages, because the previous rejections flagged all of them, not just the gate checkboxes:
+> - **The 16×16 radio buttons:** the stack choices on /new and the GitHub destination on /import.
+
+## Q201: Make checkboxes at least 24x24 px on phones
+
+Files: `web/src/components/project/gates-card.tsx`, `web/src/components/ui/switch.tsx`, `web/src/pages/import-project.tsx`, `web/src/pages/new-project.tsx`
+
+> The gate checkboxes were already 24×24 px on phones and 16 px at 1440 px, from an earlier run of this task (commit `abca968`). This run fixes how the label lines up with the box, and moves the switch's phone sizing into the shared switch component. `verify` passes: lint has only warnings in files I didn't touch, and `npm run build:ui` builds. I didn't open the pages in a browser, and there's no component test setup, so the orchestrator's phone check is the first real check of the sizes and alignment.
+> **Already in place:** `checkbox.tsx` uses `size-6 sm:size-4`. Radix's hidden input copies the box's measured size, so it is also 24×24 on phones. The focus ring is still there. Space checks the box, and clicking the label works through `htmlFor`.
+> **What I changed:**
+
+## L008: Make the lead chat full screen and responsive on phones
+
+Files: `web/src/components/project/chat-tab.tsx`, `web/src/components/project/lead-action-card.tsx`, `web/src/components/project/lead-composer.tsx`, `web/src/pages/project.tsx`
+
+> I made the Build > Chat screen full screen on phones and stopped it from scrolling sideways. The last `verify` run passed: lint, the dashboard build and typecheck. I didn't open it at 360px or 412px in a browser, and I didn't add tests. So the phone layout, the keyboard and the scroll behaviour are unchecked until the orchestrator's browser check.
+> - **Page (`web/src/pages/project.tsx`):**
+> - Below `sm` on the chat view, the page header (breadcrumb, title, badges) is hidden.

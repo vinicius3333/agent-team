@@ -81,7 +81,8 @@ export interface PipelineConfig {
   // changeMerge "manual" stops a change before its final merge into main until a person approves it.
   // autoApproveScope: a task blocked on files outside its scope gets them without stopping for a person (at most
   // twice per task); the same change the dashboard's Approve button makes.
-  autonomy: { gates: PlanningPhase[]; changeMerge: "auto" | "manual"; autoApproveScope: boolean }
+  // decide "auto": every stop that would wait for a person decides by itself and logs why (see docs/architecture.md).
+  autonomy: { gates: PlanningPhase[]; changeMerge: "auto" | "manual"; autoApproveScope: boolean; decide: DecideMode }
   // mobile: the illustrator also draws a phone version of every desktop screen.
   // variations: how many logo-and-style directions the concepts phase draws before branding (under 2 skips it).
   // dark: the illustrator also redraws the landing in a dark theme, and the designer takes the .dark tokens from it.
@@ -200,6 +201,8 @@ export type LeadActionKind = (typeof leadActionKinds)[number]
 
 export const leadAccessModes = ["read", "full"] as const
 export type LeadAccess = (typeof leadAccessModes)[number]
+export const decideModes = ["human", "auto"] as const
+export type DecideMode = (typeof decideModes)[number]
 
 // What the project lead may suggest in the chat, and which of those apply without a click.
 // access "full" lets the lead edit files and run commands in the project folder, with no review.
@@ -228,7 +231,7 @@ export function loadConfig(path: string): PipelineConfig {
   const raw = parse(readFileSync(path, "utf8")) ?? {}
   const config: PipelineConfig = {
     target: raw.target ?? "web",
-    autonomy: { gates: normalizeGates(raw.autonomy?.gates), changeMerge: raw.autonomy?.changeMerge ?? "auto", autoApproveScope: raw.autonomy?.autoApproveScope ?? false },
+    autonomy: { gates: normalizeGates(raw.autonomy?.gates), changeMerge: raw.autonomy?.changeMerge ?? "auto", autoApproveScope: raw.autonomy?.autoApproveScope ?? false, decide: raw.autonomy?.decide ?? "human" },
     branding: normalizeBranding(raw.branding ?? raw.mockups),
     marketing: {
       enabled: raw.marketing?.enabled ?? true,
@@ -506,6 +509,7 @@ function validateConfig(config: PipelineConfig, projectDir: string): void {
   if (!["web", "api", "web+api"].includes(config.target)) errors.push(`target must be web, api, or web+api`)
   if (config.autonomy.changeMerge !== "auto" && config.autonomy.changeMerge !== "manual") errors.push("autonomy.changeMerge must be auto or manual")
   if (typeof config.autonomy.autoApproveScope !== "boolean") errors.push("autonomy.autoApproveScope must be true or false")
+  if (!(decideModes as readonly unknown[]).includes(config.autonomy.decide)) errors.push(`autonomy.decide must be ${decideModes.join(" or ")}`)
   for (const gate of config.autonomy.gates) {
     if (!planningPhases.includes(gate)) errors.push(`unknown gate "${gate}"`)
   }

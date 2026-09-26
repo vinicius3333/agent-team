@@ -17,6 +17,30 @@ function pipelineWithLead(name: string, lead: string): string {
   return path
 }
 
+function pipelineWithDecide(name: string, decide: string | null): string {
+  const projectDir = join(scratch, name)
+  createProject(projectDir, "brief")
+  const path = join(projectDir, "pipeline.yaml")
+  if (decide !== null) writeFileSync(path, readFileSync(path, "utf8").replace("autoApproveScope: false", `autoApproveScope: false\n  decide: ${decide}`))
+  return path
+}
+
+test("autonomy.decide defaults to human and reads human or auto", () => {
+  assert.equal(loadConfig(pipelineWithDecide("decide-default", null)).autonomy.decide, "human")
+  assert.equal(loadConfig(pipelineWithDecide("decide-human", "human")).autonomy.decide, "human")
+  assert.equal(loadConfig(pipelineWithDecide("decide-auto", "auto")).autonomy.decide, "auto")
+})
+
+test("config validation rejects any other autonomy.decide value", () => {
+  for (const value of ["manual", "AUTO", "true", "\"\""]) {
+    assert.throws(() => loadConfig(pipelineWithDecide(`decide-bad-${value.replace(/\W/g, "") || "empty"}`, value)), /autonomy\.decide must be human or auto/)
+  }
+})
+
+test("this project's pipeline.yaml sets autonomy.decide to auto", () => {
+  assert.equal(loadConfig(join(import.meta.dirname, "..", "pipeline.yaml")).autonomy.decide, "auto")
+})
+
 test("lead.access defaults to read", () => {
   assert.equal(defaultLeadConfig.access, "read")
   assert.equal(loadConfig(pipelineWithLead("default", "")).lead.access, "read")

@@ -15,6 +15,7 @@ Also useful: `npm run typecheck` (server types), `npm --prefix web run dev` (das
 - `src/cli.ts`: CLI entry point. Shared file.
 - `src/ui/server.ts`: HTTP router and every `/api` route. Shared file.
 - `src/ui/auth.ts`: password login, sessions, lockouts, trusted proxy.
+- `src/ui/hosts.ts`: the allowed host list. `deploy.json` builds it with `agent-team preview-hosts`; never hard-code a host name.
 - `src/store.ts`: SQLite schema and all queries. Shared file.
 - `src/*.ts`: one module per feature (pipeline, run, tasks, lead, doctor, qa, deploy, sprint, import, ...).
 - `src/runners/`, `src/harness/`, `src/operate/`, `src/notify/`: agent runners, sandboxes, insight agents, notifications.

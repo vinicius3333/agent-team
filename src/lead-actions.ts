@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { isSeq, parseDocument } from "yaml"
-import { leadActionKinds, loadConfig, planningPhases, type LeadConfig, type PlanningPhase, type SprintConfig } from "./config.ts"
+import { leadAccessModes, leadActionKinds, loadConfig, planningPhases, type LeadConfig, type PlanningPhase, type SprintConfig } from "./config.ts"
 import { commitPaths, fileAtRef } from "./git.ts"
 import { commitAndRebase, createWorkspace, fastForward, removeWorkspace } from "./harness/workspace.ts"
 import { approvePhase, ProjectError, raiseRunBudget, requestChanges, retryTask } from "./project.ts"
@@ -223,14 +223,20 @@ export function parseLeadSettings(value: unknown): LeadConfig {
   if (autoApply.some((kind) => !actions.includes(kind))) throw new ProjectError(400, "Auto-apply may only list actions the lead may suggest.")
   const chatBudgetUsd = raw.chatBudgetUsd
   if (typeof chatBudgetUsd !== "number" || !(chatBudgetUsd > 0 && chatBudgetUsd <= 20)) throw new ProjectError(400, "The chat budget must be above $0 and at most $20.")
-  return { actions, autoApply, chatBudgetUsd }
+  // An older client sends no access, so the save keeps the current value.
+  if (raw.access === undefined) return { actions, autoApply, chatBudgetUsd }
+  if (!(leadAccessModes as readonly unknown[]).includes(raw.access)) throw new ProjectError(400, `access must be ${leadAccessModes.join(" or ")}.`)
+  return { actions, autoApply, chatBudgetUsd, access: raw.access as LeadConfig["access"] }
 }
 
 export function saveLeadSettings(projectDir: string, settings: LeadConfig): void {
   const path = join(projectDir, "pipeline.yaml")
   const original = readFileSync(path, "utf8")
   const document = parseDocument(original)
-  document.setIn(["lead"], settings)
+  // Sets each managed key on its own, so lead keys the form does not know, and their comments, stay.
+  const values: [string, unknown][] = [["actions", settings.actions], ["autoApply", settings.autoApply], ["chatBudgetUsd", settings.chatBudgetUsd]]
+  if (settings.access !== undefined) values.push(["access", settings.access])
+  for (const [key, value] of values) document.setIn(["lead", key], value)
   writeFileSync(path, document.toString())
   try {
     loadConfig(path)

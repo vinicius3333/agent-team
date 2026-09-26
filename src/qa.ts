@@ -1,5 +1,6 @@
 import { extractJsonObject } from "./json.ts"
 import { qaStoppedPrefix } from "./notify/events.ts"
+import type { VisualReport } from "./screenshots.ts"
 import type { Store } from "./store.ts"
 import { validateTasks, type Task } from "./tasks.ts"
 
@@ -101,6 +102,16 @@ export function parseLoginRoute(markdown: string): string | null {
     if (match) return match[1].length > 1 ? match[1].replace(/\/+$/, "") : match[1]
   }
   return null
+}
+
+export const noPageRenderedMessage = "No page rendered. Check the host and start command."
+
+// True when no route showed a real page: the app did not start, had no routes, or every route errored,
+// got no status, got 403 or 5xx, or left no screenshot. False for API targets, which have no visual gate.
+export function noPageRendered(visual: VisualReport | null): boolean {
+  if (!visual) return false
+  if (visual.startError) return true
+  return visual.routes.every((route) => Boolean(route.error) || route.status === null || route.status === 403 || route.status >= 500 || !route.file)
 }
 
 export function routeSlug(route: string): string {

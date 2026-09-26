@@ -8,7 +8,7 @@ import {
   type AppendMessage,
   type ThreadMessageLike,
 } from "@assistant-ui/react"
-import { Bot, Check, FileText, History, Loader2, Plus, Sparkles } from "lucide-react"
+import { ArrowDown, Bot, Check, FileText, History, Loader2, Plus, Sparkles } from "lucide-react"
 import { toast } from "sonner"
 import { api, urls } from "@/api/client"
 import type { ChatDetails, ChatMessage, LeadAction, LiveActivity, ProjectDetail } from "@/api/types"
@@ -22,6 +22,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { describeCandidate, projectStatus, projectStatusLabels, taskCounts } from "@/lib/pipeline"
 import { formatCost, formatRelative } from "@/lib/format"
 import { TokenCount } from "@/components/token-count"
+import { cn } from "@/lib/utils"
 
 interface MessageMetadata {
   messageId: number
@@ -62,9 +63,9 @@ function useMetadata() {
   return useAuiState((state) => state.message.metadata.custom as Partial<MessageMetadata> | undefined)
 }
 
-function LeadAvatar() {
+function LeadAvatar({ className }: { className?: string }) {
   return (
-    <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary" aria-hidden="true">
+    <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary", className)} aria-hidden="true">
       <Bot className="size-4" />
     </span>
   )
@@ -89,7 +90,7 @@ function UserMessage() {
   return (
     <MessagePrimitive.Root className="flex flex-col items-end gap-2">
       <Attachments files={metadata?.details?.attachments ?? []} />
-      <div className="max-w-[90%] rounded-2xl bg-primary sm:max-w-[80%] px-4 py-2 text-sm whitespace-pre-wrap text-primary-foreground">
+      <div className="max-w-[90%] min-w-0 rounded-2xl bg-primary px-4 py-2 text-sm whitespace-pre-wrap text-primary-foreground [overflow-wrap:anywhere] sm:max-w-[80%]">
         <MessagePrimitive.Parts />
       </div>
     </MessagePrimitive.Root>
@@ -130,9 +131,9 @@ function FollowUps({ prompts, disabled }: { prompts: string[]; disabled: boolean
   const send = useContext(SendContext)
   if (!prompts.length) return null
   return (
-    <div className="flex flex-wrap gap-2" aria-label="Suggested follow-ups">
+    <div className="flex min-w-0 flex-wrap gap-2" aria-label="Suggested follow-ups">
       {prompts.map((prompt) => (
-        <Button key={prompt} variant="outline" size="sm" className="h-auto py-1 text-left whitespace-normal" disabled={disabled} onClick={() => send(prompt)}>
+        <Button key={prompt} variant="outline" size="sm" className="h-auto min-h-9 max-w-full shrink justify-start py-1.5 text-left whitespace-normal [overflow-wrap:anywhere]" disabled={disabled} onClick={() => send(prompt)}>
           <Sparkles className="text-primary" /> {prompt}
         </Button>
       ))}
@@ -145,10 +146,11 @@ function AssistantMessage() {
   const metadata = useMetadata()
   const details = metadata?.details ?? noDetails
   return (
-    <MessagePrimitive.Root className="flex gap-2 sm:gap-3">
-      <LeadAvatar />
-      <div className="flex min-w-0 max-w-[calc(100%-2.5rem)] flex-col gap-2 sm:max-w-[85%]">
-        <div className="rounded-2xl border bg-card px-4 py-2 text-sm">
+    <MessagePrimitive.Root className="flex min-w-0 gap-2 sm:gap-3">
+      {/* Hidden on phones so the bubble uses the full width. */}
+      <LeadAvatar className="hidden sm:flex" />
+      <div className="flex min-w-0 max-w-full flex-col gap-2 sm:max-w-[85%]">
+        <div className="min-w-0 rounded-2xl border bg-card px-3 py-2 text-sm [overflow-wrap:anywhere] sm:px-4 [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:[overflow-wrap:normal]">
           <MessagePrimitive.Parts>{({ part }) => (part.type === "text" ? <Markdown text={part.text} project={name} /> : null)}</MessagePrimitive.Parts>
         </div>
         <FilesRead files={details.filesRead} />
@@ -173,9 +175,9 @@ const activityVerbs: Record<LiveActivity["kind"], string> = {
 function Thinking({ activity }: { activity: LiveActivity[] }) {
   const steps = activity.slice(-maxActivityLines)
   return (
-    <div className="flex gap-2 sm:gap-3" role="status" aria-live="polite">
-      <LeadAvatar />
-      <div className="flex min-w-0 max-w-[calc(100%-2.5rem)] sm:max-w-[85%] flex-col gap-1 rounded-2xl border bg-card px-4 py-2 text-sm">
+    <div className="flex min-w-0 gap-2 sm:gap-3" role="status" aria-live="polite">
+      <LeadAvatar className="hidden sm:flex" />
+      <div className="flex min-w-0 max-w-full sm:max-w-[85%] flex-col gap-1 rounded-2xl border bg-card px-4 py-2 text-sm">
         <span className="inline-flex items-center gap-2 text-muted-foreground">
           <Loader2 className="size-4 animate-spin" /> Project lead is {steps.length ? "working" : "thinking"}…
         </span>
@@ -250,7 +252,7 @@ function Thread({ busy, onSend, onStop }: { busy: boolean; onSend: (text: string
   const autoApply = settings?.autoApply.length ? ` Applies ${settings.autoApply.join(", ").replace(/_/g, " ")} on its own.` : ""
   const title = detail.chat?.sessions?.find((session) => session.id === detail.chat?.session)?.title
   return (
-    <ThreadPrimitive.Root className="flex h-[calc(100dvh-11rem)] min-h-[24rem] flex-col sm:h-[min(75vh,760px)]">
+    <ThreadPrimitive.Root className="flex min-h-0 flex-1 flex-col sm:h-[min(75vh,760px)] sm:min-h-[24rem] sm:flex-none">
       <div className="flex items-center gap-3 border-b px-3 py-2 sm:px-4 sm:py-3">
         <LeadAvatar />
         <div className="min-w-0">
@@ -261,14 +263,15 @@ function Thread({ busy, onSend, onStop }: { busy: boolean; onSend: (text: string
         </div>
         <SessionMenu busy={busy} />
       </div>
-      <ThreadPrimitive.Viewport className="flex flex-1 flex-col gap-4 overflow-y-auto px-3 py-4 sm:px-4">
+      <div className="relative flex min-h-0 flex-1 flex-col">
+      <ThreadPrimitive.Viewport autoScroll className="flex min-h-0 flex-1 flex-col gap-4 overflow-x-hidden overflow-y-auto overscroll-contain px-3 py-4 sm:px-4">
         <ThreadPrimitive.Empty>
           <div className="m-auto flex max-w-md flex-col items-center gap-3 text-center">
             <p className="text-sm text-muted-foreground">Ask about the plan or a failure, ask for a change, or attach a screenshot. You can also dictate.</p>
             <div className="flex flex-wrap justify-center gap-2">
               {starterPrompts(detail).map((prompt) => (
                 <ThreadPrimitive.Suggestion key={prompt} prompt={prompt} send asChild>
-                  <Button variant="outline" size="sm">
+                  <Button variant="outline" size="sm" className="h-auto min-h-9 max-w-full py-1.5 whitespace-normal">
                     {prompt}
                   </Button>
                 </ThreadPrimitive.Suggestion>
@@ -279,6 +282,13 @@ function Thread({ busy, onSend, onStop }: { busy: boolean; onSend: (text: string
         <ThreadPrimitive.Messages components={{ UserMessage, AssistantMessage }} />
         {busy && <Thinking activity={detail.chat?.activity ?? []} />}
       </ThreadPrimitive.Viewport>
+      {/* The viewport follows new messages and activity until the person scrolls up; then this button brings them back. */}
+      <ThreadPrimitive.ScrollToBottom asChild>
+        <Button variant="outline" size="sm" className="absolute bottom-3 left-1/2 h-9 -translate-x-1/2 rounded-full shadow-md disabled:hidden">
+          <ArrowDown /> Jump to latest
+        </Button>
+      </ThreadPrimitive.ScrollToBottom>
+      </div>
       <LeadComposer busy={busy} onSend={onSend} onStop={onStop} />
     </ThreadPrimitive.Root>
   )
@@ -376,8 +386,9 @@ function ChatSessionView() {
   })
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-      <Card className="gap-0 overflow-hidden p-0">
+    // Below sm the chat fills the screen edge to edge like a messaging app; from sm up it sits in a card.
+    <div className="flex min-h-0 flex-1 flex-col sm:grid sm:flex-none sm:gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+      <Card className="min-h-0 flex-1 gap-0 overflow-hidden p-0 max-sm:rounded-none max-sm:border-0 max-sm:shadow-none sm:flex-none">
         <SendContext.Provider value={(text) => void send(text)}>
           <AssistantRuntimeProvider runtime={runtime}>
             <Thread busy={busy} onSend={send} onStop={stop} />

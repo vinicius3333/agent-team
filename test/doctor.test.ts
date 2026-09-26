@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process"
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { DatabaseSync } from "node:sqlite"
 import { after, test } from "node:test"
 import { checkOnce, commitTitle, detect, loadDoctorConfig, parseDoctorReport, type DoctorDeps } from "../src/doctor.ts"
 import { commitAll } from "../src/git.ts"
@@ -404,6 +405,31 @@ test("project actions: edit_task lands through tasks.json, shared files need a h
     humanStore.close()
   }
   assert.match(listIncidents(second.projectDir)[0].actions.find((action) => action.action === "edit_task")?.detail ?? "", /needs a human/)
+})
+
+test("with autonomy.decide: auto, a doctor edit that needed a human is applied directly", async () => {
+  const { runsDir, projectDir, installDir } = setup()
+  const yamlPath = join(projectDir, "pipeline.yaml")
+  writeFileSync(yamlPath, readFileSync(yamlPath, "utf8").replace("autoApproveScope: false", "autoApproveScope: false\n  decide: auto"))
+  const store = openProjectStore(projectDir)
+  store.syncTasks(["T001", "T005"])
+  stop(store, "failed", "T005 blocked after 3 attempts: edited files outside allowedPaths: package.json")
+  store.close()
+  const { deps } = stubDeps(installDir, [() => ({ summary: report({ cause: "project_state", projectActions: [{ action: "edit_task", taskId: "T005", allowedPaths: ["package.json"] }] }) })])
+  await checkOnce({ runsDir, deps })
+  const tasks = JSON.parse(git(projectDir, ["show", "main:tasks.json"])) as Task[]
+  assert.ok(tasks.find((entry) => entry.id === "T005")?.allowedPaths.includes("package.json"))
+  const after = openProjectStore(projectDir)
+  try {
+    assert.equal(after.task("T005").humanReason, null)
+    assert.equal(after.task("T005").status, "pending")
+  } finally {
+    after.close()
+  }
+  const db = new DatabaseSync(join(projectDir, ".agent-team", "state.db"))
+  const messages = (db.prepare("SELECT message FROM events WHERE type = 'autonomy'").all() as { message: string }[]).map((row) => row.message)
+  db.close()
+  assert.ok(messages.some((message) => /doctor edit of T005 applied without a human because autonomy\.decide is auto: .*shared foundation file/.test(message)))
 })
 
 test("a decision for the user opens one issue and never runs the agent", async () => {

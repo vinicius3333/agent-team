@@ -42,7 +42,7 @@ function Paths({ label, paths }: { label: string; paths: string[] | undefined })
     <p className="text-xs text-muted-foreground">
       {label}:{" "}
       {paths.map((path) => (
-        <code key={path} className="mr-1 rounded bg-muted px-1 py-0.5 font-mono">
+        <code key={path} className="mr-1 rounded bg-muted px-1 py-0.5 font-mono break-all">
           {path}
         </code>
       ))}
@@ -96,16 +96,16 @@ export function ActionCard({ messageId, index, action }: { messageId: number; in
     }
   }
   return (
-    <div className="flex max-w-lg flex-col gap-2 rounded-lg border border-primary/40 bg-primary/5 p-3">
+    <div className="flex max-w-lg min-w-0 flex-col gap-2 rounded-lg border border-primary/40 bg-primary/5 p-3 [overflow-wrap:anywhere]">
       <p className="text-sm font-medium text-primary">Suggested action</p>
       {action.reason && <p className="text-sm text-muted-foreground">{action.reason}</p>}
       <ActionDetails action={action} />
       {action.state === "proposed" ? (
-        <div className="flex gap-2">
-          <Button size="sm" disabled={busy} onClick={() => decide("applied")}>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" className="h-auto min-h-9 max-w-full shrink whitespace-normal py-1.5 text-left" disabled={busy} onClick={() => decide("applied")}>
             {busy && <Loader2 className="animate-spin" />} {label}
           </Button>
-          <Button size="sm" variant="outline" disabled={busy} onClick={() => decide("dismissed")}>
+          <Button size="sm" variant="outline" className="min-h-9" disabled={busy} onClick={() => decide("dismissed")}>
             Dismiss
           </Button>
         </div>

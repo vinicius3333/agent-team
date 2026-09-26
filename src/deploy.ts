@@ -117,13 +117,19 @@ async function waitForTunnelUrl(projectDir: string): Promise<string> {
   throw new Error("tunnel did not report a URL")
 }
 
-// Secrets go to docker as bare names (-e NAME), which docker fills from its own environment, so no value shows in ps.
-export function startAppContainer(options: { name: string; dir: string; plan: DeployPlan; label: string; restart: boolean; env?: Record<string, string>; secrets?: Record<string, string> }): void {
+export type AppContainerOptions = { name: string; dir: string; plan: DeployPlan; label: string; restart: boolean; env?: Record<string, string>; secrets?: Record<string, string> }
+
+// A valid host label: 1 to 63 letters, digits, or hyphens, not starting or ending with a hyphen.
+const hostLabelPattern = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/
+
+// The host name matches the container name, so HOSTNAME inside the app equals the name checkers use to reach it.
+export function appRunArgs(options: AppContainerOptions): string[] {
   const { name, dir, plan } = options
   const command = [plan.install, plan.start].filter(Boolean).join(" && ")
-  run("docker", [
+  return [
     "run", "-d",
     "--name", name,
+    ...(hostLabelPattern.test(name) ? ["--hostname", name] : []),
     "--label", options.label,
     "--network", appNetwork,
     ...(options.restart ? ["--restart", "unless-stopped"] : []),
@@ -136,7 +142,12 @@ export function startAppContainer(options: { name: string; dir: string; plan: De
     ...Object.keys(options.secrets ?? {}).flatMap((key) => ["-e", key]),
     "-v", `${dir}:/app`, "-w", "/app",
     appImage, "sh", "-c", command,
-  ], undefined, options.secrets ? { ...process.env, ...options.secrets } : undefined)
+  ]
+}
+
+// Secrets go to docker as bare names (-e NAME), which docker fills from its own environment, so no value shows in ps.
+export function startAppContainer(options: AppContainerOptions): void {
+  run("docker", appRunArgs(options), undefined, options.secrets ? { ...process.env, ...options.secrets } : undefined)
 }
 
 export function commandFailure(error: unknown): string {

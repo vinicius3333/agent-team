@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react"
 import { ImagePlus, Loader2, Mic, MicOff, SendHorizontal, Square, X } from "lucide-react"
 import { toast } from "sonner"
 import { api, urls } from "@/api/client"
@@ -89,6 +89,14 @@ export function LeadComposer({ busy, onSend, onStop }: { busy: boolean; onSend: 
   }, [candidates, mention])
 
   useEffect(() => () => recognitionRef.current?.stop(), [])
+
+  // The textarea starts at one line and grows with the text; max-h caps it at 40% of the viewport, then it scrolls.
+  useLayoutEffect(() => {
+    const input = inputRef.current
+    if (!input) return
+    input.style.height = "auto"
+    input.style.height = `${input.scrollHeight + input.offsetHeight - input.clientHeight}px`
+  }, [text])
 
   const uploading = attachments.some((attachment) => attachment.file === null)
   const canSend = !busy && !uploading && text.trim().length > 0
@@ -253,7 +261,7 @@ export function LeadComposer({ busy, onSend, onStop }: { busy: boolean; onSend: 
                 type="button"
                 onClick={() => removeAttachment(attachment.preview)}
                 aria-label="Remove image"
-                className="absolute top-0.5 right-0.5 rounded-full bg-background/90 p-0.5 text-foreground shadow"
+                className="absolute top-0.5 right-0.5 flex size-6 items-center justify-center rounded-full bg-background/90 text-foreground shadow"
               >
                 <X className="size-3" />
               </button>
@@ -261,7 +269,7 @@ export function LeadComposer({ busy, onSend, onStop }: { busy: boolean; onSend: 
           ))}
         </div>
       )}
-      <div className="flex items-end gap-1 sm:gap-2">
+      <div className="flex min-w-0 items-end gap-1 sm:gap-2">
         <input
           ref={fileRef}
           type="file"
@@ -283,10 +291,10 @@ export function LeadComposer({ busy, onSend, onStop }: { busy: boolean; onSend: 
         )}
         <textarea
           ref={inputRef}
-          rows={2}
+          rows={1}
           value={text}
           maxLength={messageMaxLength}
-          placeholder={listening ? "Listening… speak now" : "Ask anything, or type @ to mention a task, phase, or file"}
+          placeholder={listening ? "Listening…" : "Ask the lead, @ to mention"}
           aria-label="Message to the project lead"
           onChange={(event) => {
             setText(event.target.value)
@@ -296,7 +304,7 @@ export function LeadComposer({ busy, onSend, onStop }: { busy: boolean; onSend: 
           onBlur={() => setMention(null)}
           onKeyDown={onKeyDown}
           onPaste={onPaste}
-          className="max-h-40 min-h-10 min-w-0 flex-1 resize-none rounded-md border border-input bg-transparent px-3 py-2 text-base sm:text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-input/30"
+          className="max-h-[40dvh] min-h-9 min-w-0 flex-1 resize-none overflow-y-auto rounded-2xl border border-input bg-transparent px-3 py-1.5 text-base sm:text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-input/30"
         />
         {busy ? (
           <Button type="button" variant="outline" onClick={onStop} aria-label="Stop">

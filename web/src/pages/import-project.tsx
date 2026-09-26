@@ -236,7 +236,7 @@ export function ImportProjectPage() {
                   const disabled = mode.value === "source" && kind === "folder"
                   return (
                     <label key={mode.value} className={cn("flex cursor-pointer items-start gap-3", disabled && "cursor-not-allowed opacity-50")}>
-                      <input type="radio" name="github" value={mode.value} checked={github === mode.value} disabled={disabled} onChange={() => setGithub(mode.value)} className="mt-1 size-4 shrink-0 accent-primary" />
+                      <input type="radio" name="github" value={mode.value} checked={github === mode.value} disabled={disabled} onChange={() => setGithub(mode.value)} className="size-6 shrink-0 accent-primary sm:mt-1 sm:size-4" />
                       <span className="grid gap-0.5">
                         <span className="text-sm font-medium">{mode.label}</span>
                         <span className="text-xs text-muted-foreground">{disabled ? "Needs a GitHub URL." : mode.hint}</span>
@@ -269,9 +269,9 @@ export function ImportProjectPage() {
                 <div className="grid gap-3 sm:grid-cols-2">
                   {importGates.map((gate) => (
                     <div key={gate} className="flex items-start gap-3">
-                      <Checkbox id={`import-gate-${gate}`} checked={gates.includes(gate)} onCheckedChange={(checked) => toggleGate(gate, checked === true)} aria-describedby={`import-gate-${gate}-help`} className="mt-0.5" />
+                      <Checkbox id={`import-gate-${gate}`} checked={gates.includes(gate)} onCheckedChange={(checked) => toggleGate(gate, checked === true)} aria-describedby={`import-gate-${gate}-help`} />
                       <div className="grid gap-0.5">
-                        <Label htmlFor={`import-gate-${gate}`}>After {stepLabels[gate].toLowerCase()}</Label>
+                        <Label htmlFor={`import-gate-${gate}`} className="min-h-6 sm:min-h-4">After {stepLabels[gate].toLowerCase()}</Label>
                         <p id={`import-gate-${gate}-help`} className="text-xs text-muted-foreground">
                           {gateHints[gate]}
                         </p>

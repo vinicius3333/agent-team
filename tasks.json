@@ -1,5 +1,46 @@
 [
   {
+    "id": "T004",
+    "title": "Build the preview host list from the environment with an agent-team preview-hosts command",
+    "story": "US-02",
+    "phase": "foundation",
+    "dependsOn": [],
+    "allowedPaths": [
+      "src/ui/hosts.ts",
+      "src/ui/server.ts",
+      "src/cli.ts",
+      "deploy.json",
+      "test/hosts.test.ts",
+      "test/deploy-start.test.ts",
+      "test/preview-host.test.ts",
+      "test/hash-password.test.ts"
+    ],
+    "readPaths": [
+      "docs/changes/C002/request.md",
+      "docs/changes/C002/spec.md",
+      "docs/changes/C002/architecture.md",
+      "docs/architecture.md",
+      "docs/adr/0006-preview-host-list-from-the-environment.md",
+      "src/ui/auth.ts",
+      "src/screenshots.ts",
+      "test/auth.test.ts",
+      "test/dashboard.test.ts"
+    ],
+    "acceptance": [
+      "New src/ui/hosts.ts exports parseHostList(value) (split on commas, trim, lower-case, drop empty values and duplicates) and previewHosts(env): the union, in order, of parseHostList(env.AGENT_TEAM_UI_HOSTS), the host name of each set and valid URL in APP_URL, PUBLIC_URL, BASE_URL, ORIGIN, NEXTAUTH_URL, NEXT_PUBLIC_APP_URL, and env.HOSTNAME when it is a valid host name. Names are lower-cased, with no port, no empty entries, and no duplicates. No host name is hard-coded.",
+      "src/ui/server.ts uses parseHostList for its extra hosts in place of the inline split, with the same behavior. allowedHost, allowedOrigin, knownHost, and the auth checks do not change.",
+      "New CLI subcommand `agent-team preview-hosts` in src/cli.ts prints previewHosts(process.env).join(\",\") and nothing else, and is listed in the usage text.",
+      "The deploy.json start command sets AGENT_TEAM_UI_HOSTS=\"$(node --disable-warning=ExperimentalWarning src/cli.ts preview-hosts)\" in place of the node -p one-liner. The hash step, the ui command, install, and port stay the same.",
+      "test/hosts.test.ts covers: empty env gives []; AGENT_TEAM_UI_HOSTS=\" a.example, ,A.example\" gives [\"a.example\"]; APP_URL=http://agent-team-qa-agent-team:4400 gives [\"agent-team-qa-agent-team\"]; HOSTNAME=agent-team-qa-agent-team with no APP_URL gives the same; APP_URL=\"not a url\" and HOSTNAME=\"\" are skipped; all set with overlaps gives each name once.",
+      "test/deploy-start.test.ts is updated to the new start command: it runs the host-list part in sh offline and checks the list for example environments.",
+      "test/preview-host.test.ts starts the server with AGENT_TEAM_UI_HOSTS=previewHosts({ HOSTNAME: \"agent-team-qa-agent-team\" }).join(\",\") and a password hash: GET on /, /login, /new, /import, /incidents, and /settings with Host: agent-team-qa-agent-team:4400 answers 200, and GET / with Host: evil.example answers 403 with \"This host name is not allowed. Add it to AGENT_TEAM_UI_HOSTS.\" The shell body check is skipped when web/dist is missing.",
+      "New test/hash-password.test.ts runs `node src/cli.ts hash-password` with execFileSync, stdin set to a 12+ character password with no trailing newline, and checks the login password check from src/ui/auth.ts accepts exactly that password and rejects it with a trailing space. It runs offline.",
+      "The login form, sessions, and lockouts do not change."
+    ],
+    "verify": "npm run typecheck && node --disable-warning=ExperimentalWarning --test test/hosts.test.ts test/deploy-start.test.ts test/preview-host.test.ts test/hash-password.test.ts test/auth.test.ts test/dashboard.test.ts",
+    "change": "C002"
+  },
+  {
     "id": "T001",
     "title": "Pass APP_URL to checker app containers and make the login email field optional",
     "story": "US-02",
@@ -249,5 +290,186 @@
       "npm run typecheck and npm test pass."
     ],
     "verify": "npm run typecheck && npm test"
+  },
+  {
+    "id": "T005",
+    "title": "Set the app container host name to its container name",
+    "story": "US-02",
+    "phase": "feature",
+    "dependsOn": [],
+    "allowedPaths": [
+      "src/deploy.ts",
+      "test/deploy.test.ts"
+    ],
+    "readPaths": [
+      "docs/changes/C002/spec.md",
+      "docs/changes/C002/architecture.md",
+      "src/screenshots.ts",
+      "test/run-container.test.ts"
+    ],
+    "acceptance": [
+      "startAppContainer in src/deploy.ts adds `--hostname <name>` to docker run, so HOSTNAME inside the app equals the container name the checker uses (for example agent-team-qa-agent-team).",
+      "The flag is left out when the name is not a valid host label (over 63 characters, or characters other than letters, digits, and hyphens). Nothing else in the docker run arguments changes.",
+      "The docker run arguments come from a small exported pure helper (for example appRunArgs), and new test/deploy.test.ts checks they hold --hostname <name> for a normal name and leave it out for a 70-character name. No Docker."
+    ],
+    "verify": "npm run typecheck && node --disable-warning=ExperimentalWarning --test test/deploy.test.ts test/run-container.test.ts test/screenshots.test.ts",
+    "change": "C002"
+  },
+  {
+    "id": "T006",
+    "title": "Fail a QA round when no page renders",
+    "story": "US-05",
+    "phase": "feature",
+    "dependsOn": [],
+    "allowedPaths": [
+      "src/qa.ts",
+      "src/pipeline.ts",
+      "test/qa.test.ts"
+    ],
+    "readPaths": [
+      "docs/changes/C002/spec.md",
+      "docs/changes/C002/architecture.md",
+      "src/baseline.ts",
+      "src/screenshots.ts"
+    ],
+    "acceptance": [
+      "src/qa.ts exports noPageRenderedMessage = \"No page rendered. Check the host and start command.\" and noPageRendered(visual). It returns false when visual is null; true when visual.startError is set, visual.routes is empty, or every route failed. A route failed when it has an error, a null status, a 403 or 5xx status, or no screenshot file. One route with a 2xx or 3xx status and a screenshot makes it false.",
+      "In the QA round in src/pipeline.ts, after splitFailures, noPageRenderedMessage is pushed onto hardFailures when noPageRendered(visual) is true, so it can never be filed as preexisting, and a \"pass\" verdict is rejected. The round logs `round N: No page rendered. Check the host and start command.`",
+      "splitFailures and createBaseline do not change.",
+      "test/qa.test.ts covers: every route 403 gives true; every route with status null and an error gives true; startError with no routes gives true; one route 200 with a file and the rest 403 gives false; visual null gives false."
+    ],
+    "verify": "npm run typecheck && node --disable-warning=ExperimentalWarning --test test/qa.test.ts",
+    "change": "C002"
+  },
+  {
+    "id": "T007",
+    "title": "Keep lead.access when saving the Lead settings and show the access level in the form",
+    "story": "US-06",
+    "phase": "feature",
+    "dependsOn": [],
+    "allowedPaths": [
+      "src/lead-actions.ts",
+      "test/lead-actions.test.ts",
+      "web/src/api/types.ts",
+      "web/src/components/project/lead-settings-card.tsx",
+      "src/ui/server.ts"
+    ],
+    "readPaths": [
+      "docs/changes/C002/spec.md",
+      "docs/changes/C002/architecture.md",
+      "docs/adr/0007-lead-settings-own-access.md",
+      "contracts/openapi.yaml",
+      "src/config.ts",
+      "test/lead.test.ts",
+      "web/src/components/ui/toggle-group.tsx",
+      "design/tokens.css"
+    ],
+    "acceptance": [
+      "parseLeadSettings in src/lead-actions.ts also reads access, which must be read or full, or the route answers 400 with \"access must be read or full.\" A body with no access leaves access out.",
+      "saveLeadSettings sets actions, autoApply, chatBudgetUsd, and access (only when given) one by one with document.setIn([\"lead\", key], value). It never replaces the lead node, so other lead keys and comments stay. The validate-and-restore step and the commit stay the same.",
+      "New test/lead-actions.test.ts uses a temp project whose pipeline.yaml has lead: { access: full, note: keep }, and sets git user.name and user.email itself. Saving with access \"full\" keeps access: full and note: keep, and loadConfig reads access as full. Saving with access \"read\" writes access: read. Saving with no access keeps the old value. access \"admin\" is rejected.",
+      "web/src/api/types.ts adds access?: \"read\" | \"full\" to the lead settings type.",
+      "The Lead settings card shows an Access field with two choices, Limited (read, the default when unset) and Full, using the existing shadcn/ui ToggleGroup or a similar existing control, with the sentence \"Full access lets the lead edit any file and run any command in the project folder, with no review.\" It sends access with the other fields, fits at 360px wide, and each choice is at least 24px tall."
+    ],
+    "verify": "npm run typecheck && node --disable-warning=ExperimentalWarning --test test/lead-actions.test.ts test/lead.test.ts && npm --prefix web run lint && npm --prefix web run build",
+    "ui": true,
+    "routes": [
+      "/"
+    ],
+    "change": "C002"
+  },
+  {
+    "id": "Q201",
+    "title": "Make checkboxes at least 24x24 px on phones",
+    "story": "US-01",
+    "phase": "feature",
+    "dependsOn": [],
+    "ui": true,
+    "routes": [
+      "/new",
+      "/import"
+    ],
+    "allowedPaths": [
+      "web/src/components/ui/checkbox.tsx",
+      "web/src/pages/new-project.tsx",
+      "web/src/pages/import-project.tsx",
+      "web/src/components/project/gates-card.tsx",
+      "web/src/components/ui/switch.tsx"
+    ],
+    "readPaths": [
+      "docs/design-system.md",
+      "design/tokens.css"
+    ],
+    "acceptance": [
+      "At 390px wide, every approval gate checkbox on /new and /import (for example #gate-spec, #gate-architecture, #import-gate-spec, #import-gate-design) and its hidden input measure at least 24x24 CSS px",
+      "At 1440px wide the checkboxes keep their 16px look (for example size-6 sm:size-4), and the label stays aligned with the box",
+      "The checkboxes keep a visible focus ring and can still be checked with the keyboard and by clicking the label"
+    ],
+    "verify": "npm --prefix web run lint && npm run build:ui",
+    "change": "C002"
+  },
+  {
+    "id": "L007",
+    "title": "Add autonomy.decide: auto so the run never waits for a human",
+    "story": "As the project owner, I want the run to make the best decision on its own instead of stopping at requireHuman, so the project stays autonomous. Add `autonomy.decide: human | auto` to pipeline.yaml (default `human`). With `auto`, every place that calls requireHuman decides by itself and logs why: scope blocks approve the requested files without the maxAutoApprovals limit, but if the task asks again for files it already has, mark it blocked, open a GitHub issue for the record, and continue with other tasks; a task out of budget gets +50% once if the run budget allows, otherwise it is skipped; a doctor edit that needed a human is applied directly. The run-wide spend limit still applies. Also turn it on for this project by setting `decide: auto` under `autonomy` in pipeline.yaml.",
+    "phase": "feature",
+    "dependsOn": [],
+    "allowedPaths": [
+      "src/pipeline.ts",
+      "src/config.ts",
+      "src/doctor.ts",
+      "pipeline.yaml",
+      "test/pipeline.test.ts",
+      "test/config.test.ts",
+      "test/doctor.test.ts",
+      "docs/architecture.md"
+    ],
+    "readPaths": [
+      "src/run.ts",
+      "src/tasks.ts",
+      "src/store.ts"
+    ],
+    "acceptance": [
+      "loadConfig reads autonomy.decide as 'human' or 'auto', defaults to 'human', and throws a plain error for any other value.",
+      "With decide: auto, a scope block is approved without the maxAutoApprovals limit, unless the task asks for files it already has; then the task is marked blocked, an issue is opened, and the run continues with other tasks without awaiting_approval.",
+      "With decide: auto, a task that runs out of its per-task budget gets +50% once when the run budget allows it; otherwise it is skipped and the run continues.",
+      "With decide: auto, a doctor edit that required a human is applied directly.",
+      "Every automatic decision logs a line with the reason, using the existing event log.",
+      "With decide: human (the default), behavior is unchanged.",
+      "This project's pipeline.yaml has `decide: auto` under `autonomy`.",
+      "docs/architecture.md documents autonomy.decide and its risks.",
+      "Tests cover each decision path offline with fakes."
+    ],
+    "verify": "npm run typecheck && npm test",
+    "change": "C002"
+  },
+  {
+    "id": "L008",
+    "title": "Make the lead chat full screen and responsive on phones",
+    "story": "On a phone (360-412px wide) the Build > Chat screen breaks. Follow-up chips in FollowUps (chat-tab.tsx) overflow to the right and cause a horizontal scrollbar, because the Button base class has whitespace-nowrap and shrink-0 and the chips have no max width. The Thread height is calc(100dvh-11rem), but the page header (breadcrumb, title, status badges) takes about a third of the screen, so the page scrolls and the chat sits in a small card. The composer textarea is fixed at 2 rows and squeezed by the image, mic, and send buttons, so the placeholder is cut off. Make the chat feel like a messaging app on phones: full screen and fluid.",
+    "phase": "feature",
+    "dependsOn": [],
+    "allowedPaths": [
+      "web/src/components/project/chat-tab.tsx",
+      "web/src/components/project/lead-composer.tsx",
+      "web/src/components/project/lead-action-card.tsx",
+      "web/src/pages/project.tsx"
+    ],
+    "readPaths": [
+      "web/src/components/ui/button.tsx",
+      "web/src/components/markdown.tsx",
+      "AGENTS.md"
+    ],
+    "acceptance": [
+      "At 360px and 412px wide, the chat page has no horizontal scroll: follow-up chips, action cards, code blocks, and long paths stay within the screen (chips wrap or scroll sideways in their own row).",
+      "Below the sm breakpoint, the chat fills the space below the app top bar edge to edge: no card border or side margin, the page heading and breadcrumb are hidden or collapsed to one compact line, and the composer stays pinned at the bottom above the safe area, including when the mobile keyboard is open (use dvh).",
+      "The composer textarea starts at one line and grows with the text up to about 40% of the viewport. The placeholder is short enough to fit on phones. Image and mic buttons stay tappable (at least 36px) without squeezing the textarea.",
+      "The message list keeps scrolled to the newest message as new messages or live activity arrive, unless the person scrolled up; then a 'Jump to latest' button appears.",
+      "Message bubbles on phones use almost the full width (the avatar may be hidden or smaller), and the desktop layout (sm and up, xl with the context card) keeps working as before.",
+      "npm --prefix web run lint and npm --prefix web run build pass."
+    ],
+    "verify": "npm --prefix web run lint && npm --prefix web run build && npm run typecheck",
+    "ui": true,
+    "change": "C002"
   }
 ]

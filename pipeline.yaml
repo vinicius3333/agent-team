@@ -5,6 +5,7 @@ autonomy:
   gates: []
   changeMerge: auto # auto | manual: manual waits for Approve before a change request merges into main
   autoApproveScope: true
+  decide: auto # human | auto: auto never waits for a person when a task stops; it decides and logs why
 
 budget:
   perTaskUsd: 2

@@ -545,12 +545,20 @@ paths:
   /api/projects/{name}/lead-settings:
     post:
       summary: Save the lead's settings (US-06)
+      description: Sets only these keys under `lead` in pipeline.yaml and keeps every other lead key. Without `access`, the current access stays.
       parameters: [{ $ref: "#/components/parameters/name" }, { $ref: "#/components/parameters/csrf" }]
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/Object" }
+            schema:
+              type: object
+              required: [actions, autoApply, chatBudgetUsd]
+              properties:
+                actions: { type: array, items: { type: string } }
+                autoApply: { type: array, items: { type: string } }
+                chatBudgetUsd: { type: number, exclusiveMinimum: 0, maximum: 20 }
+                access: { type: string, enum: [read, full], description: "read is shown as Limited in the form." }
       responses: { "200": { $ref: "#/components/responses/Saved" }, "400": { $ref: "#/components/responses/Error" } }
 
   /api/projects/{name}/changes:
