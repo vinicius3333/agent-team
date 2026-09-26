@@ -857,7 +857,9 @@
       "src/routines.ts",
       "test/runners.test.ts",
       "test/harness.test.ts",
-      "test/network.test.ts"
+      "test/network.test.ts",
+      "src/pipeline.ts",
+      "test/pipeline.test.ts"
     ],
     "readPaths": [
       "docs/changes/C003/spec.md",
