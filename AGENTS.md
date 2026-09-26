@@ -37,7 +37,7 @@ Also useful: `npm run typecheck` (server types), `npm --prefix web run dev` (das
 - Names: files in kebab-case; functions and variables in camelCase; React components in PascalCase.
 - Server code uses only Node built-ins plus `yaml`. Do not add runtime dependencies without an ADR.
 - State goes through `src/store.ts`. Large content goes in files in the project folder.
-- Tests: add or update `test/<feature>.test.ts` with `node:test` and `node:assert`. Tests run offline and must not call real agents, GitHub, or Docker; use temp folders and fakes.
+- Tests: add or update `test/<feature>.test.ts` with `node:test` and `node:assert`. Tests run offline and must not call real agents, GitHub, or Docker; use temp folders and fakes. They must pass in a clean `node:24-bookworm` container with no git identity, so tests that commit set `user.name` and `user.email` themselves.
 - Errors: throw `new Error("plain sentence.")` with a message the operator can act on. API routes answer `{ "error": "..." }` with a 4xx status for bad input.
 - Every POST needs the `x-agent-team: 1` header; the web client adds it. Do not weaken the Host, Origin, or auth checks.
 - Config comes from environment variables (`AGENT_TEAM_UI_*`, `CLAUDE_CODE_OAUTH_TOKEN`) and `pipeline.yaml`. Never commit secrets or log passwords.
