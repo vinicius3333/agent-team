@@ -45,7 +45,8 @@ agent-team is a self-hosted orchestrator. It turns a plain-text brief into a wor
 - With no login set, the server listens only on loopback. It refuses a non-loopback bind unless `--insecure-no-auth` is passed.
 - Every POST needs the header `x-agent-team: 1` and an allowed Origin. Every request needs an allowed Host: loopback, `*.ts.net`, or a name in `AGENT_TEAM_UI_HOSTS`.
 - **Demo login:** the app has no users, so it cannot seed a demo user. `deploy.json` instead hashes `DEMO_PASSWORD` into `AGENT_TEAM_UI_PASSWORD_HASH` at startup. `DEMO_EMAIL` is not used. The password is piped to `hash-password` and never logged. `DEMO_PASSWORD` must be at least 12 characters, or the hash step fails and the server refuses to start on `0.0.0.0`.
-- **Public URL:** the dashboard makes no absolute links of its own. `deploy.json` adds the host name from `APP_URL` to `AGENT_TEAM_UI_HOSTS` so requests to the public host are not refused.
+- **Public URL:** the dashboard makes no absolute links of its own. `deploy.json` adds the host name from `APP_URL` to `AGENT_TEAM_UI_HOSTS` so requests to the public host are not refused. Any other unknown host still gets 403.
+- **Checkers:** smoke checks, QA, and the import baseline (`captureApp` in `src/screenshots.ts`) pass `APP_URL` set to the URL their browser uses, as deploy does. The login checker fills an email field only when the form has one, so it can log in to the password-only card with `DEMO_PASSWORD` (ADR 0005).
 
 ## Data model
 
