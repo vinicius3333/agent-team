@@ -6,7 +6,7 @@ import { groupPhaseFiles, parseCommitPlan, type PhaseCommit } from "./commits.ts
 import { faviconDir, faviconFiles, generateFavicons, markPath, validateMark } from "./favicon.ts"
 import { copyPath, manifestPath, marketingDir, renderMarketing, validateMarketing } from "./marketing.ts"
 import { baselinePath, cleanupRequest, createBaseline, gateFailures, nextBaselinePath, promoteNextBaseline, readBaseline, splitFailures, writeBaseline } from "./baseline.ts"
-import { changedFiles, commitOf, commitPaths, fileAtRef, isAncestor, restorePaths, stagedDiff, trackedFiles } from "./git.ts"
+import { changedFiles, commitOf, commitPaths, fileAtRef, isAncestor, restorePaths, stagedDiff, stashTrackedChanges, trackedFiles } from "./git.ts"
 import { createDockerExecutor, ensureImage } from "./harness/docker.ts"
 import { hostExecutor, type Executor } from "./harness/executor.ts"
 import { defaultAllowlist, ensureEgressProxy } from "./harness/network.ts"
@@ -1256,6 +1256,9 @@ async function mergeChange(context: PipelineContext, change: Change): Promise<Ru
   try {
     // A hand edit of pipeline.yaml stays uncommitted in the project folder, and git refuses to merge over it.
     if (commitPaths(projectDir, ["pipeline.yaml"], "chore: save project settings")) store.log("change", `${change.id}: committed the uncommitted pipeline.yaml on main before the merge`)
+    // Any other stray edit on main would make git refuse the merge; it is kept in a stash instead of lost.
+    const stashed = stashTrackedChanges(projectDir, `agent-team: stray edits on main before merging ${change.id}`)
+    if (stashed.length) store.log("change", `${change.id}: stashed uncommitted edits on main before the merge (${stashed.join(", ")}); see git stash list`)
     if (!isAncestor(projectDir, "main", change.branch)) {
       const workspace = createWorkspace(projectDir, `change-${change.id}-sync`, change.branch)
       try {
