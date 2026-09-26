@@ -25,3 +25,11 @@ Files: none
 > I didn't change any code: `npm test` already passes in a clean setup, so this task needs no edits. The last verify run (`npm run typecheck && npm test`) passed: typecheck is clean and all 254 tests pass, none skipped.
 > **Clean-setup runs.** I ran the full suite with no global git config, no claude, gh or docker on PATH, and a temp HOME, which leaves no git identity:
 > - **Without `web/dist`:** it exits 0 three times in a row. One test is skipped: the new host test from T002 (`test/preview-host.test.ts`) needs the built dashboard and says "web/dist is missing. Run: npm run build:ui".
+
+## L001: Let the project lead search and fetch web pages
+
+Files: `prompts/lead.md`, `src/lead.ts`, `test/lead.test.ts`
+
+> The lead chat can now search the web and open pages, and `npm test` passes: 253 passed, 0 failed, 1 skipped.
+> - **`src/lead.ts`**: `askLead` now gives the runner the tools `["read", "web_search", "web_fetch"]` instead of `["read"]` alone. The Claude runner turns these into `WebSearch` and `WebFetch`.
+> - **`prompts/lead.md`**: a new "Research on the web" section says three things:
