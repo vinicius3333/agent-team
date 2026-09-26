@@ -1,6 +1,6 @@
 import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { basename, extname, join, resolve, sep } from "node:path"
+import { basename, dirname, extname, join, resolve, sep } from "node:path"
 import {
   insightBudgetUsd,
   isBuiltInRoutine,
@@ -19,7 +19,8 @@ import { extractJsonObject } from "./json.ts"
 import { savePipelineSetting } from "./lead-actions.ts"
 import { insightRunActive, parseInsightReply, readBrief, runInsightAgent, type InsightFinding, type RunInsight } from "./operate/agents.ts"
 import { projectLive } from "./operate/health.ts"
-import { processAlive, ProjectError, withProjectStore } from "./project.ts"
+import { processAlive, ProjectError, runLogPath, startRun, withProjectStore } from "./project.ts"
+import { sprintBlocker, syncSprint } from "./sprint.ts"
 import { getRunner, type RunRequest, type RunResult } from "./runners/index.ts"
 import type { InsightRun, RoutineFile, RoutineRun, Store } from "./store.ts"
 
@@ -94,6 +95,10 @@ export function routineBlocker(store: Store, config: PipelineConfig, routine: Ro
   if (spent + routine.budgetUsd > config.routines.monthlyUsd) {
     return `routines spent $${spent.toFixed(2)} in the last 30 days; another run could pass routines.monthlyUsd ($${config.routines.monthlyUsd.toFixed(2)})`
   }
+  if (routine.output === "sprint") {
+    const sprint = sprintBlocker(store, config, { now, early: true })
+    if (sprint) return `no sprint can start: ${sprint}`
+  }
   if (options.manual) return null
   if (!routine.enabled) return "it is off"
   if (routine.trigger === "manual") return "it runs by hand only"
@@ -124,7 +129,7 @@ export interface RoutineReply {
 }
 
 export function parseRoutineReply(text: string, output: RoutineConfig["output"]): RoutineReply {
-  if (output === "backlog") {
+  if (output === "backlog" || output === "sprint") {
     const { summary, findings, dropped } = parseInsightReply(text)
     return { summary, findings, dropped, report: null, images: [] }
   }
@@ -205,13 +210,31 @@ export interface RoutineOutcome {
 export interface RoutineDeps {
   runAgent?: RunInsight
   now?: () => number
+  // The monitoring routine's container logs; tests pass a fake so no Docker call runs.
+  logs?: (projectDir: string) => string
+  // Starts the sprint a routine with output sprint asks for; the default is a detached `agent-team sprint --now` run.
+  startSprint?: (projectDir: string) => void | Promise<void>
 }
 
 const runWithConfiguredRunner: RunInsight = (request, runner) => getRunner(runner as "claude" | "codex").run(request)
 
+const startSprintRun = (projectDir: string) => void startRun(projectDir, runLogPath(dirname(projectDir), basename(projectDir)), ["sprint", "--now"])
+
+// Starts a sprint for a routine with output sprint. Returns the blocker in plain words, or null once the sprint started.
+export async function startRoutineSprint(projectDir: string, config: PipelineConfig, deps: RoutineDeps = {}): Promise<string | null> {
+  const now = (deps.now ?? Date.now)()
+  const blocker = withProjectStore(projectDir, (store) => {
+    syncSprint(store, now)
+    return sprintBlocker(store, config, { now, early: true })
+  })
+  if (blocker) return blocker
+  await (deps.startSprint ?? startSprintRun)(projectDir)
+  return null
+}
+
 // Stores the reply where the routine's output goes: backlog findings, a committed report, or committed images.
 function applyReply(projectDir: string, store: Store, routine: RoutineConfig, reply: RoutineReply, stageDir: string | null): { findings: number; files: RoutineFile[]; dropped: string[] } {
-  if (routine.output === "backlog") {
+  if (routine.output === "backlog" || routine.output === "sprint") {
     for (const finding of reply.findings) store.addFinding({ source: "routine", ...finding, evidence: `[${routine.name}] ${finding.evidence}` })
     return { findings: reply.findings.length, files: [], dropped: reply.dropped }
   }
@@ -293,6 +316,11 @@ async function runCustomRoutine(projectDir: string, config: PipelineConfig, rout
       const reply = parseRoutineReply(result.summary, routine.output)
       const applied = withProjectStore(projectDir, (store) => applyReply(projectDir, store, routine, reply, stageDir))
       if (applied.dropped.length) withProjectStore(projectDir, (store) => store.log("routine", `${routine.id}: dropped ${applied.dropped.join("; ")}`))
+      if (routine.output === "sprint") {
+        const blocker = await startRoutineSprint(projectDir, config, deps)
+        if (blocker) return finish("failed", `no sprint started: ${blocker}`, result.costUsd, applied)
+        return finish("done", `${reply.summary} A sprint started to build the backlog.`, result.costUsd, applied)
+      }
       return finish("done", reply.summary, result.costUsd, applied)
     } catch (error) {
       return finish("failed", `the reply is not usable: ${(error as Error).message}`, result.costUsd)
@@ -308,7 +336,7 @@ export async function runRoutine(options: { projectDir: string; id: string } & R
   const routine = config.routines.list.find((entry) => entry.id === id)
   if (!routine) throw new ProjectError(404, `unknown routine "${id}"`)
   if (isBuiltInRoutine(routine.id)) {
-    const outcome = await runInsightAgent({ projectDir, agent: routine.id, runAgent: options.runAgent, now: options.now })
+    const outcome = await runInsightAgent({ projectDir, agent: routine.id, runAgent: options.runAgent, now: options.now, logs: options.logs })
     return { status: outcome.status, summary: outcome.summary }
   }
   return runCustomRoutine(projectDir, config, routine, options)

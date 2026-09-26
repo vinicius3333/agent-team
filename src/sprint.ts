@@ -128,8 +128,28 @@ export function activeSprint(store: Store): Sprint | null {
   return last && (last.status === "planning" || last.status === "building") ? last : null
 }
 
+// A change opened from the dashboard waits this long for its run to start before it counts as stuck.
+const stuckChangeMs = 60 * 60_000
+
+// Closes a change left open by a run that ended without a merge, so it does not block sprints forever. A change
+// waiting at a gate for a person is not stuck. Its unmerged tasks go and its phases are restored, as on abandon.
+export function closeStuckChange(store: Store, now = Date.now()): string | null {
+  const change = store.currentChange()
+  if (!change || change.status !== "open") return null
+  if (processAlive(Number(store.meta("run.pid")))) return null
+  if (store.phases().some((phase) => phase.status === "awaiting_approval")) return null
+  if (now - Date.parse(change.createdAt) < stuckChangeMs) return null
+  const reason = `change ${change.id} was still open with no run in progress, so it was closed as failed`
+  for (const task of store.tasks()) if (task.status !== "merged") store.removeTask(task.id)
+  store.restorePhases()
+  store.finishChange(change.id, "failed")
+  store.log("change", reason)
+  return reason
+}
+
 // Closes the active sprint once its change is merged or abandoned, or once its planning run died before a change opened.
-export function syncSprint(store: Store): void {
+export function syncSprint(store: Store, now = Date.now()): void {
+  closeStuckChange(store, now)
   const sprint = activeSprint(store)
   if (!sprint) return
   if (sprint.status === "planning") {
@@ -187,7 +207,7 @@ export function sprintTick(options: SprintTickOptions): void {
       const config = loadConfig(join(projectDir, "pipeline.yaml"))
       if (!config.sprints.enabled) continue
       const due = withProjectStore(projectDir, (store) => {
-        syncSprint(store)
+        syncSprint(store, options.now)
         return sprintBlocker(store, config, { now: options.now }) === null
       })
       if (due) launch(projectDir, runLogPath(options.runsDir, name), ["sprint"])

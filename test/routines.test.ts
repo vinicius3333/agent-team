@@ -10,9 +10,11 @@ import { parse, parseDocument } from "yaml"
 import { loadConfig } from "../src/config.ts"
 import { operateTick } from "../src/operate/tick.ts"
 import { createProject, withProjectStore } from "../src/project.ts"
-import { checkStageImages, dueRoutines, markRoutineBaselines, parseRoutineReply, routineBlocker, runRoutine } from "../src/routines.ts"
+import { startSprint } from "../src/improve.ts"
+import type { PipelineContext } from "../src/pipeline.ts"
+import { checkStageImages, dueRoutines, markRoutineBaselines, parseRoutineReply, routineBlocker, routinesSnapshot, runRoutine } from "../src/routines.ts"
 import type { RunResult } from "../src/runners/types.ts"
-import type { Store } from "../src/store.ts"
+import { openStore, type Store } from "../src/store.ts"
 import { startUi } from "../src/ui/server.ts"
 
 const scratch = mkdtempSync(join(tmpdir(), "agent-team-routines-"))
@@ -217,6 +219,77 @@ test("runRoutine writes a report or backlog findings, and fails on a bad reply",
     assert.equal(finding.title, "Add a share card")
     assert.equal(finding.evidence, "[Launch post] 3 of 4 rivals have it")
   })
+})
+
+test("runRoutine runs the monitoring routine with a fake runner, records lastRun, and adds its findings", async () => {
+  const projectDir = project("monitoring")
+  const outcome = await runRoutine({
+    projectDir,
+    id: "monitoring",
+    logs: () => "GET / 500 in 2ms",
+    runAgent: async (request) => {
+      assert.match(request.taskPrompt, /GET \/ 500/)
+      return done(json({ summary: "One error.", findings: [{ severity: "high", title: "Home page answers 500", evidence: "GET / 500", proposal: "Fix the home page" }] }))
+    },
+  })
+  assert.equal(outcome.status, "done")
+  withProjectStore(projectDir, (store) => {
+    const config = loadConfig(join(projectDir, "pipeline.yaml"))
+    const view = routinesSnapshot(store, config).routines.find((routine) => routine.id === "monitoring")!
+    assert.equal(view.lastRun?.status, "done")
+    assert.equal(view.lastRun?.findings, 1)
+    assert.deepEqual(store.listFindings({ status: "open" }).map((finding) => finding.title), ["Home page answers 500"])
+  })
+})
+
+test("a routine with output sprint adds its findings and starts a sprint that adds a sprint row", async () => {
+  const sprintRoutine = socialPosts.replace("output: report", "output: sprint")
+  const projectDir = project("sprint-output", sprintRoutine)
+  const path = join(projectDir, "pipeline.yaml")
+  const document = parseDocument(readFileSync(path, "utf8"))
+  document.setIn(["sprints", "enabled"], true)
+  document.setIn(["deploy", "enabled"], true)
+  writeFileSync(path, document.toString())
+  withProjectStore(projectDir, (store) => {
+    for (const phase of ["plan", "qa"]) store.setPhase(phase, "approved")
+    store.setMeta("import.done", "1")
+  })
+  const config = loadConfig(path)
+  const launch = config.routines.list.find((routine) => routine.id === "launch-post")!
+  withProjectStore(projectDir, (store) => assert.equal(routineBlocker(store, config, launch, { manual: true }), null))
+
+  const failed: RunResult = { status: "failed", summary: "fake runner: no reply", costUsd: 0, tokens: null, durationMs: 1, exitCode: 1, diagnostics: "" }
+  const outcome = await runRoutine({
+    projectDir,
+    id: "launch-post",
+    runAgent: async () => done(json({ summary: "Found a gap.", findings: [{ severity: "medium", title: "Add a share card", evidence: "rivals have it", proposal: "Add one" }] })),
+    startSprint: async (dir) => {
+      const store = openStore(join(dir, ".agent-team", "state.db"))
+      const sprintConfig = loadConfig(join(dir, "pipeline.yaml"))
+      sprintConfig.harness.isolation = "none"
+      const harness = { run: async () => ({ result: failed, candidate: null, failureClass: "agent_failure" }) }
+      const deploy = async () => ({ url: "https://app.example", error: null })
+      const context = { projectDir: dir, config: sprintConfig, store, signal: new AbortController().signal, harness, deploy, appRunning: () => false } as unknown as PipelineContext
+      try {
+        await startSprint(context, { early: true })
+      } finally {
+        store.close()
+      }
+    },
+  })
+  assert.equal(outcome.status, "done")
+  assert.match(outcome.summary, /A sprint started/)
+  withProjectStore(projectDir, (store) => {
+    assert.equal(store.listFindings({ source: "routine" })[0].title, "Add a share card")
+    const [sprint] = store.sprints(1)
+    assert.ok(sprint, "the routine added a sprint row")
+    assert.notEqual(sprint.status, "planning")
+  })
+
+  // With sprints off, Run now answers the blocker instead of running quietly.
+  const off = loadConfig(path)
+  off.sprints.enabled = false
+  withProjectStore(projectDir, (store) => assert.match(routineBlocker(store, off, launch, { manual: true })!, /no sprint can start: sprints are off/))
 })
 
 test("operateTick runs due custom routines even with Operate off", async () => {
