@@ -136,13 +136,65 @@ export function lessonWeight(lesson: Lesson, now = Date.now()): number {
 }
 
 // stacks are the project's tags (projectStacks); a lesson tied to other stacks is left out. With no project tags yet
-// (before the scaffold), every lesson applies.
-export function lessonsFor(lessons: Lesson[], role: Role, limit: number, stacks: string[] = [], now = Date.now()): Lesson[] {
-  return lessons
+// (before the scaffold), every lesson applies. With a query (the task prompt), lessons are ordered by reciprocal rank
+// fusion of their keyword relevance to the query and their weight; lessons that match no query word keep only their
+// weight rank. Without a query, or when nothing matches, the order is by weight alone.
+export function lessonsFor(lessons: Lesson[], role: Role, limit: number, stacks: string[] = [], now = Date.now(), query = ""): Lesson[] {
+  const byWeight = lessons
     .filter((lesson) => lesson.roles.includes(role))
     .filter((lesson) => !lesson.stacks?.length || !stacks.length || lesson.stacks.some((tag) => stacks.includes(tag)))
     .sort((left, right) => lessonWeight(right, now) - lessonWeight(left, now))
-    .slice(0, limit)
+  return rankByRelevance(byWeight, query).slice(0, limit)
+}
+
+// Reciprocal rank fusion constant: the usual 60 keeps one list's top rank from drowning the other list.
+const fusionK = 60
+const bm25K1 = 1.2
+const bm25B = 0.75
+const stopWords = new Set("the and for are but not you your all any can has have had was were will with this that these those from into onto than then them they their there when what which while who how its our out own too very just also only each every other some such more most less one two before after about above below over under again once here where why use used using does did done make made must should would could may might both few same off per via yes nor him her his she".split(" "))
+
+function tokenize(text: string): string[] {
+  return (text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [])
+    .filter((word) => word.length > 2 && !stopWords.has(word))
+    .map((word) => (word.length > 3 && word.endsWith("s") && !word.endsWith("ss") ? word.slice(0, -1) : word))
+}
+
+// BM25 of each lesson's rule and evidence against the query, with the candidates as the corpus. One score per lesson.
+export function relevanceScores(lessons: Lesson[], query: string): number[] {
+  const terms = [...new Set(tokenize(query))]
+  if (!terms.length || !lessons.length) return lessons.map(() => 0)
+  const documents = lessons.map((lesson) => tokenize([lesson.rule, ...(lesson.evidence ?? [])].join(" ")))
+  const averageLength = documents.reduce((sum, words) => sum + words.length, 0) / documents.length || 1
+  const counts = documents.map((words) => {
+    const count = new Map<string, number>()
+    for (const word of words) count.set(word, (count.get(word) ?? 0) + 1)
+    return count
+  })
+  const idf = new Map(terms.map((term) => {
+    const df = counts.filter((count) => count.has(term)).length
+    return [term, Math.log(1 + (documents.length - df + 0.5) / (df + 0.5))]
+  }))
+  return counts.map((count, index) => {
+    const lengthNorm = bm25K1 * (1 - bm25B + (bm25B * documents[index].length) / averageLength)
+    return terms.reduce((score, term) => {
+      const frequency = count.get(term) ?? 0
+      return frequency ? score + (idf.get(term) ?? 0) * ((frequency * (bm25K1 + 1)) / (frequency + lengthNorm)) : score
+    }, 0)
+  })
+}
+
+// byWeight is already ordered by weight; ties in the fused score keep that order.
+function rankByRelevance(byWeight: Lesson[], query: string): Lesson[] {
+  if (!query.trim()) return byWeight
+  const scores = relevanceScores(byWeight, query)
+  const matching = byWeight.map((_, index) => index).filter((index) => scores[index] > 0)
+  if (!matching.length) return byWeight
+  const relevanceRank = new Map(matching.sort((left, right) => scores[right] - scores[left] || left - right).map((index, rank) => [index, rank + 1]))
+  const fused = byWeight.map((_, index) => {
+    const relevance = relevanceRank.get(index)
+    return 1 / (fusionK + index + 1) + (relevance ? 1 / (fusionK + relevance) : 0)
+  })
+  return byWeight.map((_, index) => index).sort((left, right) => fused[right] - fused[left] || left - right).map((index) => byWeight[index])
 }
 
 export function formatLessons(lessons: Lesson[]): string {

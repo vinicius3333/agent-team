@@ -41,3 +41,11 @@ Files: `prompts/curator.md`, `src/improve.ts`, `src/lessons.ts`, `test/lessons.t
 > The curator can now weaken and merge lessons, not just confirm or retire them. `npm run typecheck && npm test` passes: typecheck is clean, and 297 of 298 tests pass with 0 failures. The one skipped test is not in `test/lessons.test.ts`, and I didn't track down which one it is.
 > **`src/lessons.ts`**
 > - **Misses:** `Lesson` has an optional `misses` count. `lessonWeight` now uses `max(0, hits - misses)` times the decay. A missing value counts as 0, so old `lessons.json` files still load. The curator's prompt also shows "missed Nx" next to each lesson.
+
+## L003: Pick lessons by relevance to the task, fused with lesson weight
+
+Files: `src/lessons.ts`, `src/pipeline.ts`, `test/lessons.test.ts`
+
+> Agent calls now get the lessons that fit their task, not only the heaviest lessons for their role. The last `npm run typecheck && npm test` run passed: typecheck is clean, and 300 of 301 tests pass with 0 failures and 1 skipped. The skipped test is not one of the lessons tests.
+> **`src/lessons.ts`**
+> - **New parameter:** `lessonsFor(lessons, role, limit, stacks, now, query = "")` takes the query as a new last parameter, so existing callers don't change.
