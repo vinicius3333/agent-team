@@ -17,7 +17,7 @@ import { missingSecrets, projectSecretStatuses, secretsWaitingText } from "./sec
 import { archiveFeedback, readFeedback } from "./feedback.ts"
 import { changeTitle, type GitHub } from "./github.ts"
 import { changePath, importCleanupKey, importDoneKey } from "./project.ts"
-import { designSystemRoute, parseDesignScreens, parseLoginRoute, parseQaVerdict, runQaLoop, type QaRoundResult, type QaScreen } from "./qa.ts"
+import { designSystemRoute, noPageRendered, noPageRenderedMessage, parseDesignScreens, parseLoginRoute, parseQaVerdict, runQaLoop, type QaRoundResult, type QaScreen } from "./qa.ts"
 import { extractJsonObject } from "./json.ts"
 import { conceptChoiceKey, conceptIds, conceptsDir } from "./concepts.ts"
 import { autoStyle, chosenStyleId, conceptStyleProblems, styleCatalogDir, styleNotes, writeStyleCatalog } from "./design-styles.ts"
@@ -1928,6 +1928,10 @@ async function runQaRound(context: PipelineContext, round: number): Promise<QaRo
     const baseline = config.import ? readBaseline(projectDir) : null
     const { regressions, preexisting } = splitFailures(gateFailures(tests, visual), tests.output, baseline)
     const hardFailures = regressions.map((failure) => failure.message)
+    if (noPageRendered(visual)) {
+      hardFailures.push(noPageRenderedMessage)
+      store.log("qa", `round ${round}: ${noPageRenderedMessage}`)
+    }
     if (preexisting.length) store.log("qa", `round ${round}: ${preexisting.length} failures were already in the import baseline and do not fail the round`)
     const changeScope = change ? { id: change.id, routes: [...new Set(existing.filter((task) => task.change === change.id).flatMap((task) => task.routes ?? []))] } : null
     let previousError: string | null = null

@@ -81,3 +81,11 @@ Files: `src/deploy.ts`, `test/deploy.test.ts`
 > `startAppContainer` now adds `--hostname <name>` to `docker run`, so `HOSTNAME` inside the app matches the container name the checker uses (for example `agent-team-qa-agent-team`). The last `verify` run passed: typecheck is clean and all 11 tests pass.
 > - **`src/deploy.ts`:** the arguments now come from a new exported pure helper, `appRunArgs(options)`. It adds `--hostname <name>` right after `--name <name>`, but only when the name is a valid host label: 1 to 63 letters, digits or hyphens, not starting or ending with a hyphen. The other arguments are unchanged. `startAppContainer` now calls `run("docker", appRunArgs(options), …)` and still passes secrets through the environment. I also added an `AppContainerOptions` type for the options.
 > - **`test/deploy.test.ts` (new, no Docker):** four tests check that:
+
+## T006: Fail a QA round when no page renders
+
+Files: `src/pipeline.ts`, `src/qa.ts`, `test/qa.test.ts`
+
+> A QA round now fails when no page renders, and the message can never be marked as a preexisting import failure. The verify command passes: typecheck is clean and all 18 tests in `test/qa.test.ts` pass.
+> - **`src/qa.ts`**: exports `noPageRenderedMessage` and `noPageRendered(visual)`.
+> - It returns false for a null report, which means an API target with no visual gate.
